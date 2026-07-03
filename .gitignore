@@ -1,0 +1,10 @@
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Local environment files — never commit real credentials
+.env
+*.env.local
