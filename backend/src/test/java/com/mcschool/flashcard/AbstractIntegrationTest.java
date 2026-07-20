@@ -1,15 +1,22 @@
 package com.mcschool.flashcard;
 
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * Base class for integration tests. Starts one shared PostgreSQL container
- * for the whole test run (singleton pattern) so all tests hit a real
- * PostgreSQL with the Flyway-migrated schema. Requires Docker.
+ * Base class for integration tests. Starts one shared PostgreSQL container for the
+ * whole test run (singleton pattern) so all tests hit a real PostgreSQL with the
+ * Flyway-migrated schema. Requires Docker.
+ *
+ * <p>Because the container is shared, every test starts from a clean database:
+ * {@link #resetDatabase()} truncates all tables before each test. It runs before
+ * any subclass {@code @BeforeEach}, so subclasses can seed their own fixtures.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -21,10 +28,19 @@ public abstract class AbstractIntegrationTest {
         POSTGRES.start();
     }
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+    }
+
+    @BeforeEach
+    void cleanDatabaseBeforeEachTest() {
+        jdbcTemplate.execute(
+                "TRUNCATE TABLE study_session_items, study_sessions, cards, users RESTART IDENTITY CASCADE");
     }
 }

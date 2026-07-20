@@ -49,6 +49,10 @@ public class User {
     @Column(nullable = false, length = 20)
     private UserStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preferred_language", nullable = false, length = 5)
+    private Language preferredLanguage;
+
     /** The teacher who owns this student. Null unless {@code role == STUDENT}. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "teacher_id")
@@ -77,6 +81,13 @@ public class User {
         this.fullName = fullName;
         this.email = email;
         this.role = role;
+        // Matches the DB default; the user can change it in Settings.
+        this.preferredLanguage = Language.RU;
+    }
+
+    /** Updates the interface language chosen in Settings. */
+    public void changeLanguage(Language language) {
+        this.preferredLanguage = language;
     }
 
     /** The initial admin account, created at startup with a known password. */

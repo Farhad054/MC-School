@@ -8,10 +8,11 @@ public record UserResponse(
         String fullName,
         String email,
         Role role,
-        UserStatus status
+        UserStatus status,
+        Language preferredLanguage
 ) {
     public static UserResponse from(User user) {
         return new UserResponse(user.getId(), user.getFullName(), user.getEmail(),
-                user.getRole(), user.getStatus());
+                user.getRole(), user.getStatus(), user.getPreferredLanguage());
     }
 }

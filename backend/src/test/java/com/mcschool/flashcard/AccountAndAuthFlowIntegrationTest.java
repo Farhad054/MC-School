@@ -36,8 +36,7 @@ class AccountAndAuthFlowIntegrationTest extends AbstractIntegrationTest {
     private PasswordEncoder passwordEncoder;
 
     @BeforeEach
-    void resetDatabase() {
-        userRepository.deleteAll();
+    void seedAdmin() {
         userRepository.save(User.bootstrapAdmin("Admin", ADMIN_EMAIL,
                 passwordEncoder.encode(ADMIN_PASSWORD)));
     }
