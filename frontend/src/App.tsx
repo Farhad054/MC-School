@@ -1,0 +1,116 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { useAuth } from './auth/AuthContext';
+import { ProtectedRoute } from './auth/ProtectedRoute';
+import { homePathForRole } from './auth/roleRoutes';
+import { Layout } from './components/Layout';
+import { LoginPage } from './pages/LoginPage';
+import { ActivatePage } from './pages/ActivatePage';
+import { TeachersPage } from './pages/admin/TeachersPage';
+import { StudentsPage } from './pages/teacher/StudentsPage';
+import { StudentDetailPage } from './pages/teacher/StudentDetailPage';
+import { TodayPage } from './pages/student/TodayPage';
+import { SessionPage } from './pages/student/SessionPage';
+import { ResultPage } from './pages/student/ResultPage';
+import { MyCardsPage } from './pages/student/MyCardsPage';
+import { SettingsPage } from './pages/student/SettingsPage';
+
+/** Top-level routes. Public: login and activation. Everything else is role-guarded. */
+export function App() {
+  const { user, initializing } = useAuth();
+
+  if (initializing) {
+    return null;
+  }
+
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/activate" element={<ActivatePage />} />
+
+      <Route
+        path="/teachers"
+        element={
+          <ProtectedRoute role="ADMIN">
+            <Layout>
+              <TeachersPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/students"
+        element={
+          <ProtectedRoute role="TEACHER">
+            <Layout>
+              <StudentsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/students/:studentId"
+        element={
+          <ProtectedRoute role="TEACHER">
+            <Layout>
+              <StudentDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/today"
+        element={
+          <ProtectedRoute role="STUDENT">
+            <Layout>
+              <TodayPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/session/:sessionId"
+        element={
+          <ProtectedRoute role="STUDENT">
+            <Layout>
+              <SessionPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/session/:sessionId/result"
+        element={
+          <ProtectedRoute role="STUDENT">
+            <Layout>
+              <ResultPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/my-cards"
+        element={
+          <ProtectedRoute role="STUDENT">
+            <Layout>
+              <MyCardsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute role="STUDENT">
+            <Layout>
+              <SettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route path="*" element={<Navigate to={user ? homePathForRole(user.role) : '/login'} replace />} />
+    </Routes>
+  );
+}

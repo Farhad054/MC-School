@@ -1,0 +1,181 @@
+import { useState, type FormEvent } from 'react';
+import { api } from '../../api/client';
+import type { ImportPreview } from '../../api/types';
+import { useI18n } from '../../i18n/I18nContext';
+import { toErrorMessage } from '../../lib/errors';
+
+type Tab = 'manual' | 'import';
+
+/** Add cards to a student, either one by one or by pasting "question → answer" text. */
+export function CardCreator({ studentId, onChanged }: { studentId: string; onChanged: () => void }) {
+  const { t } = useI18n();
+  const [tab, setTab] = useState<Tab>('manual');
+
+  return (
+    <div className="panel">
+      <div className="row" style={{ marginBottom: 16 }}>
+        <button
+          type="button"
+          className={`btn ${tab === 'manual' ? '' : 'btn--ghost'}`}
+          onClick={() => setTab('manual')}
+        >
+          {t('createCards.manual')}
+        </button>
+        <button
+          type="button"
+          className={`btn ${tab === 'import' ? '' : 'btn--ghost'}`}
+          onClick={() => setTab('import')}
+        >
+          {t('createCards.import')}
+        </button>
+      </div>
+      {tab === 'manual' ? (
+        <ManualForm studentId={studentId} onChanged={onChanged} />
+      ) : (
+        <ImportForm studentId={studentId} onChanged={onChanged} />
+      )}
+    </div>
+  );
+}
+
+function ManualForm({ studentId, onChanged }: { studentId: string; onChanged: () => void }) {
+  const { t } = useI18n();
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSaved(false);
+    try {
+      await api.cards.create(studentId, question.trim(), answer.trim());
+      setQuestion('');
+      setAnswer('');
+      setSaved(true);
+      onChanged();
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      {error && <div className="banner banner--error">{error}</div>}
+      {saved && <div className="banner banner--success">{t('createCards.saved')}</div>}
+      <label className="field">
+        <span className="field__label">{t('cards.question')}</span>
+        <input className="input" value={question} onChange={(e) => setQuestion(e.target.value)} required />
+      </label>
+      <label className="field">
+        <span className="field__label">{t('cards.answer')}</span>
+        <input className="input" value={answer} onChange={(e) => setAnswer(e.target.value)} required />
+      </label>
+      <button className="btn" type="submit">{t('createCards.addOne')}</button>
+    </form>
+  );
+}
+
+function ImportForm({ studentId, onChanged }: { studentId: string; onChanged: () => void }) {
+  const { t } = useI18n();
+  const [rawText, setRawText] = useState('');
+  const [qaSeparator, setQaSeparator] = useState('->');
+  const [cardSeparator, setCardSeparator] = useState('\n');
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [imported, setImported] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onPreview(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setImported(false);
+    try {
+      setPreview(await api.cards.importPreview(rawText, qaSeparator, cardSeparator));
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    }
+  }
+
+  async function onConfirm() {
+    if (!preview || preview.cards.length === 0) {
+      return;
+    }
+    setError(null);
+    try {
+      await api.cards.importConfirm(studentId, preview.cards);
+      setPreview(null);
+      setRawText('');
+      setImported(true);
+      onChanged();
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    }
+  }
+
+  return (
+    <div>
+      {error && <div className="banner banner--error">{error}</div>}
+      {imported && <div className="banner banner--success">{t('createCards.imported')}</div>}
+      <form onSubmit={onPreview}>
+        <label className="field">
+          <span className="field__label">{t('createCards.rawText')}</span>
+          <textarea
+            className="textarea"
+            value={rawText}
+            onChange={(e) => setRawText(e.target.value)}
+            placeholder={'2 + 2 -> 4\n3 + 3 -> 6'}
+            required
+          />
+        </label>
+        <div className="row">
+          <label className="field">
+            <span className="field__label">{t('createCards.qaSeparator')}</span>
+            <input className="input" value={qaSeparator} onChange={(e) => setQaSeparator(e.target.value)} required />
+          </label>
+          <label className="field">
+            <span className="field__label">{t('createCards.cardSeparator')}</span>
+            <select
+              className="select"
+              value={cardSeparator}
+              onChange={(e) => setCardSeparator(e.target.value)}
+            >
+              {/* Use JS expressions so the newline is a real "\n", not the two-char literal. */}
+              <option value={'\n'}>{t('createCards.newline')}</option>
+              <option value={';'}>;</option>
+              <option value={'|'}>|</option>
+            </select>
+          </label>
+        </div>
+        <button className="btn btn--secondary" type="submit">{t('createCards.preview')}</button>
+      </form>
+
+      {preview && (
+        <div style={{ marginTop: 16 }}>
+          <h2>
+            {t('createCards.previewCount')}: {preview.cards.length}
+          </h2>
+          {preview.cards.map((card, index) => (
+            <div key={index} className="list-row">
+              <div className="list-row__title">{card.question}</div>
+              <div className="muted">{card.correctAnswer}</div>
+            </div>
+          ))}
+          {preview.warnings.length > 0 && (
+            <div className="banner banner--info">
+              <strong>{t('createCards.warnings')}:</strong>
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                {preview.warnings.map((warning, index) => (
+                  <li key={index}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button className="btn" type="button" onClick={onConfirm} disabled={preview.cards.length === 0}>
+            {t('createCards.confirmImport')} ({preview.cards.length})
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
