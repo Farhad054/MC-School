@@ -61,6 +61,13 @@ public class Card {
     @Column(name = "due_date")
     private LocalDate dueDate;
 
+    /**
+     * Soft-delete flag. An archived card is hidden from all lists and study, but the
+     * row is kept so study-session history that references it stays intact.
+     */
+    @Column(nullable = false)
+    private boolean archived;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -93,6 +100,11 @@ public class Card {
     public void edit(String question, String correctAnswer) {
         this.question = question.strip();
         this.correctAnswer = correctAnswer.strip();
+    }
+
+    /** Soft-deletes the card: it disappears from lists and study but the row is kept. */
+    public void archive() {
+        this.archived = true;
     }
 
     /** Applies a new spaced-repetition state after a successful scheduled review. */

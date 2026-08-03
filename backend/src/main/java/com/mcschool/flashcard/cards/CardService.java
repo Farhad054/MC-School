@@ -71,7 +71,7 @@ public class CardService {
     @Transactional(readOnly = true)
     public List<CardResponse> listCards(AuthenticatedUser teacher, UUID studentId) {
         requireOwnedStudent(teacher.id(), studentId);
-        return cardRepository.findAllByStudentIdOrderByCreatedAtDesc(studentId).stream()
+        return cardRepository.findAllByStudentIdAndArchivedFalseOrderByCreatedAtDesc(studentId).stream()
                 .map(CardResponse::from)
                 .toList();
     }
@@ -80,8 +80,8 @@ public class CardService {
     public CardSummaryResponse summary(AuthenticatedUser teacher, UUID studentId) {
         requireOwnedStudent(teacher.id(), studentId);
         LocalDate today = LocalDate.now();
-        long total = cardRepository.countByStudentId(studentId);
-        long learned = cardRepository.countByStudentIdAndStatus(studentId, CardStatus.LEARNED);
+        long total = cardRepository.countByStudentIdAndArchivedFalse(studentId);
+        long learned = cardRepository.countByStudentIdAndStatusAndArchivedFalse(studentId, CardStatus.LEARNED);
         long awaiting = cardRepository.countAwaitingRepetition(studentId, today);
         long dueNow = total - learned - awaiting;
         return new CardSummaryResponse(total, dueNow, awaiting, learned);
@@ -94,10 +94,14 @@ public class CardService {
         return CardResponse.from(card);
     }
 
+    /**
+     * "Deletes" a card by archiving it. The row is kept so study-session history that
+     * references it stays intact and no foreign-key violation can occur.
+     */
     @Transactional
     public void deleteCard(AuthenticatedUser teacher, UUID cardId) {
         Card card = requireOwnedCard(teacher.id(), cardId);
-        cardRepository.delete(card);
+        card.archive();
     }
 
     // --- Ownership helpers ---
@@ -120,6 +124,7 @@ public class CardService {
 
     private Card requireOwnedCard(UUID teacherId, UUID cardId) {
         return cardRepository.findById(cardId)
+                .filter(card -> !card.isArchived())
                 .filter(card -> card.getStudent().getTeacher() != null
                         && card.getStudent().getTeacher().getId().equals(teacherId))
                 .orElseThrow(() -> new ResourceNotFoundException("Card not found"));

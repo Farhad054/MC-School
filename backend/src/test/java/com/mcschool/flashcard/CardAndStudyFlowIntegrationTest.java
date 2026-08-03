@@ -148,6 +148,30 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void deletingACardReferencedByASessionArchivesItSafely() throws Exception {
+        Map<UUID, String> answers = createFourCards();
+        // Start a session so study_session_items reference the cards.
+        postAndReturn("/api/v1/study/sessions", studentToken, "{\"type\": \"SCHEDULED\"}", status().isCreated());
+        UUID cardToDelete = answers.keySet().iterator().next();
+
+        // Deleting a card the session references must archive it, not fail with a FK error.
+        mockMvc.perform(delete("/api/v1/cards/{id}", cardToDelete)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isNoContent());
+
+        // The archived card disappears from the teacher's list (3 of 4 remain).
+        mockMvc.perform(get("/api/v1/students/{id}/cards", studentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3));
+
+        // Acting on an already-archived card is treated as not found.
+        mockMvc.perform(delete("/api/v1/cards/{id}", cardToDelete)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isNotFound());
+    }
+
     // --- Study flow (student) ---
 
     @Test
@@ -189,7 +213,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.nextReviewDate").value(LocalDate.now().plusDays(3).toString()));
 
         // Every card advanced to repetition 1, due in 3 days.
-        cardRepository.findAllByStudentId(studentId)
+        cardRepository.findAllByStudentIdAndArchivedFalse(studentId)
                 .forEach(card -> assertThat(card.getRepetitionNumber()).isEqualTo(1));
 
         // Nothing due now, so no scheduled session can start until the due date.
@@ -240,7 +264,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         playSessionAnsweringCorrectly(sessionId, answers);
 
         // Practice leaves every card at repetition 0, still due today.
-        cardRepository.findAllByStudentId(studentId).forEach(card -> {
+        cardRepository.findAllByStudentIdAndArchivedFalse(studentId).forEach(card -> {
             assertThat(card.getRepetitionNumber()).isZero();
             assertThat(card.getDueDate()).isEqualTo(LocalDate.now());
         });

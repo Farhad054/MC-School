@@ -70,8 +70,8 @@ public class StudyService {
     public TodayResponse today(AuthenticatedUser student) {
         UUID studentId = student.id();
         LocalDate today = LocalDate.now();
-        long total = cardRepository.countByStudentId(studentId);
-        long learned = cardRepository.countByStudentIdAndStatus(studentId, CardStatus.LEARNED);
+        long total = cardRepository.countByStudentIdAndArchivedFalse(studentId);
+        long learned = cardRepository.countByStudentIdAndStatusAndArchivedFalse(studentId, CardStatus.LEARNED);
         long due = cardRepository.countDueCards(studentId, today);
         UUID inProgress = sessionRepository
                 .findByStudentIdAndStatus(studentId, SessionStatus.IN_PROGRESS)
@@ -85,7 +85,7 @@ public class StudyService {
     /** The student's personal card list with progress (PRD: "all cards with progress"). */
     @Transactional(readOnly = true)
     public List<CardResponse> listMyCards(AuthenticatedUser student) {
-        return cardRepository.findAllByStudentIdOrderByCreatedAtDesc(student.id()).stream()
+        return cardRepository.findAllByStudentIdAndArchivedFalseOrderByCreatedAtDesc(student.id()).stream()
                 .map(CardResponse::from)
                 .toList();
     }
@@ -97,7 +97,7 @@ public class StudyService {
             throw new ConflictException("SESSION_IN_PROGRESS",
                     "Finish or resume your current session before starting a new one");
         }
-        long totalCards = cardRepository.countByStudentId(studentId);
+        long totalCards = cardRepository.countByStudentIdAndArchivedFalse(studentId);
         if (totalCards < MIN_CARDS_TO_START) {
             throw new ConflictException("NOT_ENOUGH_CARDS",
                     "At least " + MIN_CARDS_TO_START + " cards are needed to start a session");
@@ -135,7 +135,7 @@ public class StudyService {
 
         Card card = item.getCard();
         List<String> options = distractorGenerator.buildOptions(card,
-                cardRepository.findAllByStudentId(student.id()));
+                cardRepository.findAllByStudentIdAndArchivedFalse(student.id()));
         int answered = (int) itemRepository.countBySessionIdAndState(sessionId, ItemState.ANSWERED_CORRECT);
         return new QuestionResponse(card.getId(), card.getQuestion(), options, answered, session.getTotalCards());
     }
@@ -192,7 +192,7 @@ public class StudyService {
             return due;
         }
         // PRACTICE runs over all of the student's cards; the schedule is left untouched.
-        return cardRepository.findAllByStudentIdOrderByCreatedAtDesc(studentId);
+        return cardRepository.findAllByStudentIdAndArchivedFalseOrderByCreatedAtDesc(studentId);
     }
 
     /** Marks the session completed and, for scheduled sessions, advances the SM-2 schedule. */
