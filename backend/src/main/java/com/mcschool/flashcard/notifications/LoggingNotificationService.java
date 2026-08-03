@@ -3,23 +3,36 @@ package com.mcschool.flashcard.notifications;
 import com.mcschool.flashcard.users.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
- * Default notification implementation: it logs what would be sent instead of
- * sending real email, so the notification flow can be developed and tested before
- * an email provider is wired in. Replace with a provider-backed implementation to
- * actually deliver messages.
+ * Default notification implementation, used when email is not enabled
+ * ({@code app.mail.enabled} unset or false). It logs what would be sent — including
+ * the activation link — so invitations still work in local development without an
+ * SMTP server. Replaced by {@link EmailNotificationService} when mail is enabled.
  */
 @Service
+@ConditionalOnProperty(name = "app.mail.enabled", havingValue = "false", matchIfMissing = true)
 public class LoggingNotificationService implements NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingNotificationService.class);
 
+    private final AppLinks appLinks;
+
+    public LoggingNotificationService(AppLinks appLinks) {
+        this.appLinks = appLinks;
+    }
+
+    @Override
+    public void sendInvitation(User invitee, String invitationToken) {
+        log.info("[notification] Invitation for {} — activation link: {} (email not enabled)",
+                invitee.getEmail(), appLinks.activationLink(invitationToken));
+    }
+
     @Override
     public void sendReviewReminder(User student, long dueCardCount) {
-        // Never log secrets; email is contact data the teacher already entered.
-        log.info("[notification] Review reminder for {} — {} card(s) due today "
-                + "(email transport not configured yet)", student.getEmail(), dueCardCount);
+        log.info("[notification] Review reminder for {} — {} card(s) due today (email not enabled)",
+                student.getEmail(), dueCardCount);
     }
 }

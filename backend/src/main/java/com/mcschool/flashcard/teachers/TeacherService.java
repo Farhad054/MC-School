@@ -1,6 +1,7 @@
 package com.mcschool.flashcard.teachers;
 
 import com.mcschool.flashcard.common.ConflictException;
+import com.mcschool.flashcard.notifications.NotificationService;
 import com.mcschool.flashcard.teachers.dto.CreateTeacherRequest;
 import com.mcschool.flashcard.teachers.dto.TeacherInvitationResponse;
 import com.mcschool.flashcard.users.Invitations;
@@ -18,9 +19,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class TeacherService {
 
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
-    public TeacherService(UserRepository userRepository) {
+    public TeacherService(UserRepository userRepository, NotificationService notificationService) {
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -33,6 +36,7 @@ public class TeacherService {
         Instant expiresAt = Invitations.expiry(Instant.now());
         User teacher = userRepository.save(
                 User.invitedTeacher(request.fullName().trim(), email, token, expiresAt));
+        notificationService.sendInvitation(teacher, token);
         return new TeacherInvitationResponse(UserResponse.from(teacher), token, expiresAt);
     }
 

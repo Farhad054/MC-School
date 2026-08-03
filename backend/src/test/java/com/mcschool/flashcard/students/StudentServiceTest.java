@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.common.ConflictException;
+import com.mcschool.flashcard.notifications.NotificationService;
 import com.mcschool.flashcard.students.dto.CreateStudentRequest;
 import com.mcschool.flashcard.students.dto.StudentInvitationResponse;
 import com.mcschool.flashcard.users.Role;
@@ -24,7 +25,8 @@ import org.junit.jupiter.api.Test;
 class StudentServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
-    private final StudentService studentService = new StudentService(userRepository);
+    private final NotificationService notificationService = mock(NotificationService.class);
+    private final StudentService studentService = new StudentService(userRepository, notificationService);
 
     private final User teacherEntity = User.invitedTeacher("Teacher", "teacher@test.local",
             "token", Instant.now().plusSeconds(3600));
@@ -45,6 +47,8 @@ class StudentServiceTest {
         assertThat(response.student().email()).isEqualTo("student@test.local");
         assertThat(response.invitationToken()).isNotBlank();
         assertThat(response.invitationExpiresAt()).isAfter(Instant.now());
+        // The invited student is notified so they can set a password.
+        verify(notificationService).sendInvitation(any(User.class), any(String.class));
     }
 
     @Test
@@ -56,6 +60,7 @@ class StudentServiceTest {
                 .isInstanceOf(ConflictException.class);
 
         verify(userRepository, never()).save(any());
+        verify(notificationService, never()).sendInvitation(any(), any());
     }
 
     @Test

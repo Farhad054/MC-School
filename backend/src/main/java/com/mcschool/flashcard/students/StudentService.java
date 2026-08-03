@@ -3,6 +3,7 @@ package com.mcschool.flashcard.students;
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.notifications.NotificationService;
 import com.mcschool.flashcard.students.dto.CreateStudentRequest;
 import com.mcschool.flashcard.students.dto.StudentInvitationResponse;
 import com.mcschool.flashcard.users.Invitations;
@@ -23,9 +24,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class StudentService {
 
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
-    public StudentService(UserRepository userRepository) {
+    public StudentService(UserRepository userRepository, NotificationService notificationService) {
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -40,6 +43,7 @@ public class StudentService {
         Instant expiresAt = Invitations.expiry(Instant.now());
         User student = userRepository.save(
                 User.invitedStudent(request.fullName().trim(), email, teacherEntity, token, expiresAt));
+        notificationService.sendInvitation(student, token);
         return new StudentInvitationResponse(UserResponse.from(student), token, expiresAt);
     }
 

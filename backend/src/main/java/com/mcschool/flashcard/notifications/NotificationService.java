@@ -3,12 +3,15 @@ package com.mcschool.flashcard.notifications;
 import com.mcschool.flashcard.users.User;
 
 /**
- * Sends transactional notifications to users. The MVP has a single logging
- * implementation ({@link LoggingNotificationService}); a real transactional-email
- * provider (SendGrid / Mailgun, per PRD 6) can be added by providing another
- * implementation of this interface — nothing else needs to change.
+ * Sends transactional notifications to users. The active implementation is chosen
+ * by configuration: {@link LoggingNotificationService} by default (logs only), or
+ * {@link EmailNotificationService} when {@code app.mail.enabled=true} and an SMTP
+ * server is configured. Swapping providers requires no change to callers.
  */
 public interface NotificationService {
+
+    /** A new account was created; invite the person to set their password (PRD 4.7). */
+    void sendInvitation(User invitee, String invitationToken);
 
     /** A student's spaced-repetition review is due today (PRD 4.6). */
     void sendReviewReminder(User student, long dueCardCount);
