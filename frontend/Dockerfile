@@ -1,0 +1,17 @@
+# --- Build stage: produce the static bundle ---
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+# The app calls the API at this base path; nginx (below) proxies it to the backend,
+# so the browser talks to the same origin and no CORS is needed.
+ARG VITE_API_BASE_URL=/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+RUN npm run build
+
+# --- Runtime stage: serve the bundle with nginx ---
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
