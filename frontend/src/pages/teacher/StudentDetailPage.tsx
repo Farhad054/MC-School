@@ -7,6 +7,9 @@ import { toErrorMessage } from '../../lib/errors';
 import { CardCreator } from './CardCreator';
 import { CardRow } from './CardRow';
 
+/** Minimum cards a student needs before any session can start (mirrors the backend). */
+const MIN_CARDS_TO_START = 4;
+
 /** A single student's cards: status summary, add-cards panel, and the editable card list. */
 export function StudentDetailPage() {
   const { studentId = '' } = useParams();
@@ -40,12 +43,17 @@ export function StudentDetailPage() {
       {error && <div className="banner banner--error">{error}</div>}
 
       {summary && (
-        <div className="panel row center">
-          <SummaryStat label={t('cards.summary.total')} value={summary.total} />
-          <SummaryStat label={t('cards.summary.dueNow')} value={summary.dueNow} />
-          <SummaryStat label={t('cards.summary.awaiting')} value={summary.awaitingRepetition} />
-          <SummaryStat label={t('cards.summary.learned')} value={summary.learned} />
-        </div>
+        <>
+          <div className="panel row center">
+            <SummaryStat label={t('cards.summary.total')} value={summary.total} />
+            <SummaryStat label={t('cards.summary.dueNow')} value={summary.dueNow} />
+            <SummaryStat label={t('cards.summary.awaiting')} value={summary.awaitingRepetition} />
+            <SummaryStat label={t('cards.summary.learned')} value={summary.learned} />
+          </div>
+          {summary.total < MIN_CARDS_TO_START && (
+            <div className="banner banner--info">{t('cards.tooFew', { min: MIN_CARDS_TO_START })}</div>
+          )}
+        </>
       )}
 
       <h2>{t('cards.add')}</h2>

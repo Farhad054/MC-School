@@ -57,6 +57,7 @@ const ru = {
   'cards.summary.awaiting': 'Ожидают',
   'cards.summary.learned': 'Выучено',
   'cards.deleteConfirm': 'Удалить эту карточку?',
+  'cards.tooFew': 'Меньше {min} карточек — ученик пока не сможет начать сессию. Добавьте ещё карточки.',
 
   'createCards.manual': 'Вручную',
   'createCards.import': 'Импорт текстом',
@@ -162,6 +163,7 @@ const de: Record<keyof typeof ru, string> = {
   'cards.summary.awaiting': 'Wartend',
   'cards.summary.learned': 'Gelernt',
   'cards.deleteConfirm': 'Diese Karte löschen?',
+  'cards.tooFew': 'Weniger als {min} Karten — der Schüler kann noch keine Sitzung starten. Füge weitere Karten hinzu.',
 
   'createCards.manual': 'Manuell',
   'createCards.import': 'Textimport',
