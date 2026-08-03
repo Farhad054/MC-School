@@ -20,6 +20,10 @@ app now and a mobile app later. The frontend is a single React app that renders 
 **wide desktop layout for teachers/admins** and a **mobile-first layout for
 students** (PRD platform requirements).
 
+For onboarding, use [HOW_TO_RUN.md](HOW_TO_RUN.md). The requirement traceability,
+verified implementation status, and prioritized remaining work are documented in
+[PROJECT_STATUS.md](PROJECT_STATUS.md).
+
 ---
 
 ## What is implemented
@@ -52,8 +56,13 @@ students** (PRD platform requirements).
   progress bar + immediate feedback), result screen, personal card list, settings
 - Full DE / RU internationalization driven by the user's saved language
 
-**Not yet implemented:** invitation/reminder emails (tokens are surfaced in the UI
-for now), password reset, pagination, OpenAPI docs, pre/post-test (PRD v1.5).
+**Email:** invitation and review-reminder emails are implemented (DE/RU) and sent
+via SMTP when `MAIL_ENABLED=true`; otherwise they are logged and the invitation
+token is shown in the UI for convenient local testing. See [DEPLOY.md](DEPLOY.md)
+to run the whole stack on an always-on server.
+
+**Not yet implemented:** password reset, pagination, OpenAPI docs, automated
+frontend tests, pre/post-test (PRD v1.5).
 
 ---
 
