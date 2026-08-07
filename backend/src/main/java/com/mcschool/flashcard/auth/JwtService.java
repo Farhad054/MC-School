@@ -11,19 +11,33 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import javax.crypto.SecretKey;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * Issues and verifies the stateless HS256 access tokens used for API
+ * Issues and verifies the stateless HS256/384 access tokens used for API
  * authentication. The token carries only the user id and role; the
  * authentication filter re-loads the user from the database on every request,
  * so deleted accounts lose access immediately.
  */
 @Service
 public class JwtService {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtService.class);
+
+    /**
+     * The built-in development secret shipped in application.properties. It is
+     * public (in the repo), so tokens signed with it are forgeable — it must never
+     * be used in a real deployment.
+     */
+    static final String KNOWN_INSECURE_SECRET = "local-dev-only-jwt-secret-change-me-1234567890";
 
     /** What we trust from a verified token. */
     public record TokenClaims(UUID userId, Role role) {
@@ -32,13 +46,34 @@ public class JwtService {
     private final SecretKey key;
     private final Duration expiration;
 
-    public JwtService(JwtProperties properties) {
-        if (properties.secret() == null || properties.secret().length() < 32) {
+    @Autowired
+    public JwtService(JwtProperties properties,
+                      @Value("${app.security.jwt.fail-on-insecure-secret:false}") boolean failOnInsecureSecret) {
+        String secret = properties.secret();
+        if (secret == null || secret.length() < 32) {
             throw new IllegalStateException(
                     "app.security.jwt.secret (JWT_SECRET) must be at least 32 characters long");
         }
-        this.key = Keys.hmacShaKeyFor(properties.secret().getBytes(StandardCharsets.UTF_8));
+        if (isInsecure(secret)) {
+            String message = "app.security.jwt.secret is set to the built-in insecure development value; "
+                    + "set a strong random JWT_SECRET before exposing this service.";
+            if (failOnInsecureSecret) {
+                throw new IllegalStateException(message);
+            }
+            log.warn("SECURITY WARNING: {}", message);
+        }
+        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expiration = Duration.ofMinutes(properties.expirationMinutes());
+    }
+
+    /** Convenience constructor for tests (never fails on the insecure default). */
+    JwtService(JwtProperties properties) {
+        this(properties, false);
+    }
+
+    private static boolean isInsecure(String secret) {
+        return secret.equals(KNOWN_INSECURE_SECRET)
+                || secret.toLowerCase(Locale.ROOT).contains("change-me");
     }
 
     public String generateToken(User user) {

@@ -1,0 +1,19 @@
+title = "MC-School Gitleaks configuration"
+
+[extend]
+# Keep all of Gitleaks' built-in detection rules.
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and documented dev-only placeholders (not real secrets)"
+paths = [
+  '''(^|/)src/test/''',           # unit-test constants (e.g. a dummy HS256 key)
+  '''\.env\.example$''',
+  '''\.env\.prod\.example$''',
+]
+regexes = [
+  '''test-secret-that-is-long-enough''',   # JwtServiceTest dummy key
+  '''(?i)local-dev-only''',                # built-in dev JWT secret (never used in prod)
+  '''(?i)replace_(me|with)''',             # placeholders in *.example files
+  '''(?i)change-me''',
+]

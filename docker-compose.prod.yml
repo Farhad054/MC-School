@@ -36,6 +36,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_MINUTES: ${JWT_EXPIRATION_MINUTES:-1440}
+      # Refuse to start if the insecure built-in dev secret is used in production.
+      JWT_FAIL_ON_INSECURE_SECRET: "true"
       # Public origin(s); also used for email activation/login links.
       CORS_ALLOWED_ORIGINS: ${PUBLIC_BASE_URL}
       FRONTEND_BASE_URL: ${PUBLIC_BASE_URL}

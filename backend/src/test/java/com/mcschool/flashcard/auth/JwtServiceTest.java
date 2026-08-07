@@ -62,4 +62,21 @@ class JwtServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("32 characters");
     }
+
+    @Test
+    void refusesToStartWithTheInsecureDefaultWhenGuardIsOn() {
+        JwtProperties insecure = new JwtProperties(JwtService.KNOWN_INSECURE_SECRET, 60);
+
+        assertThatThrownBy(() -> new JwtService(insecure, true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("insecure");
+    }
+
+    @Test
+    void allowsTheInsecureDefaultForLocalDevWhenGuardIsOff() {
+        JwtProperties insecure = new JwtProperties(JwtService.KNOWN_INSECURE_SECRET, 60);
+
+        // Constructs (with a logged warning) so local development is not blocked.
+        assertThat(new JwtService(insecure, false)).isNotNull();
+    }
 }
