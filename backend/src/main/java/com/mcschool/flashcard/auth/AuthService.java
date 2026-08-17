@@ -36,7 +36,8 @@ public class AuthService {
         // probe which emails exist.
         User user = userRepository.findByEmail(normalizeEmail(request.email()))
                 .orElseThrow(AuthService::invalidCredentials);
-        if (user.getPasswordHash() == null
+        if (user.isArchived()
+                || user.getPasswordHash() == null
                 || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw invalidCredentials();
         }
@@ -51,6 +52,9 @@ public class AuthService {
     public AuthResponse activateAccount(ActivateAccountRequest request) {
         User user = userRepository.findByInvitationToken(request.invitationToken())
                 .orElseThrow(() -> new InvalidInvitationException("Invitation is invalid or already used"));
+        if (user.isArchived()) {
+            throw new InvalidInvitationException("Invitation is invalid or already used");
+        }
         if (user.isInvitationExpired(Instant.now())) {
             throw new InvalidInvitationException("Invitation has expired — ask for a new invitation");
         }
@@ -61,6 +65,7 @@ public class AuthService {
     @Transactional(readOnly = true)
     public UserResponse currentUser(AuthenticatedUser caller) {
         return userRepository.findById(caller.id())
+                .filter(user -> !user.isArchived())
                 .map(UserResponse::from)
                 .orElseThrow(() -> new ResourceNotFoundException("Account no longer exists"));
     }

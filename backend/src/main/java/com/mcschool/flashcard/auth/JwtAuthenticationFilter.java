@@ -49,6 +49,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // accounts cannot use previously issued tokens.
         userRepository.findById(claims.userId())
                 .filter(user -> user.getStatus() == UserStatus.ACTIVE)
+                .filter(user -> !user.isArchived())
                 .ifPresent(user -> {
                     AuthenticatedUser principal =
                             new AuthenticatedUser(user.getId(), user.getEmail(), user.getRole());

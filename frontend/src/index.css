@@ -140,6 +140,13 @@ h2 {
   font-weight: 600;
 }
 
+.list-row__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 /* --- Buttons --- */
 .btn {
   appearance: none;
@@ -152,6 +159,8 @@ h2 {
   background: var(--accent);
   color: #fff;
   transition: background 0.15s;
+  text-decoration: none;
+  display: inline-block;
 }
 
 .btn:hover:not(:disabled) {
@@ -288,6 +297,11 @@ h2 {
   color: var(--green-dark);
 }
 
+.pill--wrong {
+  background: #fef2f2;
+  color: var(--danger);
+}
+
 /* --- Auth screens (centered) --- */
 .auth {
   min-height: 100vh;
@@ -360,6 +374,11 @@ h2 {
   cursor: default;
 }
 
+.option--selected {
+  border-color: var(--muted);
+  background: var(--bg);
+}
+
 .option--correct {
   border-color: var(--green);
   background: #f0fdf4;
@@ -379,6 +398,21 @@ h2 {
   font-weight: 700;
   color: var(--green);
   margin: 12px 0;
+}
+
+.result-review {
+  text-align: left;
+}
+
+.result-review__item {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.result-review__question {
+  font-weight: 600;
+  margin-bottom: 6px;
 }
 
 .center {

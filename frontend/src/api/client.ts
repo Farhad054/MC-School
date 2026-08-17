@@ -10,6 +10,7 @@ import type {
   Session,
   SessionResult,
   SessionType,
+  StudentListItem,
   StudentInvitation,
   TeacherInvitation,
   Today,
@@ -95,9 +96,10 @@ export const api = {
       request<TeacherInvitation>('POST', '/teachers', { fullName, email }),
   },
   students: {
-    list: () => request<User[]>('GET', '/students'),
+    list: () => request<StudentListItem[]>('GET', '/students'),
     create: (fullName: string, email: string) =>
       request<StudentInvitation>('POST', '/students', { fullName, email }),
+    remove: (studentId: string) => request<void>('DELETE', `/students/${studentId}`),
   },
   cards: {
     listForStudent: (studentId: string) =>

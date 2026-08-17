@@ -1,18 +1,22 @@
 package com.mcschool.flashcard.students;
 
 import com.mcschool.flashcard.auth.AuthenticatedUser;
+import com.mcschool.flashcard.cards.CardRepository;
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
 import com.mcschool.flashcard.notifications.NotificationService;
 import com.mcschool.flashcard.students.dto.CreateStudentRequest;
+import com.mcschool.flashcard.students.dto.StudentListResponse;
 import com.mcschool.flashcard.students.dto.StudentInvitationResponse;
 import com.mcschool.flashcard.users.Invitations;
+import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import com.mcschool.flashcard.users.UserResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,10 +28,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class StudentService {
 
     private final UserRepository userRepository;
+    private final CardRepository cardRepository;
     private final NotificationService notificationService;
 
-    public StudentService(UserRepository userRepository, NotificationService notificationService) {
+    public StudentService(UserRepository userRepository, CardRepository cardRepository,
+                          NotificationService notificationService) {
         this.userRepository = userRepository;
+        this.cardRepository = cardRepository;
         this.notificationService = notificationService;
     }
 
@@ -49,9 +56,25 @@ public class StudentService {
 
     /** Lists only the calling teacher's own students — teachers never see each other's students. */
     @Transactional(readOnly = true)
-    public List<UserResponse> listStudents(AuthenticatedUser teacher) {
-        return userRepository.findAllByTeacherIdOrderByFullNameAsc(teacher.id()).stream()
-                .map(UserResponse::from)
+    public List<StudentListResponse> listStudents(AuthenticatedUser teacher) {
+        return userRepository.findAllByTeacherIdAndArchivedFalseOrderByFullNameAsc(teacher.id()).stream()
+                .map(StudentListResponse::from)
                 .toList();
+    }
+
+    /**
+     * Soft-deletes only a student owned by the calling teacher. Cards are archived
+     * so they disappear from active study/teacher screens, while the student row,
+     * cards, and study-session rows remain available for historical references.
+     */
+    @Transactional
+    public void deleteStudent(AuthenticatedUser teacher, UUID studentId) {
+        User student = userRepository.findById(studentId)
+                .filter(u -> u.getRole() == Role.STUDENT)
+                .filter(u -> !u.isArchived())
+                .filter(u -> u.getTeacher() != null && u.getTeacher().getId().equals(teacher.id()))
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
+        cardRepository.archiveAllByStudentId(studentId);
+        student.archive();
     }
 }

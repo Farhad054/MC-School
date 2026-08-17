@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { CardSummary, StudentInvitation, User } from '../../api/types';
+import type { CardSummary, StudentInvitation, StudentListItem } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 import { InvitationNotice } from '../../components/InvitationNotice';
@@ -9,11 +9,12 @@ import { InvitationNotice } from '../../components/InvitationNotice';
 /** Teacher home: the list of their students with each student's active-card count. */
 export function StudentsPage() {
   const { t } = useI18n();
-  const [students, setStudents] = useState<User[]>([]);
+  const [students, setStudents] = useState<StudentListItem[]>([]);
   const [summaries, setSummaries] = useState<Record<string, CardSummary>>({});
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [invitation, setInvitation] = useState<StudentInvitation | null>(null);
+  const [copiedStudentId, setCopiedStudentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -50,6 +51,29 @@ export function StudentsPage() {
     return summary ? summary.dueNow + summary.awaitingRepetition : 0;
   }
 
+  async function copyInvitationLink(student: StudentListItem) {
+    if (!student.invitationToken) {
+      return;
+    }
+    const link = `${window.location.origin}/activate?token=${encodeURIComponent(student.invitationToken)}`;
+    await navigator.clipboard.writeText(link);
+    setCopiedStudentId(student.id);
+    window.setTimeout(() => setCopiedStudentId((current) => (current === student.id ? null : current)), 2000);
+  }
+
+  async function deleteStudent(student: StudentListItem) {
+    if (!window.confirm(t('students.deleteConfirm', { name: student.fullName }))) {
+      return;
+    }
+    setError(null);
+    try {
+      await api.students.remove(student.id);
+      await reload();
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    }
+  }
+
   return (
     <div>
       <h1>{t('students.title')}</h1>
@@ -82,7 +106,7 @@ export function StudentsPage() {
         <p className="muted">{t('students.empty')}</p>
       ) : (
         students.map((student) => (
-          <Link key={student.id} to={`/students/${student.id}`} className="list-row">
+          <div key={student.id} className="list-row">
             <div>
               <div className="list-row__title">{student.fullName}</div>
               <div className="muted">{student.email}</div>
@@ -90,7 +114,20 @@ export function StudentsPage() {
             <div className="muted">
               {activeCount(summaries[student.id])} {t('students.activeCards')}
             </div>
-          </Link>
+            <div className="list-row__actions">
+              <Link to={`/students/${student.id}`} className="btn btn--secondary">
+                {t('students.cardsButton')}
+              </Link>
+              {student.status === 'INVITED' && student.invitationToken && (
+                <button className="btn btn--ghost" type="button" onClick={() => copyInvitationLink(student)}>
+                  {copiedStudentId === student.id ? t('students.inviteCopied') : t('students.copyInvite')}
+                </button>
+              )}
+              <button className="btn btn--danger" type="button" onClick={() => deleteStudent(student)}>
+                {t('common.delete')}
+              </button>
+            </div>
+          </div>
         ))
       )}
     </div>

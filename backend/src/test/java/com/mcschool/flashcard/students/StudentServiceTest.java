@@ -9,7 +9,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.mcschool.flashcard.auth.AuthenticatedUser;
+import com.mcschool.flashcard.cards.CardRepository;
 import com.mcschool.flashcard.common.ConflictException;
+import com.mcschool.flashcard.common.ResourceNotFoundException;
 import com.mcschool.flashcard.notifications.NotificationService;
 import com.mcschool.flashcard.students.dto.CreateStudentRequest;
 import com.mcschool.flashcard.students.dto.StudentInvitationResponse;
@@ -25,8 +27,10 @@ import org.junit.jupiter.api.Test;
 class StudentServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
+    private final CardRepository cardRepository = mock(CardRepository.class);
     private final NotificationService notificationService = mock(NotificationService.class);
-    private final StudentService studentService = new StudentService(userRepository, notificationService);
+    private final StudentService studentService =
+            new StudentService(userRepository, cardRepository, notificationService);
 
     private final User teacherEntity = User.invitedTeacher("Teacher", "teacher@test.local",
             "token", Instant.now().plusSeconds(3600));
@@ -67,13 +71,41 @@ class StudentServiceTest {
     void listStudentsQueriesOnlyTheCallingTeachersStudents() {
         User student = User.invitedStudent("Student One", "student@test.local", teacherEntity,
                 "token2", Instant.now().plusSeconds(3600));
-        when(userRepository.findAllByTeacherIdOrderByFullNameAsc(teacher.id()))
+        when(userRepository.findAllByTeacherIdAndArchivedFalseOrderByFullNameAsc(teacher.id()))
                 .thenReturn(List.of(student));
 
         var students = studentService.listStudents(teacher);
 
         assertThat(students).hasSize(1);
         assertThat(students.get(0).email()).isEqualTo("student@test.local");
-        verify(userRepository).findAllByTeacherIdOrderByFullNameAsc(teacher.id());
+        assertThat(students.get(0).invitationToken()).isEqualTo("token2");
+        verify(userRepository).findAllByTeacherIdAndArchivedFalseOrderByFullNameAsc(teacher.id());
+    }
+
+    @Test
+    void deleteStudentArchivesOnlyOwnedStudentAndTheirCards() {
+        User student = User.invitedStudent("Student One", "student@test.local", teacherEntity,
+                "token2", Instant.now().plusSeconds(3600));
+        when(userRepository.findById(student.getId())).thenReturn(Optional.of(student));
+
+        studentService.deleteStudent(teacher, student.getId());
+
+        assertThat(student.isArchived()).isTrue();
+        assertThat(student.getInvitationToken()).isNull();
+        verify(cardRepository).archiveAllByStudentId(student.getId());
+    }
+
+    @Test
+    void deleteStudentRejectsAnotherTeachersStudent() {
+        User otherTeacher = User.invitedTeacher("Other", "other@test.local",
+                "token3", Instant.now().plusSeconds(3600));
+        User student = User.invitedStudent("Student One", "student@test.local", otherTeacher,
+                "token2", Instant.now().plusSeconds(3600));
+        when(userRepository.findById(student.getId())).thenReturn(Optional.of(student));
+
+        assertThatThrownBy(() -> studentService.deleteStudent(teacher, student.getId()))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(cardRepository, never()).archiveAllByStudentId(student.getId());
     }
 }

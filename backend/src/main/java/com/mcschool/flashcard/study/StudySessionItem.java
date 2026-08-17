@@ -50,6 +50,9 @@ public class StudySessionItem {
     @Column(name = "had_wrong_attempt", nullable = false)
     private boolean hadWrongAttempt;
 
+    @Column(name = "first_selected_answer", length = 500)
+    private String firstSelectedAnswer;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -79,6 +82,13 @@ public class StudySessionItem {
     public void markWrongAndRequeue(int newQueuePosition) {
         this.hadWrongAttempt = true;
         this.queuePosition = newQueuePosition;
+    }
+
+    /** Stores only the first answer chosen for result review and first-try scoring. */
+    public void recordSelectedAnswer(String selectedAnswer) {
+        if (this.firstSelectedAnswer == null) {
+            this.firstSelectedAnswer = selectedAnswer;
+        }
     }
 
     /** True if the student has never answered this card wrong in this session. */

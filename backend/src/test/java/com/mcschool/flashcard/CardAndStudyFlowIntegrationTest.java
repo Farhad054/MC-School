@@ -172,6 +172,46 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void teacherDeletesOwnStudentByArchivingAccountAndCards() throws Exception {
+        createFourCards();
+        String start = postAndReturn("/api/v1/study/sessions", studentToken, "{\"type\": \"SCHEDULED\"}",
+                status().isCreated());
+        UUID sessionId = UUID.fromString(JsonPath.read(start, "$.id"));
+
+        mockMvc.perform(delete("/api/v1/students/{id}", studentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/students")
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        assertThat(cardRepository.countByStudentIdAndArchivedFalse(studentId)).isZero();
+        assertThat(userRepository.findById(studentId)).get().extracting(User::isArchived).isEqualTo(true);
+
+        // The session row still exists for history, but the archived student's token no longer authenticates.
+        assertThat(sessionId).isNotNull();
+        mockMvc.perform(get("/api/v1/study/today")
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void teacherCannotDeleteAnotherTeachersStudent() throws Exception {
+        String otherTeacher = createActivatedTeacher("other-delete@test.local", "OtherPass123!");
+
+        mockMvc.perform(delete("/api/v1/students/{id}", studentId)
+                        .header("Authorization", "Bearer " + otherTeacher))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/v1/students")
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
     // --- Study flow (student) ---
 
     @Test
@@ -210,7 +250,9 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCards").value(4))
                 .andExpect(jsonPath("$.correctFirstTry").value(4))
-                .andExpect(jsonPath("$.nextReviewDate").value(LocalDate.now().plusDays(3).toString()));
+                .andExpect(jsonPath("$.nextReviewDate").value(LocalDate.now().plusDays(3).toString()))
+                .andExpect(jsonPath("$.review.length()").value(4))
+                .andExpect(jsonPath("$.review[?(@.correct == true)].length()").value(4));
 
         // Every card advanced to repetition 1, due in 3 days.
         cardRepository.findAllByStudentIdAndArchivedFalse(studentId)
@@ -251,7 +293,13 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/study/sessions/{id}/result", sessionId)
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.correctFirstTry").value(3));
+                .andExpect(jsonPath("$.correctFirstTry").value(3))
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].selectedAnswer")
+                        .value("definitely wrong"))
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].correct")
+                        .value(false))
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].correctAnswer")
+                        .value(answers.get(firstCardId)));
     }
 
     @Test

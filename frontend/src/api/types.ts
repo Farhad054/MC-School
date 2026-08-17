@@ -16,6 +16,10 @@ export interface User {
   preferredLanguage: Language;
 }
 
+export interface StudentListItem extends User {
+  invitationToken: string | null;
+}
+
 export interface AuthResponse {
   accessToken: string;
   tokenType: string;
@@ -100,6 +104,15 @@ export interface SessionResult {
   totalCards: number;
   correctFirstTry: number;
   nextReviewDate: string | null;
+  review: SessionReviewItem[];
+}
+
+export interface SessionReviewItem {
+  cardId: string;
+  question: string;
+  selectedAnswer: string;
+  correctAnswer: string;
+  correct: boolean;
 }
 
 /** Shape of the backend's error body; `errorCode` drives user-facing messages. */

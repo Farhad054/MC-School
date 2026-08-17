@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiRequestError, api } from '../../api/client';
-import type { AnswerResult, Question } from '../../api/types';
+import type { Question } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 
 /**
- * The study screen: a question with four options and a progress bar. Answering
- * reveals correctness immediately; a wrong card returns later in the same session.
+ * The study screen: choosing an option submits immediately and moves on without
+ * revealing per-question feedback. Wrong cards still return later in the session.
  */
 export function SessionPage() {
   const { sessionId = '' } = useParams();
@@ -15,7 +15,7 @@ export function SessionPage() {
   const navigate = useNavigate();
   const [question, setQuestion] = useState<Question | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [result, setResult] = useState<AnswerResult | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const goToResult = useCallback(
@@ -25,9 +25,9 @@ export function SessionPage() {
 
   const loadQuestion = useCallback(async () => {
     setSelected(null);
-    setResult(null);
     try {
       setQuestion(await api.study.currentQuestion(sessionId));
+      setError(null);
     } catch (e) {
       // A finished session has no current question — jump straight to the result.
       if (e instanceof ApiRequestError && e.errorCode === 'SESSION_COMPLETED') {
@@ -35,6 +35,8 @@ export function SessionPage() {
         return;
       }
       setError(toErrorMessage(e, t));
+    } finally {
+      setSubmitting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, goToResult]);
@@ -44,23 +46,22 @@ export function SessionPage() {
   }, [loadQuestion]);
 
   async function onAnswer(option: string) {
-    if (result || !question) {
+    if (submitting || !question) {
       return;
     }
     setSelected(option);
+    setSubmitting(true);
     try {
-      setResult(await api.study.answer(sessionId, question.cardId, option));
+      const answer = await api.study.answer(sessionId, question.cardId, option);
+      if (answer.sessionCompleted) {
+        goToResult();
+      } else {
+        await loadQuestion();
+      }
     } catch (e) {
       setError(toErrorMessage(e, t));
       setSelected(null);
-    }
-  }
-
-  function onNext() {
-    if (result?.sessionCompleted) {
-      goToResult();
-    } else {
-      loadQuestion();
+      setSubmitting(false);
     }
   }
 
@@ -71,7 +72,7 @@ export function SessionPage() {
     return <p className="muted">{t('common.loading')}</p>;
   }
 
-  const answeredForBar = question.answeredCount + (result?.correct ? 1 : 0);
+  const answeredForBar = question.answeredCount;
   const progress = Math.round((answeredForBar / question.totalCards) * 100);
 
   return (
@@ -92,39 +93,14 @@ export function SessionPage() {
           <button
             key={option}
             type="button"
-            className={`option ${optionClass(option, selected, result)}`}
-            disabled={result !== null}
+            className={`option ${option === selected ? 'option--selected' : ''}`}
+            disabled={submitting}
             onClick={() => onAnswer(option)}
           >
             {option}
           </button>
         ))}
       </div>
-
-      {result && (
-        <div className="stack">
-          <div className={`banner ${result.correct ? 'banner--success' : 'banner--error'}`}>
-            {result.correct ? t('session.correct') : `${t('session.wrong')} ${result.correctAnswer}`}
-          </div>
-          <button className="btn btn--block" type="button" onClick={onNext}>
-            {result.sessionCompleted ? t('session.finish') : t('session.next')}
-          </button>
-        </div>
-      )}
     </div>
   );
-}
-
-/** Highlights the correct option green and a wrong choice red once answered. */
-function optionClass(option: string, selected: string | null, result: AnswerResult | null): string {
-  if (!result) {
-    return '';
-  }
-  if (option === result.correctAnswer) {
-    return 'option--correct';
-  }
-  if (option === selected) {
-    return 'option--wrong';
-  }
-  return '';
 }

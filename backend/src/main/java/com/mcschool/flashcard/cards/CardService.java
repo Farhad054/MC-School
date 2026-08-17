@@ -117,6 +117,7 @@ public class CardService {
     private User requireOwnedStudent(UUID teacherId, UUID studentId) {
         User student = userRepository.findById(studentId)
                 .filter(u -> u.getRole() == Role.STUDENT)
+                .filter(u -> !u.isArchived())
                 .filter(u -> u.getTeacher() != null && u.getTeacher().getId().equals(teacherId))
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
         return student;

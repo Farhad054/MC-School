@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -42,6 +43,10 @@ public interface CardRepository extends JpaRepository<Card, UUID> {
     List<Card> findAllByStudentIdAndArchivedFalse(UUID studentId);
 
     long countByStudentIdAndStatusAndArchivedFalse(UUID studentId, CardStatus status);
+
+    @Modifying
+    @Query("UPDATE Card c SET c.archived = true WHERE c.student.id = :studentId AND c.archived = false")
+    int archiveAllByStudentId(@Param("studentId") UUID studentId);
 
     /**
      * Number of ACTIVE cards that are not yet due (awaiting their next review).

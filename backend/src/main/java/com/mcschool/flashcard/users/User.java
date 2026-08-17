@@ -64,6 +64,9 @@ public class User {
     @Column(name = "invitation_expires_at")
     private Instant invitationExpiresAt;
 
+    @Column(nullable = false)
+    private boolean archived;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -122,8 +125,23 @@ public class User {
         if (this.status != UserStatus.INVITED) {
             throw new IllegalStateException("Only INVITED accounts can be activated");
         }
+        if (this.archived) {
+            throw new IllegalStateException("Archived accounts cannot be activated");
+        }
         this.passwordHash = passwordHash;
         this.status = UserStatus.ACTIVE;
+        this.invitationToken = null;
+        this.invitationExpiresAt = null;
+    }
+
+    /**
+     * Soft-deletes a student account. The row is kept so cards and completed
+     * study-session history retain their references, but credentials/invitations
+     * are invalidated and the account is hidden from teacher workflows.
+     */
+    public void archive() {
+        this.archived = true;
+        this.passwordHash = null;
         this.invitationToken = null;
         this.invitationExpiresAt = null;
     }

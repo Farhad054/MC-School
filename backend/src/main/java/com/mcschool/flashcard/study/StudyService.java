@@ -11,6 +11,7 @@ import com.mcschool.flashcard.study.dto.AnswerRequest;
 import com.mcschool.flashcard.study.dto.AnswerResultResponse;
 import com.mcschool.flashcard.study.dto.QuestionResponse;
 import com.mcschool.flashcard.study.dto.SessionResponse;
+import com.mcschool.flashcard.study.dto.SessionReviewItemResponse;
 import com.mcschool.flashcard.study.dto.SessionResultResponse;
 import com.mcschool.flashcard.study.dto.StartSessionRequest;
 import com.mcschool.flashcard.study.dto.TodayResponse;
@@ -152,7 +153,9 @@ public class StudyService {
                         "Card is not part of this session or has already been answered"));
 
         Card card = item.getCard();
-        boolean correct = card.getCorrectAnswer().equals(request.selectedAnswer().strip());
+        String selectedAnswer = request.selectedAnswer().strip();
+        item.recordSelectedAnswer(selectedAnswer);
+        boolean correct = card.getCorrectAnswer().equals(selectedAnswer);
         if (correct) {
             if (item.isFirstTryClean()) {
                 session.recordCorrectFirstTry();
@@ -178,7 +181,7 @@ public class StudyService {
             throw new ConflictException("SESSION_NOT_COMPLETED", "Session is still in progress");
         }
         return new SessionResultResponse(session.getSessionType(), session.getTotalCards(),
-                session.getCorrectFirstTry(), soonestNextReview(sessionId));
+                session.getCorrectFirstTry(), soonestNextReview(sessionId), reviewItems(sessionId));
     }
 
     // --- Internals ---
@@ -217,6 +220,21 @@ public class StudyService {
                 .map(Card::getDueDate)
                 .min(Comparator.naturalOrder())
                 .orElse(null);
+    }
+
+    private List<SessionReviewItemResponse> reviewItems(UUID sessionId) {
+        return itemRepository.findAllBySessionId(sessionId).stream()
+                .filter(item -> item.getFirstSelectedAnswer() != null)
+                .sorted(Comparator.comparing(StudySessionItem::getCreatedAt)
+                        .thenComparing(StudySessionItem::getId))
+                .map(item -> {
+                    Card card = item.getCard();
+                    String selectedAnswer = item.getFirstSelectedAnswer();
+                    boolean correct = card.getCorrectAnswer().equals(selectedAnswer);
+                    return new SessionReviewItemResponse(card.getId(), card.getQuestion(),
+                            selectedAnswer, card.getCorrectAnswer(), correct);
+                })
+                .toList();
     }
 
     private StudySession requireOwnedSession(UUID studentId, UUID sessionId) {
