@@ -14,6 +14,7 @@ class NotificationContentTest {
         // Trailing slash is trimmed; the token is URL-encoded.
         assertThat(links.activationLink("ab/cd+ef"))
                 .isEqualTo("http://localhost:5173/activate?token=ab%2Fcd%2Bef");
+        assertThat(links.todayLink()).isEqualTo("http://localhost:5173/today");
     }
 
     @Test
@@ -30,8 +31,8 @@ class NotificationContentTest {
 
     @Test
     void reminderEmailIncludesDueCountAndLoginLink() {
-        NotificationMessages.Email de = NotificationMessages.reviewReminder(Language.DE, "Sam", 5, "http://app/login");
+        NotificationMessages.Email de = NotificationMessages.reviewReminder(Language.DE, "Sam", 5, "http://app/today");
 
-        assertThat(de.body()).contains("Sam").contains("5").contains("http://app/login");
+        assertThat(de.body()).contains("Sam").contains("5").contains("http://app/today");
     }
 }

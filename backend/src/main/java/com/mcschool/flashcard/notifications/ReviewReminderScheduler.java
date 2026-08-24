@@ -1,6 +1,7 @@
 package com.mcschool.flashcard.notifications;
 
 import com.mcschool.flashcard.cards.CardRepository;
+import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryService;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
@@ -27,14 +28,17 @@ public class ReviewReminderScheduler {
     private final UserRepository userRepository;
     private final CardRepository cardRepository;
     private final NotificationService notificationService;
+    private final DailyReviewHistoryService historyService;
     private final ZoneId reviewRemindersZone;
 
     public ReviewReminderScheduler(UserRepository userRepository, CardRepository cardRepository,
                                    NotificationService notificationService,
+                                   DailyReviewHistoryService historyService,
                                    @Value("${app.notifications.review-reminders.zone}") String reviewRemindersZone) {
         this.userRepository = userRepository;
         this.cardRepository = cardRepository;
         this.notificationService = notificationService;
+        this.historyService = historyService;
         this.reviewRemindersZone = ZoneId.of(reviewRemindersZone);
     }
 
@@ -43,10 +47,12 @@ public class ReviewReminderScheduler {
             zone = "${app.notifications.review-reminders.zone}")
     public void sendDueReminders() {
         LocalDate today = LocalDate.now(reviewRemindersZone);
+        historyService.closeIncompleteDaysBefore(today);
         for (User student : userRepository.findAllByRoleAndStatusAndArchivedFalseOrderByFullNameAsc(
                 Role.STUDENT, UserStatus.ACTIVE)) {
             long dueCards = cardRepository.countDueCards(student.getId(), today);
             if (dueCards > 0) {
+                historyService.recordDueSnapshot(student, today, dueCards);
                 notificationService.sendReviewReminder(student, dueCards);
             }
         }

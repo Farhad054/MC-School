@@ -7,6 +7,7 @@ import com.mcschool.flashcard.cards.CardStatus;
 import com.mcschool.flashcard.cards.dto.CardResponse;
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryService;
 import com.mcschool.flashcard.study.dto.AnswerRequest;
 import com.mcschool.flashcard.study.dto.AnswerResultResponse;
 import com.mcschool.flashcard.study.dto.QuestionResponse;
@@ -18,9 +19,11 @@ import com.mcschool.flashcard.study.dto.TodayResponse;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,19 +55,25 @@ public class StudyService {
     private final UserRepository userRepository;
     private final Sm2Scheduler sm2Scheduler;
     private final DistractorGenerator distractorGenerator;
+    private final DailyReviewHistoryService historyService;
+    private final ZoneId reviewHistoryZone;
 
     public StudyService(StudySessionRepository sessionRepository,
                         StudySessionItemRepository itemRepository,
                         CardRepository cardRepository,
                         UserRepository userRepository,
                         Sm2Scheduler sm2Scheduler,
-                        DistractorGenerator distractorGenerator) {
+                        DistractorGenerator distractorGenerator,
+                        DailyReviewHistoryService historyService,
+                        @Value("${app.notifications.review-reminders.zone}") String reviewHistoryZone) {
         this.sessionRepository = sessionRepository;
         this.itemRepository = itemRepository;
         this.cardRepository = cardRepository;
         this.userRepository = userRepository;
         this.sm2Scheduler = sm2Scheduler;
         this.distractorGenerator = distractorGenerator;
+        this.historyService = historyService;
+        this.reviewHistoryZone = ZoneId.of(reviewHistoryZone);
     }
 
     @Transactional(readOnly = true)
@@ -110,6 +119,9 @@ public class StudyService {
 
         StudySession session = sessionRepository.save(
                 StudySession.start(studentEntity, request.type(), cards.size()));
+        if (session.isScheduled()) {
+            historyService.recordScheduledSessionStarted(studentEntity, reviewHistoryToday(), cards.size());
+        }
         int position = 0;
         for (Card card : cards) {
             itemRepository.save(StudySessionItem.create(session, card, position++));
@@ -205,12 +217,18 @@ public class StudyService {
             return;
         }
         LocalDate today = LocalDate.now();
+        historyService.recordScheduledSessionCompleted(session.getStudent(), reviewHistoryToday(),
+                session.getTotalCards());
         for (StudySessionItem item : itemRepository.findAllBySessionId(session.getId())) {
             Card card = item.getCard();
             Sm2Scheduler.Scheduling next = sm2Scheduler.afterReview(card.getRepetitionNumber(),
                     item.isFirstTryClean(), today);
             card.applyScheduling(next.repetitionNumber(), next.dueDate(), next.status());
         }
+    }
+
+    private LocalDate reviewHistoryToday() {
+        return LocalDate.now(reviewHistoryZone);
     }
 
     /** Soonest upcoming review among the session's still-active cards, or null if all learned. */

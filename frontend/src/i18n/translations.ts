@@ -48,6 +48,12 @@ const ru = {
   'students.inviteCopied': 'Скопировано',
   'students.deleteConfirm': 'Удалить ученика {name}? Его карточки будут архивированы, история сессий сохранится.',
 
+  'reviewHistory.title': 'История повторений',
+  'reviewHistory.empty': 'Истории повторений пока нет',
+  'reviewHistory.status.COMPLETED': 'Выполнено',
+  'reviewHistory.status.PARTIAL': 'Начал, но не закончил',
+  'reviewHistory.status.MISSED': 'Не выполнено',
+
   'cards.title': 'Карточки',
   'cards.add': 'Добавить карточки',
   'cards.empty': 'Карточек пока нет',
@@ -162,6 +168,12 @@ const de: Record<keyof typeof ru, string> = {
   'students.copyInvite': 'Einladung kopieren',
   'students.inviteCopied': 'Kopiert',
   'students.deleteConfirm': 'Schüler {name} löschen? Seine Karten werden archiviert, die Sitzungshistorie bleibt erhalten.',
+
+  'reviewHistory.title': 'Wiederholungshistorie',
+  'reviewHistory.empty': 'Noch keine Wiederholungshistorie',
+  'reviewHistory.status.COMPLETED': 'Erledigt',
+  'reviewHistory.status.PARTIAL': 'Begonnen, nicht beendet',
+  'reviewHistory.status.MISSED': 'Nicht erledigt',
 
   'cards.title': 'Karten',
   'cards.add': 'Karten hinzufügen',

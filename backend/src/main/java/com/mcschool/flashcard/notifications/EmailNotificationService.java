@@ -47,7 +47,7 @@ public class EmailNotificationService implements NotificationService {
     @Override
     public void sendReviewReminder(User student, long dueCardCount) {
         NotificationMessages.Email email = NotificationMessages.reviewReminder(
-                student.getPreferredLanguage(), student.getFullName(), dueCardCount, appLinks.loginLink());
+                student.getPreferredLanguage(), student.getFullName(), dueCardCount, appLinks.todayLink());
         send(student.getEmail(), email);
     }
 

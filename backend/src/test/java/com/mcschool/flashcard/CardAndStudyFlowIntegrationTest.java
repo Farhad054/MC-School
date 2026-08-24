@@ -260,6 +260,14 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
             assertThat(card.getDueDate()).isEqualTo(LocalDate.now().plusDays(1));
         });
 
+        mockMvc.perform(get("/api/v1/students/{id}/review-history", studentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].date").value(LocalDate.now().toString()))
+                .andExpect(jsonPath("$[0].dueCount").value(4))
+                .andExpect(jsonPath("$[0].completedCount").value(4))
+                .andExpect(jsonPath("$[0].status").value("COMPLETED"));
+
         // Nothing due now, so no scheduled session can start until the due date.
         mockMvc.perform(get("/api/v1/study/today").header("Authorization", "Bearer " + studentToken))
                 .andExpect(jsonPath("$.dueCardCount").value(0))
@@ -315,6 +323,13 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         }, () -> {
             throw new AssertionError("Expected missed card to exist");
         });
+
+        mockMvc.perform(get("/api/v1/students/{id}/review-history", studentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].dueCount").value(4))
+                .andExpect(jsonPath("$[0].completedCount").value(4))
+                .andExpect(jsonPath("$[0].status").value("COMPLETED"));
     }
 
     @Test

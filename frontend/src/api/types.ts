@@ -6,6 +6,7 @@ export type Language = 'DE' | 'RU';
 export type CardStatus = 'ACTIVE' | 'LEARNED';
 export type SessionType = 'SCHEDULED' | 'PRACTICE';
 export type SessionStatus = 'IN_PROGRESS' | 'COMPLETED';
+export type DailyReviewStatus = 'COMPLETED' | 'PARTIAL' | 'MISSED';
 
 export interface User {
   id: string;
@@ -53,6 +54,13 @@ export interface CardSummary {
   dueNow: number;
   awaitingRepetition: number;
   learned: number;
+}
+
+export interface DailyReviewHistoryItem {
+  date: string;
+  dueCount: number;
+  completedCount: number;
+  status: DailyReviewStatus;
 }
 
 export interface ParsedCard {

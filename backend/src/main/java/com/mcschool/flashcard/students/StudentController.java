@@ -1,6 +1,8 @@
 package com.mcschool.flashcard.students;
 
 import com.mcschool.flashcard.auth.AuthenticatedUser;
+import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryService;
+import com.mcschool.flashcard.reviewhistory.dto.DailyReviewHistoryResponse;
 import com.mcschool.flashcard.students.dto.CreateStudentRequest;
 import com.mcschool.flashcard.students.dto.StudentListResponse;
 import com.mcschool.flashcard.students.dto.StudentInvitationResponse;
@@ -26,9 +28,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class StudentController {
 
     private final StudentService studentService;
+    private final DailyReviewHistoryService historyService;
 
-    public StudentController(StudentService studentService) {
+    public StudentController(StudentService studentService, DailyReviewHistoryService historyService) {
         this.studentService = studentService;
+        this.historyService = historyService;
     }
 
     @PostMapping
@@ -41,6 +45,12 @@ public class StudentController {
     @GetMapping
     public List<StudentListResponse> listStudents(@AuthenticationPrincipal AuthenticatedUser caller) {
         return studentService.listStudents(caller);
+    }
+
+    @GetMapping("/{studentId}/review-history")
+    public List<DailyReviewHistoryResponse> reviewHistory(@AuthenticationPrincipal AuthenticatedUser caller,
+                                                          @PathVariable UUID studentId) {
+        return historyService.listForTeacher(caller.id(), studentId);
     }
 
     @DeleteMapping("/{studentId}")

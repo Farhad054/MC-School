@@ -32,7 +32,7 @@ public class LoggingNotificationService implements NotificationService {
 
     @Override
     public void sendReviewReminder(User student, long dueCardCount) {
-        log.info("[notification] Review reminder for {} — {} card(s) due today (email not enabled)",
-                student.getEmail(), dueCardCount);
+        log.info("[notification] Review reminder for {} — {} card(s) due today: {} (email not enabled)",
+                student.getEmail(), dueCardCount, appLinks.todayLink());
     }
 }

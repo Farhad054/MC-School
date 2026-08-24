@@ -3,6 +3,7 @@ import type {
   AuthResponse,
   Card,
   CardSummary,
+  DailyReviewHistoryItem,
   ImportPreview,
   Language,
   ParsedCard,
@@ -99,6 +100,8 @@ export const api = {
     list: () => request<StudentListItem[]>('GET', '/students'),
     create: (fullName: string, email: string) =>
       request<StudentInvitation>('POST', '/students', { fullName, email }),
+    reviewHistory: (studentId: string) =>
+      request<DailyReviewHistoryItem[]>('GET', `/students/${studentId}/review-history`),
     remove: (studentId: string) => request<void>('DELETE', `/students/${studentId}`),
   },
   cards: {

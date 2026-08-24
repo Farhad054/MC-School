@@ -27,8 +27,8 @@ public class AppLinks {
                 + URLEncoder.encode(invitationToken, StandardCharsets.UTF_8);
     }
 
-    /** The login page (used as the quick-login link in review reminders). */
-    public String loginLink() {
-        return frontendBaseUrl + "/login";
+    /** The student's today page for due review work. */
+    public String todayLink() {
+        return frontendBaseUrl + "/today";
     }
 }
