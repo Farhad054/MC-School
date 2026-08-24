@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class EmailNotificationService implements NotificationService {
     private final String from;
     private final String brevoApiKey;
 
+    @Autowired
     public EmailNotificationService(AppLinks appLinks,
                                     @Value("${app.mail.from}") String from,
                                     @Value("${app.brevo.api-key}") String brevoApiKey) {
