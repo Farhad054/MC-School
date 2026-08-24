@@ -17,6 +17,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class StudentService {
+
+    private static final Logger log = LoggerFactory.getLogger(StudentService.class);
 
     private final UserRepository userRepository;
     private final CardRepository cardRepository;
@@ -50,7 +54,10 @@ public class StudentService {
         Instant expiresAt = Invitations.expiry(Instant.now());
         User student = userRepository.save(
                 User.invitedStudent(request.fullName().trim(), email, teacherEntity, token, expiresAt));
+        log.info("Sending student invitation email for studentId={} email={}", student.getId(), student.getEmail());
         notificationService.sendInvitation(student, token);
+        log.info("Finished student invitation email attempt for studentId={} email={}",
+                student.getId(), student.getEmail());
         return new StudentInvitationResponse(UserResponse.from(student), token, expiresAt);
     }
 
