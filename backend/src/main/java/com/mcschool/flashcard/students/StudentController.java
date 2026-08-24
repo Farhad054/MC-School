@@ -4,8 +4,10 @@ import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryService;
 import com.mcschool.flashcard.reviewhistory.dto.DailyReviewHistoryResponse;
 import com.mcschool.flashcard.students.dto.CreateStudentRequest;
+import com.mcschool.flashcard.students.dto.PilotDueCardResponse;
 import com.mcschool.flashcard.students.dto.StudentListResponse;
 import com.mcschool.flashcard.students.dto.StudentInvitationResponse;
+import com.mcschool.flashcard.students.dto.TestReviewReminderResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -51,6 +53,18 @@ public class StudentController {
     public List<DailyReviewHistoryResponse> reviewHistory(@AuthenticationPrincipal AuthenticatedUser caller,
                                                           @PathVariable UUID studentId) {
         return historyService.listForTeacher(caller.id(), studentId);
+    }
+
+    @PostMapping("/{studentId}/test-review-reminder")
+    public TestReviewReminderResponse testReviewReminder(@AuthenticationPrincipal AuthenticatedUser caller,
+                                                         @PathVariable UUID studentId) {
+        return studentService.sendTestReviewReminder(caller, studentId);
+    }
+
+    @PostMapping("/{studentId}/make-one-card-due-today")
+    public PilotDueCardResponse makeOneCardDueToday(@AuthenticationPrincipal AuthenticatedUser caller,
+                                                    @PathVariable UUID studentId) {
+        return studentService.makeOneCardDueToday(caller, studentId);
     }
 
     @DeleteMapping("/{studentId}")

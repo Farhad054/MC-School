@@ -18,6 +18,8 @@ export function StudentDetailPage() {
   const [summary, setSummary] = useState<CardSummary | null>(null);
   const [reviewHistory, setReviewHistory] = useState<DailyReviewHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [pilotMessage, setPilotMessage] = useState<string | null>(null);
+  const [pilotBusy, setPilotBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
@@ -36,6 +38,38 @@ export function StudentDetailPage() {
     reload().catch((e) => setError(toErrorMessage(e, t)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload]);
+
+  async function makeOneCardDueToday() {
+    setPilotBusy(true);
+    setPilotMessage(null);
+    setError(null);
+    try {
+      const card = await api.students.makeOneCardDueToday(studentId);
+      setPilotMessage(t('pilot.cardDueResult', { question: card.question, date: card.dueDate }));
+      await reload();
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      setPilotBusy(false);
+    }
+  }
+
+  async function sendTestReviewReminder() {
+    setPilotBusy(true);
+    setPilotMessage(null);
+    setError(null);
+    try {
+      const result = await api.students.testReviewReminder(studentId);
+      setPilotMessage(result.reminderAttempted
+        ? t('pilot.reminderSent', { count: result.dueCount })
+        : t('pilot.reminderSkipped'));
+      await reload();
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      setPilotBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -76,6 +110,19 @@ export function StudentDetailPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <h2>{t('pilot.title')}</h2>
+      <div className="panel stack">
+        {pilotMessage && <div className="banner banner--success">{pilotMessage}</div>}
+        <div className="row">
+          <button className="btn btn--secondary" type="button" onClick={makeOneCardDueToday} disabled={pilotBusy}>
+            {t('pilot.makeDueToday')}
+          </button>
+          <button className="btn" type="button" onClick={sendTestReviewReminder} disabled={pilotBusy}>
+            {t('pilot.sendReminder')}
+          </button>
+        </div>
       </div>
 
       <h2>{t('cards.add')}</h2>

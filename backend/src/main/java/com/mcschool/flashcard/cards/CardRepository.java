@@ -2,6 +2,7 @@ package com.mcschool.flashcard.cards;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -41,6 +42,9 @@ public interface CardRepository extends JpaRepository<Card, UUID> {
 
     /** A student's non-archived cards (any status) — used to build the distractor pool. */
     List<Card> findAllByStudentIdAndArchivedFalse(UUID studentId);
+
+    Optional<Card> findFirstByStudentIdAndStatusAndArchivedFalseOrderByCreatedAtAsc(
+            UUID studentId, CardStatus status);
 
     long countByStudentIdAndStatusAndArchivedFalse(UUID studentId, CardStatus status);
 

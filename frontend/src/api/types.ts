@@ -63,6 +63,18 @@ export interface DailyReviewHistoryItem {
   status: DailyReviewStatus;
 }
 
+export interface TestReviewReminderResult {
+  studentId: string;
+  dueCount: number;
+  reminderAttempted: boolean;
+}
+
+export interface PilotDueCardResult {
+  id: string;
+  question: string;
+  dueDate: string;
+}
+
 export interface ParsedCard {
   question: string;
   correctAnswer: string;

@@ -114,6 +114,11 @@ public class Card {
         this.status = status;
     }
 
+    /** Pilot/testing helper: makes the card due without changing its learning state. */
+    public void markDueOn(LocalDate dueDate) {
+        this.dueDate = dueDate;
+    }
+
     public boolean isDueOn(LocalDate day) {
         return status == CardStatus.ACTIVE && dueDate != null && !dueDate.isAfter(day);
     }

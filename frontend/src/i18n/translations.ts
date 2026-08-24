@@ -54,6 +54,13 @@ const ru = {
   'reviewHistory.status.PARTIAL': 'Начал, но не закончил',
   'reviewHistory.status.MISSED': 'Не выполнено',
 
+  'pilot.title': 'Pilot / тест',
+  'pilot.makeDueToday': 'Сделать 1 карточку на сегодня',
+  'pilot.sendReminder': 'Отправить тестовое напоминание',
+  'pilot.cardDueResult': 'Карточка «{question}» поставлена на {date}',
+  'pilot.reminderSent': 'Тестовое напоминание отправлено. Карточек к повторению: {count}',
+  'pilot.reminderSkipped': 'Карточек к повторению сегодня нет. Напоминание не отправлено.',
+
   'cards.title': 'Карточки',
   'cards.add': 'Добавить карточки',
   'cards.empty': 'Карточек пока нет',
@@ -174,6 +181,13 @@ const de: Record<keyof typeof ru, string> = {
   'reviewHistory.status.COMPLETED': 'Erledigt',
   'reviewHistory.status.PARTIAL': 'Begonnen, nicht beendet',
   'reviewHistory.status.MISSED': 'Nicht erledigt',
+
+  'pilot.title': 'Pilot / Test',
+  'pilot.makeDueToday': '1 Karte für heute fällig machen',
+  'pilot.sendReminder': 'Test-Erinnerung senden',
+  'pilot.cardDueResult': 'Karte „{question}“ wurde auf {date} gesetzt',
+  'pilot.reminderSent': 'Test-Erinnerung gesendet. Fällige Karten: {count}',
+  'pilot.reminderSkipped': 'Heute sind keine Karten fällig. Keine Erinnerung gesendet.',
 
   'cards.title': 'Karten',
   'cards.add': 'Karten hinzufügen',

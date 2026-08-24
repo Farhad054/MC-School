@@ -6,6 +6,7 @@ import type {
   DailyReviewHistoryItem,
   ImportPreview,
   Language,
+  PilotDueCardResult,
   ParsedCard,
   Question,
   Session,
@@ -13,6 +14,7 @@ import type {
   SessionType,
   StudentListItem,
   StudentInvitation,
+  TestReviewReminderResult,
   TeacherInvitation,
   Today,
   User,
@@ -102,6 +104,10 @@ export const api = {
       request<StudentInvitation>('POST', '/students', { fullName, email }),
     reviewHistory: (studentId: string) =>
       request<DailyReviewHistoryItem[]>('GET', `/students/${studentId}/review-history`),
+    testReviewReminder: (studentId: string) =>
+      request<TestReviewReminderResult>('POST', `/students/${studentId}/test-review-reminder`),
+    makeOneCardDueToday: (studentId: string) =>
+      request<PilotDueCardResult>('POST', `/students/${studentId}/make-one-card-due-today`),
     remove: (studentId: string) => request<void>('DELETE', `/students/${studentId}`),
   },
   cards: {
