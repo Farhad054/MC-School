@@ -207,7 +207,8 @@ public class StudyService {
         LocalDate today = LocalDate.now();
         for (StudySessionItem item : itemRepository.findAllBySessionId(session.getId())) {
             Card card = item.getCard();
-            Sm2Scheduler.Scheduling next = sm2Scheduler.afterSuccessfulReview(card.getRepetitionNumber(), today);
+            Sm2Scheduler.Scheduling next = sm2Scheduler.afterReview(card.getRepetitionNumber(),
+                    item.isFirstTryClean(), today);
             card.applyScheduling(next.repetitionNumber(), next.dueDate(), next.status());
         }
     }

@@ -250,13 +250,15 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCards").value(4))
                 .andExpect(jsonPath("$.correctFirstTry").value(4))
-                .andExpect(jsonPath("$.nextReviewDate").value(LocalDate.now().plusDays(3).toString()))
+                .andExpect(jsonPath("$.nextReviewDate").value(LocalDate.now().plusDays(1).toString()))
                 .andExpect(jsonPath("$.review.length()").value(4))
                 .andExpect(jsonPath("$.review[?(@.correct == true)].length()").value(4));
 
-        // Every card advanced to repetition 1, due in 3 days.
-        cardRepository.findAllByStudentIdAndArchivedFalse(studentId)
-                .forEach(card -> assertThat(card.getRepetitionNumber()).isEqualTo(1));
+        // Every card advanced to repetition 1, due tomorrow.
+        cardRepository.findAllByStudentIdAndArchivedFalse(studentId).forEach(card -> {
+            assertThat(card.getRepetitionNumber()).isEqualTo(1);
+            assertThat(card.getDueDate()).isEqualTo(LocalDate.now().plusDays(1));
+        });
 
         // Nothing due now, so no scheduled session can start until the due date.
         mockMvc.perform(get("/api/v1/study/today").header("Authorization", "Bearer " + studentToken))
@@ -286,6 +288,12 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.correctAnswer").value(answers.get(firstCardId)))
                 .andExpect(jsonPath("$.sessionCompleted").value(false));
 
+        String nextQuestion = mockMvc.perform(get("/api/v1/study/sessions/{id}/current-question", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(UUID.fromString(JsonPath.read(nextQuestion, "$.cardId"))).isNotEqualTo(firstCardId);
+
         // Finish the session answering everything correctly.
         playSessionAnsweringCorrectly(sessionId, answers);
 
@@ -300,6 +308,13 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .value(false))
                 .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].correctAnswer")
                         .value(answers.get(firstCardId)));
+
+        cardRepository.findById(firstCardId).ifPresentOrElse(card -> {
+            assertThat(card.getRepetitionNumber()).isZero();
+            assertThat(card.getDueDate()).isEqualTo(LocalDate.now().plusDays(1));
+        }, () -> {
+            throw new AssertionError("Expected missed card to exist");
+        });
     }
 
     @Test

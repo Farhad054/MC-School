@@ -57,7 +57,7 @@ public class Card {
     @Column(name = "repetition_number", nullable = false)
     private int repetitionNumber;
 
-    /** Next day this card must be reviewed; {@code null} once the card is LEARNED. */
+    /** Next day this card must be reviewed. */
     @Column(name = "due_date")
     private LocalDate dueDate;
 

@@ -12,29 +12,33 @@ class Sm2SchedulerTest {
     private final LocalDate today = LocalDate.of(2026, 7, 20);
 
     @Test
-    void firstSuccessfulReviewSchedulesInThreeDays() {
-        Sm2Scheduler.Scheduling result = scheduler.afterSuccessfulReview(0, today);
+    void correctFirstAttemptProgressesThroughFixedIntervals() {
+        int[] expectedIntervals = {1, 2, 4, 7, 14, 30};
 
-        assertThat(result.repetitionNumber()).isEqualTo(1);
-        assertThat(result.dueDate()).isEqualTo(today.plusDays(3));
-        assertThat(result.status()).isEqualTo(CardStatus.ACTIVE);
+        for (int currentRepetition = 0; currentRepetition < expectedIntervals.length; currentRepetition++) {
+            Sm2Scheduler.Scheduling result = scheduler.afterReview(currentRepetition, true, today);
+
+            assertThat(result.repetitionNumber()).isEqualTo(currentRepetition + 1);
+            assertThat(result.dueDate()).isEqualTo(today.plusDays(expectedIntervals[currentRepetition]));
+            assertThat(result.status()).isEqualTo(CardStatus.ACTIVE);
+        }
     }
 
     @Test
-    void secondSuccessfulReviewSchedulesInSevenDays() {
-        Sm2Scheduler.Scheduling result = scheduler.afterSuccessfulReview(1, today);
-
-        assertThat(result.repetitionNumber()).isEqualTo(2);
-        assertThat(result.dueDate()).isEqualTo(today.plusDays(7));
-        assertThat(result.status()).isEqualTo(CardStatus.ACTIVE);
-    }
-
-    @Test
-    void thirdSuccessfulReviewSchedulesInTwentyOneDaysAndMarksLearned() {
-        Sm2Scheduler.Scheduling result = scheduler.afterSuccessfulReview(2, today);
+    void wrongFirstAttemptSchedulesTomorrowWithoutProgressing() {
+        Sm2Scheduler.Scheduling result = scheduler.afterReview(3, false, today);
 
         assertThat(result.repetitionNumber()).isEqualTo(3);
-        assertThat(result.dueDate()).isEqualTo(today.plusDays(21));
-        assertThat(result.status()).isEqualTo(CardStatus.LEARNED);
+        assertThat(result.dueDate()).isEqualTo(today.plusDays(1));
+        assertThat(result.status()).isEqualTo(CardStatus.ACTIVE);
+    }
+
+    @Test
+    void intervalIsCappedAtThirtyDays() {
+        Sm2Scheduler.Scheduling result = scheduler.afterReview(6, true, today);
+
+        assertThat(result.repetitionNumber()).isEqualTo(6);
+        assertThat(result.dueDate()).isEqualTo(today.plusDays(30));
+        assertThat(result.status()).isEqualTo(CardStatus.ACTIVE);
     }
 }
