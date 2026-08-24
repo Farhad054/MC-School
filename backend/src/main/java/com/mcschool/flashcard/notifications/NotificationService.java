@@ -5,8 +5,8 @@ import com.mcschool.flashcard.users.User;
 /**
  * Sends transactional notifications to users. The active implementation is chosen
  * by configuration: {@link LoggingNotificationService} by default (logs only), or
- * {@link EmailNotificationService} when {@code app.mail.enabled=true} and an SMTP
- * server is configured. Swapping providers requires no change to callers.
+ * {@link EmailNotificationService} when {@code app.mail.enabled=true} and Brevo
+ * API credentials are configured. Swapping providers requires no change to callers.
  */
 public interface NotificationService {
 

@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
  * Default notification implementation, used when email is not enabled
  * ({@code app.mail.enabled} unset or false). It logs what would be sent — including
  * the activation link — so invitations still work in local development without an
- * SMTP server. Replaced by {@link EmailNotificationService} when mail is enabled.
+ * email provider. Replaced by {@link EmailNotificationService} when mail is enabled.
  */
 @Service
 @ConditionalOnProperty(name = "app.mail.enabled", havingValue = "false", matchIfMissing = true)
