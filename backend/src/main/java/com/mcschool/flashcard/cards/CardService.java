@@ -50,14 +50,6 @@ public class CardService {
     }
 
     @Transactional
-    public List<CardResponse> importCards(AuthenticatedUser teacher, UUID studentId,
-                                          ImportCardsRequest request) {
-        Homework homework = homeworkRepository.save(Homework.create(requireOwnedStudent(teacher.id(), studentId),
-                LocalDate.now()));
-        return importCardsIntoHomework(teacher, homework.getId(), request);
-    }
-
-    @Transactional
     public List<CardResponse> importCardsIntoHomework(AuthenticatedUser teacher, UUID homeworkId,
                                                       ImportCardsRequest request) {
         User teacherEntity = requireTeacher(teacher.id());
@@ -70,13 +62,6 @@ public class CardService {
     }
 
     // --- CRUD ---
-
-    @Transactional
-    public CardResponse createCard(AuthenticatedUser teacher, UUID studentId, CreateCardRequest request) {
-        Homework homework = homeworkRepository.save(Homework.create(requireOwnedStudent(teacher.id(), studentId),
-                LocalDate.now()));
-        return createCardInHomework(teacher, homework.getId(), request);
-    }
 
     @Transactional
     public CardResponse createCardInHomework(AuthenticatedUser teacher, UUID homeworkId,

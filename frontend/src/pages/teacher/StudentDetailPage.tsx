@@ -183,36 +183,39 @@ export function StudentDetailPage() {
           <p className="muted">{t('homeworks.empty')}</p>
         ) : (
           homeworks.map((homework) => (
-            <button
-              key={homework.id}
-              className={`list-row ${selectedHomeworkId === homework.id ? 'btn--secondary' : ''}`}
-              type="button"
-              onClick={() => selectHomework(homework.id).catch((e) => setError(toErrorMessage(e, t)))}
-              style={{ textAlign: 'left' }}
-            >
-              <div>
-                <div className="list-row__title">{formatHomeworkDate(homework.startDate, language)}</div>
-                <div className="muted">
-                  {t('homeworks.total')}: {homework.totalCards} · {t('homeworks.notStarted')}: {homework.notStarted} ·{' '}
-                  {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
+            <div key={homework.id} className="stack">
+              <button
+                className={`list-row ${selectedHomeworkId === homework.id ? 'btn--secondary' : ''}`}
+                type="button"
+                onClick={() => selectHomework(homework.id).catch((e) => setError(toErrorMessage(e, t)))}
+                style={{ textAlign: 'left' }}
+              >
+                <div>
+                  <div className="list-row__title">{formatHomeworkDate(homework.startDate, language)}</div>
+                  <div className="muted">
+                    {t('homeworks.total')}: {homework.totalCards} · {t('homeworks.notStarted')}: {homework.notStarted} ·{' '}
+                    {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
+              {selectedHomeworkId === homework.id && (
+                <div className="stack">
+                  {loading ? (
+                    <p className="muted">{t('common.loading')}</p>
+                  ) : cards.length === 0 ? (
+                    <p className="muted">{t('cards.empty')}</p>
+                  ) : (
+                    cards.map((card) => <CardRow key={card.id} card={card} onChanged={reload} />)
+                  )}
+                </div>
+              )}
+            </div>
           ))
         )}
       </div>
 
       <h2>{t('cards.add')}</h2>
       <CardCreator homeworkId={selectedHomeworkId} onChanged={reload} />
-
-      <h2>{t('cards.title')}</h2>
-      {loading ? (
-        <p className="muted">{t('common.loading')}</p>
-      ) : cards.length === 0 ? (
-        <p className="muted">{t('cards.empty')}</p>
-      ) : (
-        cards.map((card) => <CardRow key={card.id} card={card} onChanged={reload} />)
-      )}
     </div>
   );
 }

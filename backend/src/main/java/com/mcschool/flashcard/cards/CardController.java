@@ -37,14 +37,6 @@ public class CardController {
         this.cardService = cardService;
     }
 
-    @PostMapping("/api/v1/students/{studentId}/cards")
-    @ResponseStatus(HttpStatus.CREATED)
-    public CardResponse createCard(@AuthenticationPrincipal AuthenticatedUser caller,
-                                   @PathVariable UUID studentId,
-                                   @Valid @RequestBody CreateCardRequest request) {
-        return cardService.createCard(caller, studentId, request);
-    }
-
     @PostMapping("/api/v1/homeworks/{homeworkId}/cards")
     @ResponseStatus(HttpStatus.CREATED)
     public CardResponse createCardInHomework(@AuthenticationPrincipal AuthenticatedUser caller,
@@ -75,14 +67,6 @@ public class CardController {
     @PostMapping("/api/v1/cards/import/preview")
     public ImportPreviewResponse previewImport(@Valid @RequestBody ImportPreviewRequest request) {
         return cardService.previewImport(request);
-    }
-
-    @PostMapping("/api/v1/students/{studentId}/cards/import")
-    @ResponseStatus(HttpStatus.CREATED)
-    public List<CardResponse> importCards(@AuthenticationPrincipal AuthenticatedUser caller,
-                                          @PathVariable UUID studentId,
-                                          @Valid @RequestBody ImportCardsRequest request) {
-        return cardService.importCards(caller, studentId, request);
     }
 
     @PostMapping("/api/v1/homeworks/{homeworkId}/cards/import")

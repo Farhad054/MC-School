@@ -92,7 +92,8 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void teacherEditsAndDeletesOwnCard() throws Exception {
-        String created = createCardRaw(teacherToken, studentId, "old q", "old a");
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        String created = createCardRawInHomework(teacherToken, homeworkId, "old q", "old a");
         String cardId = JsonPath.read(created, "$.id");
 
         mockMvc.perform(put("/api/v1/cards/{id}", cardId)
@@ -139,6 +140,41 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/students/{id}/cards", studentId)
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(jsonPath("$.length()").value(2));
+
+        mockMvc.perform(get("/api/v1/students/{id}/homeworks", studentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].totalCards").value(2));
+    }
+
+    @Test
+    void oneHomeworkWithSixCardsAppearsAsSingleFolder() throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.of(2026, 8, 27));
+        UUID sameDateHomeworkId = createHomework(teacherToken, studentId, LocalDate.of(2026, 8, 27));
+        assertThat(sameDateHomeworkId).isEqualTo(homeworkId);
+
+        createCardInHomework(teacherToken, homeworkId, "q1", "a1");
+        createCardInHomework(teacherToken, homeworkId, "q2", "a2");
+        createCardInHomework(teacherToken, homeworkId, "q3", "a3");
+        createCardInHomework(teacherToken, homeworkId, "q4", "a4");
+        createCardInHomework(teacherToken, homeworkId, "q5", "a5");
+        createCardInHomework(teacherToken, homeworkId, "q6", "a6");
+
+        mockMvc.perform(get("/api/v1/students/{id}/homeworks", studentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(homeworkId.toString()))
+                .andExpect(jsonPath("$[0].startDate").value("2026-08-27"))
+                .andExpect(jsonPath("$[0].totalCards").value(6))
+                .andExpect(jsonPath("$[0].notStarted").value(6));
+
+        mockMvc.perform(get("/api/v1/homeworks/{id}/cards", homeworkId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(6))
+                .andExpect(jsonPath("$[?(@.homeworkId == '" + homeworkId + "')].length()").value(6));
     }
 
     @Test
@@ -189,7 +225,8 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
     @Test
     void teacherCannotTouchAnotherTeachersStudentOrCards() throws Exception {
         String otherTeacher = createActivatedTeacher("other@test.local", "OtherPass123!");
-        String created = createCardRaw(teacherToken, studentId, "q", "a");
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        String created = createCardRawInHomework(teacherToken, homeworkId, "q", "a");
         String cardId = JsonPath.read(created, "$.id");
 
         // Another teacher cannot see the student (reported as 404, not 403).
@@ -273,9 +310,10 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void studentCannotStartSessionWithFewerThanFourCards() throws Exception {
-        createCard(teacherToken, studentId, "1", "one");
-        createCard(teacherToken, studentId, "2", "two");
-        createCard(teacherToken, studentId, "3", "three");
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        createCardInHomework(teacherToken, homeworkId, "1", "one");
+        createCardInHomework(teacherToken, homeworkId, "2", "two");
+        createCardInHomework(teacherToken, homeworkId, "3", "three");
 
         mockMvc.perform(post("/api/v1/study/sessions")
                         .header("Authorization", "Bearer " + studentToken)
@@ -461,18 +499,13 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
 
     /** Creates four cards for the student and returns a card-id → correct-answer map. */
     private Map<UUID, String> createFourCards() throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
         Map<UUID, String> answers = new HashMap<>();
-        answers.putAll(createCard(teacherToken, studentId, "2 + 2", "4"));
-        answers.putAll(createCard(teacherToken, studentId, "3 + 3", "6"));
-        answers.putAll(createCard(teacherToken, studentId, "4 + 4", "8"));
-        answers.putAll(createCard(teacherToken, studentId, "5 + 5", "10"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "2 + 2", "4"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "3 + 3", "6"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "4 + 4", "8"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "5 + 5", "10"));
         return answers;
-    }
-
-    private Map<UUID, String> createCard(String token, UUID student, String question, String answer)
-            throws Exception {
-        String body = createCardRaw(token, student, question, answer);
-        return Map.of(UUID.fromString(JsonPath.read(body, "$.id")), answer);
     }
 
     private UUID createHomework(String token, UUID student, LocalDate startDate) throws Exception {
@@ -483,17 +516,13 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
 
     private Map<UUID, String> createCardInHomework(String token, UUID homeworkId, String question, String answer)
             throws Exception {
-        String body = mockMvc.perform(post("/api/v1/homeworks/{id}/cards", homeworkId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"question\": \"" + question + "\", \"correctAnswer\": \"" + answer + "\"}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+        String body = createCardRawInHomework(token, homeworkId, question, answer);
         return Map.of(UUID.fromString(JsonPath.read(body, "$.id")), answer);
     }
 
-    private String createCardRaw(String token, UUID student, String question, String answer) throws Exception {
-        return mockMvc.perform(post("/api/v1/students/{id}/cards", student)
+    private String createCardRawInHomework(String token, UUID homeworkId, String question, String answer)
+            throws Exception {
+        return mockMvc.perform(post("/api/v1/homeworks/{id}/cards", homeworkId)
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"question\": \"" + question + "\", \"correctAnswer\": \"" + answer + "\"}"))

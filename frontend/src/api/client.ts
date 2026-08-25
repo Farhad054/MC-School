@@ -116,8 +116,6 @@ export const api = {
       request<Card[]>('GET', `/students/${studentId}/cards`),
     summaryForStudent: (studentId: string) =>
       request<CardSummary>('GET', `/students/${studentId}/cards/summary`),
-    create: (studentId: string, question: string, correctAnswer: string) =>
-      request<Card>('POST', `/students/${studentId}/cards`, { question, correctAnswer }),
     update: (cardId: string, question: string, correctAnswer: string) =>
       request<Card>('PUT', `/cards/${cardId}`, { question, correctAnswer }),
     remove: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`),
@@ -127,8 +125,6 @@ export const api = {
         questionAnswerSeparator,
         cardSeparator,
       }),
-    importConfirm: (studentId: string, cards: ParsedCard[]) =>
-      request<Card[]>('POST', `/students/${studentId}/cards/import`, { cards }),
     listForHomework: (homeworkId: string) =>
       request<Card[]>('GET', `/homeworks/${homeworkId}/cards`),
     createInHomework: (homeworkId: string, question: string, correctAnswer: string) =>

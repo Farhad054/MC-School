@@ -30,7 +30,8 @@ public class HomeworkService {
     public HomeworkResponse createHomework(AuthenticatedUser teacher, UUID studentId,
                                            CreateHomeworkRequest request) {
         User student = requireOwnedStudent(teacher.id(), studentId);
-        Homework homework = homeworkRepository.save(Homework.create(student, request.startDate()));
+        Homework homework = homeworkRepository.findByStudentIdAndStartDate(studentId, request.startDate())
+                .orElseGet(() -> homeworkRepository.save(Homework.create(student, request.startDate())));
         return HomeworkResponse.from(homework, Map.of());
     }
 
