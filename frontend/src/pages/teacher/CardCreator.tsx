@@ -84,8 +84,6 @@ function ManualForm({ homeworkId, onChanged }: { homeworkId: string; onChanged: 
 function ImportForm({ homeworkId, onChanged }: { homeworkId: string; onChanged: () => void }) {
   const { t } = useI18n();
   const [rawText, setRawText] = useState('');
-  const [qaSeparator, setQaSeparator] = useState('->');
-  const [cardSeparator, setCardSeparator] = useState('\n');
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [imported, setImported] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +93,7 @@ function ImportForm({ homeworkId, onChanged }: { homeworkId: string; onChanged: 
     setError(null);
     setImported(false);
     try {
-      setPreview(await api.cards.importPreview(rawText, qaSeparator, cardSeparator));
+      setPreview(await api.cards.importPreview(rawText, '->', '\n'));
     } catch (e) {
       setError(toErrorMessage(e, t));
     }
@@ -128,29 +126,10 @@ function ImportForm({ homeworkId, onChanged }: { homeworkId: string; onChanged: 
             className="textarea"
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
-            placeholder={'2 + 2 -> 4\n3 + 3 -> 6'}
+            placeholder={'2 + 2 -> 4 | 3 | 5 | 6\n3 + 3 -> 6 | 5 | 7 | 9'}
             required
           />
         </label>
-        <div className="row">
-          <label className="field">
-            <span className="field__label">{t('createCards.qaSeparator')}</span>
-            <input className="input" value={qaSeparator} onChange={(e) => setQaSeparator(e.target.value)} required />
-          </label>
-          <label className="field">
-            <span className="field__label">{t('createCards.cardSeparator')}</span>
-            <select
-              className="select"
-              value={cardSeparator}
-              onChange={(e) => setCardSeparator(e.target.value)}
-            >
-              {/* Use JS expressions so the newline is a real "\n", not the two-char literal. */}
-              <option value={'\n'}>{t('createCards.newline')}</option>
-              <option value={';'}>;</option>
-              <option value={'|'}>|</option>
-            </select>
-          </label>
-        </div>
         <button className="btn btn--secondary" type="submit">{t('createCards.preview')}</button>
       </form>
 
@@ -161,8 +140,13 @@ function ImportForm({ homeworkId, onChanged }: { homeworkId: string; onChanged: 
           </h2>
           {preview.cards.map((card, index) => (
             <div key={index} className="list-row">
-              <div className="list-row__title">{card.question}</div>
-              <div className="muted">{card.correctAnswer}</div>
+              <div>
+                <div className="list-row__title">{card.question}</div>
+                <div className="muted">{t('cards.answer')}: {card.correctAnswer}</div>
+                <div className="muted">
+                  {t('createCards.wrongAnswers')}: {card.wrongAnswer1} · {card.wrongAnswer2} · {card.wrongAnswer3}
+                </div>
+              </div>
             </div>
           ))}
           {preview.warnings.length > 0 && (

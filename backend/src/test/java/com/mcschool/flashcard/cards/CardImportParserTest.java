@@ -10,61 +10,66 @@ class CardImportParserTest {
     private final CardImportParser parser = new CardImportParser();
 
     @Test
-    void parsesCardsSeparatedByNewlinesAndArrow() {
-        String text = "2 + 2 -> 4\n3 * 3 -> 9\nCapital of France -> Paris";
+    void parsesValidImportRowsWithCorrectAndThreeWrongAnswers() {
+        String text = """
+                Was bedeutet „notieren“? -> записать | проверить | вычислить | сравнить
+                24 Flaschen, 7 werden herausgenommen. Welche Rechnung passt? -> 24 - 7 | 24 + 7 | 7 - 24 | 24 ÷ 7
+                """;
 
         ImportPreviewResponse result = parser.parse(text, "->", "\n");
 
-        assertThat(result.cards()).hasSize(3);
-        assertThat(result.cards().get(0).question()).isEqualTo("2 + 2");
-        assertThat(result.cards().get(0).correctAnswer()).isEqualTo("4");
+        assertThat(result.cards()).hasSize(2);
+        assertThat(result.cards().get(0).question()).isEqualTo("Was bedeutet „notieren“?");
+        assertThat(result.cards().get(0).correctAnswer()).isEqualTo("записать");
+        assertThat(result.cards().get(0).wrongAnswer1()).isEqualTo("проверить");
+        assertThat(result.cards().get(0).wrongAnswer2()).isEqualTo("вычислить");
+        assertThat(result.cards().get(0).wrongAnswer3()).isEqualTo("сравнить");
         assertThat(result.warnings()).isEmpty();
     }
 
     @Test
-    void trimsWhitespaceAroundQuestionsAndAnswers() {
-        ImportPreviewResponse result = parser.parse("  x  ::  y  ", "::", "\n");
+    void rejectsRowsWithOnlyTwoWrongAnswers() {
+        ImportPreviewResponse result = parser.parse("Question -> right | wrong1 | wrong2", "->", "\n");
 
-        assertThat(result.cards()).singleElement()
-                .satisfies(card -> {
-                    assertThat(card.question()).isEqualTo("x");
-                    assertThat(card.correctAnswer()).isEqualTo("y");
-                });
+        assertThat(result.cards()).isEmpty();
+        assertThat(result.warnings()).singleElement()
+                .satisfies(warning -> assertThat(warning)
+                        .contains("Line 1")
+                        .contains("expected exactly 4 answers"));
     }
 
     @Test
-    void skipsLinesWithoutSeparatorAndReportsThem() {
-        ImportPreviewResponse result = parser.parse("good = answer\nno separator here", "=", "\n");
+    void rejectsRowsWithDuplicateAnswers() {
+        ImportPreviewResponse result = parser.parse("Question -> right | wrong1 | right | wrong3", "->", "\n");
 
-        assertThat(result.cards()).hasSize(1);
-        assertThat(result.warnings()).hasSize(1);
-        assertThat(result.warnings().get(0)).contains("no answer separator");
+        assertThat(result.cards()).isEmpty();
+        assertThat(result.warnings()).singleElement()
+                .satisfies(warning -> assertThat(warning)
+                        .contains("Line 1")
+                        .contains("all 4 answers must be different"));
     }
 
     @Test
-    void skipsEmptyQuestionOrAnswer() {
-        ImportPreviewResponse result = parser.parse(" = answer\nquestion = ", "=", "\n");
+    void rejectsEmptyQuestionOrEmptyAnswerWithLineNumbers() {
+        ImportPreviewResponse result = parser.parse("""
+                 -> right | wrong1 | wrong2 | wrong3
+                Question -> right |  | wrong2 | wrong3
+                """, "->", "\n");
 
         assertThat(result.cards()).isEmpty();
         assertThat(result.warnings()).hasSize(2);
+        assertThat(result.warnings().get(0)).contains("Line 1").contains("empty question");
+        assertThat(result.warnings().get(1)).contains("Line 2").contains("answers must be non-empty");
     }
 
     @Test
-    void ignoresBlankCardsFromTrailingSeparators() {
-        ImportPreviewResponse result = parser.parse("a - b;;c - d;", "-", ";");
+    void skipsRowsWithoutArrowSeparator() {
+        ImportPreviewResponse result = parser.parse("Question = right | wrong1 | wrong2 | wrong3", "->", "\n");
 
-        assertThat(result.cards()).hasSize(2);
-        assertThat(result.warnings()).isEmpty();
-    }
-
-    @Test
-    void splitsOnlyOnTheFirstSeparatorOccurrence() {
-        ImportPreviewResponse result = parser.parse("1 + 1 = 2 = maybe", "=", "\n");
-
-        assertThat(result.cards()).singleElement()
-                .satisfies(card -> {
-                    assertThat(card.question()).isEqualTo("1 + 1");
-                    assertThat(card.correctAnswer()).isEqualTo("2 = maybe");
-                });
+        assertThat(result.cards()).isEmpty();
+        assertThat(result.warnings()).singleElement()
+                .satisfies(warning -> assertThat(warning)
+                        .contains("Line 1")
+                        .contains("missing -> separator"));
     }
 }

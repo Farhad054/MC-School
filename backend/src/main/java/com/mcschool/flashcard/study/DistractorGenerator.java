@@ -31,6 +31,12 @@ public class DistractorGenerator {
      */
     public List<String> buildOptions(Card card, List<Card> studentCards) {
         String correct = card.getCorrectAnswer();
+        if (card.hasSavedWrongAnswers()) {
+            List<String> options = new ArrayList<>(List.of(correct, card.getWrongAnswer1(),
+                    card.getWrongAnswer2(), card.getWrongAnswer3()));
+            Collections.shuffle(options);
+            return options;
+        }
 
         // Distinct answers from the other cards, excluding the correct one.
         Set<String> distinctWrongAnswers = new LinkedHashSet<>();

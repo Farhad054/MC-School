@@ -55,6 +55,15 @@ public class Card {
     @Column(name = "correct_answer", nullable = false, length = 500)
     private String correctAnswer;
 
+    @Column(name = "wrong_answer1", length = 500)
+    private String wrongAnswer1;
+
+    @Column(name = "wrong_answer2", length = 500)
+    private String wrongAnswer2;
+
+    @Column(name = "wrong_answer3", length = 500)
+    private String wrongAnswer3;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private CardStatus status;
@@ -85,13 +94,17 @@ public class Card {
     @Column(nullable = false)
     private Long version;
 
-    private Card(Homework homework, User createdByTeacher, String question, String correctAnswer) {
+    private Card(Homework homework, User createdByTeacher, String question, String correctAnswer,
+                 String wrongAnswer1, String wrongAnswer2, String wrongAnswer3) {
         this.id = UUID.randomUUID();
         this.homework = homework;
         this.student = homework.getStudent();
         this.createdByTeacher = createdByTeacher;
         this.question = question;
         this.correctAnswer = correctAnswer;
+        this.wrongAnswer1 = wrongAnswer1;
+        this.wrongAnswer2 = wrongAnswer2;
+        this.wrongAnswer3 = wrongAnswer3;
         this.status = CardStatus.ACTIVE;
         this.repetitionNumber = 0;
         // New homework cards first become due on the homework's start date.
@@ -99,7 +112,13 @@ public class Card {
     }
 
     public static Card create(Homework homework, User createdByTeacher, String question, String correctAnswer) {
-        return new Card(homework, createdByTeacher, question.strip(), correctAnswer.strip());
+        return new Card(homework, createdByTeacher, question.strip(), correctAnswer.strip(), null, null, null);
+    }
+
+    public static Card createImported(Homework homework, User createdByTeacher, String question, String correctAnswer,
+                                      String wrongAnswer1, String wrongAnswer2, String wrongAnswer3) {
+        return new Card(homework, createdByTeacher, question.strip(), correctAnswer.strip(),
+                wrongAnswer1.strip(), wrongAnswer2.strip(), wrongAnswer3.strip());
     }
 
     /** Teacher edits the question and/or answer; the review schedule is left untouched. */
@@ -123,6 +142,10 @@ public class Card {
     /** Pilot/testing helper: makes the card due without changing its learning state. */
     public void markDueOn(LocalDate dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public boolean hasSavedWrongAnswers() {
+        return wrongAnswer1 != null && wrongAnswer2 != null && wrongAnswer3 != null;
     }
 
     public boolean isDueOn(LocalDate day) {

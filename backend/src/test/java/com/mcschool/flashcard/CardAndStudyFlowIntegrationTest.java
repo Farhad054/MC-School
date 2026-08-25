@@ -16,7 +16,9 @@ import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -117,11 +119,15 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .header("Authorization", "Bearer " + teacherToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"rawText": "2+2 -> 4\\n3+3 -> 6\\nbad line", "questionAnswerSeparator": "->", "cardSeparator": "\\n"}
+                                {"rawText": "2+2 -> 4 | 3 | 5 | 6\\n3+3 -> 6 | 5 | 7 | 9\\nbad line", "questionAnswerSeparator": "->", "cardSeparator": "\\n"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cards.length()").value(2))
                 .andExpect(jsonPath("$.cards[0].question").value("2+2"))
+                .andExpect(jsonPath("$.cards[0].correctAnswer").value("4"))
+                .andExpect(jsonPath("$.cards[0].wrongAnswer1").value("3"))
+                .andExpect(jsonPath("$.cards[0].wrongAnswer2").value("5"))
+                .andExpect(jsonPath("$.cards[0].wrongAnswer3").value("6"))
                 .andExpect(jsonPath("$.warnings.length()").value(1));
     }
 
@@ -133,8 +139,8 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"cards": [
-                                    {"question": "2+2", "correctAnswer": "4"},
-                                    {"question": "3+3", "correctAnswer": "6"}
+                                    {"question": "2+2", "correctAnswer": "4", "wrongAnswer1": "3", "wrongAnswer2": "5", "wrongAnswer3": "6"},
+                                    {"question": "3+3", "correctAnswer": "6", "wrongAnswer1": "5", "wrongAnswer2": "7", "wrongAnswer3": "9"}
                                 ]}
                                 """))
                 .andExpect(status().isCreated())
@@ -149,6 +155,26 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].totalCards").value(2));
+    }
+
+    @Test
+    void scheduledAndPracticeSessionsUseSavedImportOptionsOnly() throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        importFourCardsWithSavedOptions(homeworkId);
+        Map<UUID, String> answers = answersForHomework(homeworkId);
+        Map<String, Set<String>> expectedOptionsByQuestion = expectedOptionsForHomework(homeworkId);
+
+        String scheduledStart = postAndReturn("/api/v1/study/sessions", studentToken,
+                "{\"type\": \"SCHEDULED\"}", status().isCreated());
+        UUID scheduledSessionId = UUID.fromString(JsonPath.read(scheduledStart, "$.id"));
+        assertCurrentQuestionUsesSavedOptions(scheduledSessionId, expectedOptionsByQuestion);
+        playSessionAnsweringCorrectly(scheduledSessionId, answers);
+
+        String practiceStart = postAndReturn("/api/v1/study/sessions", studentToken,
+                "{\"type\": \"PRACTICE\", \"homeworkId\": \"" + homeworkId + "\"}",
+                status().isCreated());
+        UUID practiceSessionId = UUID.fromString(JsonPath.read(practiceStart, "$.id"));
+        assertCurrentQuestionUsesSavedOptions(practiceSessionId, expectedOptionsByQuestion);
     }
 
     @Test
@@ -674,6 +700,51 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .content("{\"question\": \"" + question + "\", \"correctAnswer\": \"" + answer + "\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+    }
+
+    private void importFourCardsWithSavedOptions(UUID homeworkId) throws Exception {
+        mockMvc.perform(post("/api/v1/homeworks/{id}/cards/import", homeworkId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cards": [
+                                    {"question": "q1", "correctAnswer": "a1", "wrongAnswer1": "w1a", "wrongAnswer2": "w1b", "wrongAnswer3": "w1c"},
+                                    {"question": "q2", "correctAnswer": "a2", "wrongAnswer1": "w2a", "wrongAnswer2": "w2b", "wrongAnswer3": "w2c"},
+                                    {"question": "q3", "correctAnswer": "a3", "wrongAnswer1": "w3a", "wrongAnswer2": "w3b", "wrongAnswer3": "w3c"},
+                                    {"question": "q4", "correctAnswer": "a4", "wrongAnswer1": "w4a", "wrongAnswer2": "w4b", "wrongAnswer3": "w4c"}
+                                ]}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.length()").value(4));
+    }
+
+    private Map<UUID, String> answersForHomework(UUID homeworkId) {
+        Map<UUID, String> answers = new HashMap<>();
+        cardRepository.findAllByHomeworkIdAndArchivedFalseOrderByCreatedAtDesc(homeworkId)
+                .forEach(card -> answers.put(card.getId(), card.getCorrectAnswer()));
+        return answers;
+    }
+
+    private Map<String, Set<String>> expectedOptionsForHomework(UUID homeworkId) {
+        Map<String, Set<String>> expected = new HashMap<>();
+        cardRepository.findAllByHomeworkIdAndArchivedFalseOrderByCreatedAtDesc(homeworkId)
+                .forEach(card -> expected.put(card.getQuestion(), Set.of(card.getCorrectAnswer(),
+                        card.getWrongAnswer1(), card.getWrongAnswer2(), card.getWrongAnswer3())));
+        return expected;
+    }
+
+    private void assertCurrentQuestionUsesSavedOptions(UUID sessionId, Map<String, Set<String>> expectedByQuestion)
+            throws Exception {
+        String question = mockMvc.perform(get("/api/v1/study/sessions/{id}/current-question", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.options.length()").value(4))
+                .andReturn().getResponse().getContentAsString();
+        String questionText = JsonPath.read(question, "$.question");
+        List<String> options = JsonPath.read(question, "$.options");
+
+        assertThat(expectedByQuestion).containsKey(questionText);
+        assertThat(options).containsExactlyInAnyOrderElementsOf(expectedByQuestion.get(questionText));
     }
 
     /** Plays a session to completion, always choosing the correct answer for each card shown. */

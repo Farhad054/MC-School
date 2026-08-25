@@ -92,6 +92,9 @@ export interface PilotDueCardResult {
 export interface ParsedCard {
   question: string;
   correctAnswer: string;
+  wrongAnswer1: string;
+  wrongAnswer2: string;
+  wrongAnswer3: string;
 }
 
 export interface ImportPreview {

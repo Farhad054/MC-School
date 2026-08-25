@@ -56,7 +56,8 @@ public class CardService {
         Homework homework = requireOwnedHomework(teacher.id(), homeworkId);
         return request.cards().stream()
                 .map(parsed -> cardRepository.save(
-                        Card.create(homework, teacherEntity, parsed.question(), parsed.correctAnswer())))
+                        Card.createImported(homework, teacherEntity, parsed.question(), parsed.correctAnswer(),
+                                parsed.wrongAnswer1(), parsed.wrongAnswer2(), parsed.wrongAnswer3())))
                 .map(CardResponse::from)
                 .toList();
     }
