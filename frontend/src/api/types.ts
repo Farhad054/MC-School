@@ -4,6 +4,7 @@ export type Role = 'ADMIN' | 'TEACHER' | 'STUDENT';
 export type UserStatus = 'INVITED' | 'ACTIVE';
 export type Language = 'DE' | 'RU';
 export type CardStatus = 'ACTIVE' | 'LEARNED';
+export type HomeworkStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED';
 export type SessionType = 'SCHEDULED' | 'PRACTICE';
 export type SessionStatus = 'IN_PROGRESS' | 'COMPLETED';
 export type DailyReviewStatus = 'COMPLETED' | 'PARTIAL' | 'MISSED';
@@ -59,6 +60,7 @@ export interface Homework {
   notStarted: number;
   inProgress: number;
   learned: number;
+  status: HomeworkStatus;
 }
 
 export interface CardSummary {

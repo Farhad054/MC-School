@@ -86,6 +86,9 @@ const ru = {
   'homeworks.notStarted': 'Новые',
   'homeworks.inProgress': 'В процессе',
   'homeworks.learned': 'Выучены',
+  'homeworks.status.PENDING': 'Ожидается',
+  'homeworks.status.ACTIVE': 'Активна',
+  'homeworks.status.COMPLETED': 'Завершена',
 
   'createCards.manual': 'Вручную',
   'createCards.import': 'Импорт текстом',
@@ -225,6 +228,9 @@ const de: Record<keyof typeof ru, string> = {
   'homeworks.notStarted': 'Neu',
   'homeworks.inProgress': 'In Arbeit',
   'homeworks.learned': 'Gelernt',
+  'homeworks.status.PENDING': 'Geplant',
+  'homeworks.status.ACTIVE': 'Aktiv',
+  'homeworks.status.COMPLETED': 'Abgeschlossen',
 
   'createCards.manual': 'Manuell',
   'createCards.import': 'Textimport',

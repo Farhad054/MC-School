@@ -53,6 +53,9 @@ export function HomeworkDetailPage() {
 
       {homework && (
         <div className="panel row center">
+          <span className={`pill ${homeworkStatusClass(homework.status)}`}>
+            {t(`homeworks.status.${homework.status}`)}
+          </span>
           <SummaryStat label={t('homeworks.total')} value={homework.totalCards} />
           <SummaryStat label={t('homeworks.notStarted')} value={homework.notStarted} />
           <SummaryStat label={t('homeworks.inProgress')} value={homework.inProgress} />
@@ -90,4 +93,14 @@ function SummaryStat({ label, value }: { label: string; value: number }) {
       <div className="muted" style={{ fontSize: 13 }}>{label}</div>
     </div>
   );
+}
+
+function homeworkStatusClass(status: Homework['status']) {
+  if (status === 'COMPLETED') {
+    return 'pill--learned';
+  }
+  if (status === 'ACTIVE') {
+    return 'pill--active';
+  }
+  return 'pill--pending';
 }

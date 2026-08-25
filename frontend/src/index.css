@@ -310,6 +310,11 @@ h2 {
   color: #1d4ed8;
 }
 
+.pill--pending {
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .pill--learned {
   background: #f0fdf4;
   color: var(--green-dark);

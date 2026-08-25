@@ -174,6 +174,9 @@ export function StudentDetailPage() {
                   {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
                 </div>
               </div>
+              <span className={`pill ${homeworkStatusClass(homework.status)}`}>
+                {t(`homeworks.status.${homework.status}`)}
+              </span>
             </Link>
           ))
         )}
@@ -205,6 +208,16 @@ function statusClass(status: DailyReviewStatus) {
     return 'pill--active';
   }
   return 'pill--wrong';
+}
+
+function homeworkStatusClass(status: Homework['status']) {
+  if (status === 'COMPLETED') {
+    return 'pill--learned';
+  }
+  if (status === 'ACTIVE') {
+    return 'pill--active';
+  }
+  return 'pill--pending';
 }
 
 function SummaryStat({ label, value }: { label: string; value: number }) {
