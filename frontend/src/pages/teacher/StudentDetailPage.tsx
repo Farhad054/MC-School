@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { Card, CardSummary, DailyReviewHistoryItem, DailyReviewStatus, Homework } from '../../api/types';
+import type { CardSummary, DailyReviewHistoryItem, DailyReviewStatus, Homework } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
-import { CardCreator } from './CardCreator';
-import { CardRow } from './CardRow';
 
 /** Minimum cards a student needs before any session can start (mirrors the backend). */
 const MIN_CARDS_TO_START = 4;
@@ -13,10 +11,9 @@ const MIN_CARDS_TO_START = 4;
 /** A single student's cards: status summary, add-cards panel, and the editable card list. */
 export function StudentDetailPage() {
   const { studentId = '' } = useParams();
+  const navigate = useNavigate();
   const { language, t } = useI18n();
-  const [cards, setCards] = useState<Card[]>([]);
   const [homeworks, setHomeworks] = useState<Homework[]>([]);
-  const [selectedHomeworkId, setSelectedHomeworkId] = useState<string | null>(null);
   const [newHomeworkDate, setNewHomeworkDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [summary, setSummary] = useState<CardSummary | null>(null);
   const [reviewHistory, setReviewHistory] = useState<DailyReviewHistoryItem[]>([]);
@@ -31,17 +28,11 @@ export function StudentDetailPage() {
       api.cards.summaryForStudent(studentId),
       api.students.reviewHistory(studentId),
     ]);
-    const nextSelectedHomeworkId = selectedHomeworkId ?? homeworkList[0]?.id ?? null;
-    const cardList = nextSelectedHomeworkId
-      ? await api.cards.listForHomework(nextSelectedHomeworkId)
-      : await api.cards.listForStudent(studentId);
     setHomeworks(homeworkList);
-    setSelectedHomeworkId(nextSelectedHomeworkId);
-    setCards(cardList);
     setSummary(cardSummary);
     setReviewHistory(history);
     setLoading(false);
-  }, [studentId, selectedHomeworkId]);
+  }, [studentId]);
 
   useEffect(() => {
     reload().catch((e) => setError(toErrorMessage(e, t)));
@@ -53,25 +44,10 @@ export function StudentDetailPage() {
     setError(null);
     try {
       const homework = await api.homeworks.create(studentId, newHomeworkDate);
-      const [homeworkList, cardSummary, history, cardList] = await Promise.all([
-        api.homeworks.listForStudent(studentId),
-        api.cards.summaryForStudent(studentId),
-        api.students.reviewHistory(studentId),
-        api.cards.listForHomework(homework.id),
-      ]);
-      setSelectedHomeworkId(homework.id);
-      setHomeworks(homeworkList);
-      setSummary(cardSummary);
-      setReviewHistory(history);
-      setCards(cardList);
+      navigate(`/teacher/students/${studentId}/homeworks/${homework.id}`);
     } catch (e) {
       setError(toErrorMessage(e, t));
     }
-  }
-
-  async function selectHomework(homeworkId: string) {
-    setSelectedHomeworkId(homeworkId);
-    setCards(await api.cards.listForHomework(homeworkId));
   }
 
   async function makeOneCardDueToday() {
@@ -179,43 +155,29 @@ export function StudentDetailPage() {
 
       <h2>{t('homeworks.title')}</h2>
       <div className="panel stack">
-        {homeworks.length === 0 ? (
+        {loading ? (
+          <p className="muted">{t('common.loading')}</p>
+        ) : homeworks.length === 0 ? (
           <p className="muted">{t('homeworks.empty')}</p>
         ) : (
           homeworks.map((homework) => (
-            <div key={homework.id} className="stack">
-              <button
-                className={`list-row ${selectedHomeworkId === homework.id ? 'btn--secondary' : ''}`}
-                type="button"
-                onClick={() => selectHomework(homework.id).catch((e) => setError(toErrorMessage(e, t)))}
-                style={{ textAlign: 'left' }}
-              >
-                <div>
-                  <div className="list-row__title">{formatHomeworkDate(homework.startDate, language)}</div>
-                  <div className="muted">
-                    {t('homeworks.total')}: {homework.totalCards} · {t('homeworks.notStarted')}: {homework.notStarted} ·{' '}
-                    {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
-                  </div>
+            <Link
+              key={homework.id}
+              className="list-row"
+              to={`/teacher/students/${studentId}/homeworks/${homework.id}`}
+              style={{ textDecoration: 'none' }}
+            >
+              <div>
+                <div className="list-row__title">{formatHomeworkDate(homework.startDate, language)}</div>
+                <div className="muted">
+                  {t('homeworks.total')}: {homework.totalCards} · {t('homeworks.notStarted')}: {homework.notStarted} ·{' '}
+                  {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
                 </div>
-              </button>
-              {selectedHomeworkId === homework.id && (
-                <div className="stack">
-                  {loading ? (
-                    <p className="muted">{t('common.loading')}</p>
-                  ) : cards.length === 0 ? (
-                    <p className="muted">{t('cards.empty')}</p>
-                  ) : (
-                    cards.map((card) => <CardRow key={card.id} card={card} onChanged={reload} />)
-                  )}
-                </div>
-              )}
-            </div>
+              </div>
+            </Link>
           ))
         )}
       </div>
-
-      <h2>{t('cards.add')}</h2>
-      <CardCreator homeworkId={selectedHomeworkId} onChanged={reload} />
     </div>
   );
 }
