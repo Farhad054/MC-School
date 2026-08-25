@@ -412,6 +412,20 @@ h2 {
   background: #fef2f2;
 }
 
+.answer-feedback {
+  text-align: center;
+  font-weight: 700;
+  margin-top: 8px;
+}
+
+.answer-feedback--correct {
+  color: var(--green-dark);
+}
+
+.answer-feedback--wrong {
+  color: var(--danger);
+}
+
 .result {
   text-align: center;
 }

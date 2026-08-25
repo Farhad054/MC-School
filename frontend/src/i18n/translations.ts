@@ -121,6 +121,8 @@ const ru = {
   'session.progress': '{done} из {total}',
   'session.correct': 'Правильно!',
   'session.wrong': 'Неверно. Правильный ответ:',
+  'session.feedbackCorrect': 'Верно',
+  'session.feedbackWrong': 'Неправильно',
   'session.next': 'Дальше',
   'session.finish': 'Завершить',
 
@@ -268,6 +270,8 @@ const de: Record<keyof typeof ru, string> = {
   'session.progress': '{done} von {total}',
   'session.correct': 'Richtig!',
   'session.wrong': 'Falsch. Richtige Antwort:',
+  'session.feedbackCorrect': 'Richtig',
+  'session.feedbackWrong': 'Falsch',
   'session.next': 'Weiter',
   'session.finish': 'Beenden',
 

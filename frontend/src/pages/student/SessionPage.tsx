@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiRequestError, api } from '../../api/client';
 import type { Question } from '../../api/types';
@@ -6,8 +6,9 @@ import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 
 /**
- * The study screen: choosing an option submits immediately and moves on without
- * revealing per-question feedback. Wrong cards still return later in the session.
+ * The study screen: choosing an option submits immediately, briefly shows
+ * correct/wrong feedback, then advances automatically. Wrong cards still return
+ * later in the session.
  */
 export function SessionPage() {
   const { sessionId = '' } = useParams();
@@ -15,8 +16,14 @@ export function SessionPage() {
   const navigate = useNavigate();
   const [question, setQuestion] = useState<Question | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{
+    correct: boolean;
+    correctAnswer: string;
+    selectedAnswer: string;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const advanceTimer = useRef<number | null>(null);
 
   const goToResult = useCallback(
     () => navigate(`/session/${sessionId}/result`, { replace: true }),
@@ -25,6 +32,7 @@ export function SessionPage() {
 
   const loadQuestion = useCallback(async () => {
     setSelected(null);
+    setFeedback(null);
     try {
       setQuestion(await api.study.currentQuestion(sessionId));
       setError(null);
@@ -45,22 +53,38 @@ export function SessionPage() {
     loadQuestion();
   }, [loadQuestion]);
 
+  useEffect(() => () => {
+    if (advanceTimer.current !== null) {
+      window.clearTimeout(advanceTimer.current);
+    }
+  }, []);
+
   async function onAnswer(option: string) {
-    if (submitting || !question) {
+    if (submitting || feedback || !question) {
       return;
     }
     setSelected(option);
     setSubmitting(true);
     try {
       const answer = await api.study.answer(sessionId, question.cardId, option);
-      if (answer.sessionCompleted) {
-        goToResult();
-      } else {
-        await loadQuestion();
-      }
+      setFeedback({
+        correct: answer.correct,
+        correctAnswer: answer.correctAnswer,
+        selectedAnswer: option,
+      });
+      const delay = answer.correct ? 1000 : 1400;
+      advanceTimer.current = window.setTimeout(() => {
+        advanceTimer.current = null;
+        if (answer.sessionCompleted) {
+          goToResult();
+        } else {
+          void loadQuestion();
+        }
+      }, delay);
     } catch (e) {
       setError(toErrorMessage(e, t));
       setSelected(null);
+      setFeedback(null);
       setSubmitting(false);
     }
   }
@@ -74,6 +98,7 @@ export function SessionPage() {
 
   const answeredForBar = question.answeredCount;
   const progress = Math.round((answeredForBar / question.totalCards) * 100);
+  const locked = submitting || feedback !== null;
 
   return (
     <div className="stack">
@@ -93,14 +118,38 @@ export function SessionPage() {
           <button
             key={option}
             type="button"
-            className={`option ${option === selected ? 'option--selected' : ''}`}
-            disabled={submitting}
+            className={optionClassName(option, selected, feedback)}
+            disabled={locked}
             onClick={() => onAnswer(option)}
           >
             {option}
           </button>
         ))}
       </div>
+
+      {feedback && (
+        <div className={`answer-feedback ${feedback.correct ? 'answer-feedback--correct' : 'answer-feedback--wrong'}`}>
+          {feedback.correct ? t('session.feedbackCorrect') : t('session.feedbackWrong')}
+        </div>
+      )}
     </div>
   );
+}
+
+function optionClassName(
+  option: string,
+  selected: string | null,
+  feedback: { correct: boolean; correctAnswer: string; selectedAnswer: string } | null,
+) {
+  const classes = ['option'];
+  if (!feedback && option === selected) {
+    classes.push('option--selected');
+  }
+  if (feedback && option === feedback.correctAnswer) {
+    classes.push('option--correct');
+  }
+  if (feedback && !feedback.correct && option === feedback.selectedAnswer) {
+    classes.push('option--wrong');
+  }
+  return classes.join(' ');
 }
