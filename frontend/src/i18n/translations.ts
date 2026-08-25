@@ -9,6 +9,7 @@ const ru = {
   'common.cancel': 'Отмена',
   'common.delete': 'Удалить',
   'common.edit': 'Редактировать',
+  'common.yes': 'Да',
   'common.back': 'Назад',
   'common.logout': 'Выйти',
   'common.email': 'Эл. почта',
@@ -74,6 +75,8 @@ const ru = {
   'cards.summary.awaiting': 'Ожидают',
   'cards.summary.learned': 'Выучено',
   'cards.deleteConfirm': 'Удалить эту карточку?',
+  'cards.deletePrompt': 'Удалить карточку?',
+  'cards.deleted': 'Карточка удалена',
   'cards.tooFew': 'Меньше {min} карточек — ученик пока не сможет начать сессию. Добавьте ещё карточки.',
 
   'homeworks.title': 'Домашние задания',
@@ -152,6 +155,7 @@ const de: Record<keyof typeof ru, string> = {
   'common.cancel': 'Abbrechen',
   'common.delete': 'Löschen',
   'common.edit': 'Bearbeiten',
+  'common.yes': 'Ja',
   'common.back': 'Zurück',
   'common.logout': 'Abmelden',
   'common.email': 'E-Mail',
@@ -217,6 +221,8 @@ const de: Record<keyof typeof ru, string> = {
   'cards.summary.awaiting': 'Wartend',
   'cards.summary.learned': 'Gelernt',
   'cards.deleteConfirm': 'Diese Karte löschen?',
+  'cards.deletePrompt': 'Karte löschen?',
+  'cards.deleted': 'Karte gelöscht',
   'cards.tooFew': 'Weniger als {min} Karten — der Schüler kann noch keine Sitzung starten. Füge weitere Karten hinzu.',
 
   'homeworks.title': 'Hausaufgaben',

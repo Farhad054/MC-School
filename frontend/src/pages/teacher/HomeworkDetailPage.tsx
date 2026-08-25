@@ -15,6 +15,7 @@ export function HomeworkDetailPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const homework = useMemo(
     () => homeworks.find((item) => item.id === homeworkId) ?? null,
@@ -48,6 +49,7 @@ export function HomeworkDetailPage() {
       </p>
 
       {error && <div className="banner banner--error">{error}</div>}
+      {message && <div className="banner banner--success">{message}</div>}
 
       <h1>{homework ? formatHomeworkDate(homework.startDate, language) : t('homeworks.title')}</h1>
 
@@ -72,7 +74,14 @@ export function HomeworkDetailPage() {
       ) : cards.length === 0 ? (
         <p className="muted">{t('cards.empty')}</p>
       ) : (
-        cards.map((card) => <CardRow key={card.id} card={card} onChanged={reload} />)
+        cards.map((card) => (
+          <CardRow
+            key={card.id}
+            card={card}
+            onChanged={reload}
+            onDeleted={() => setMessage(t('cards.deleted'))}
+          />
+        ))
       )}
     </div>
   );
