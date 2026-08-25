@@ -141,9 +141,11 @@ export const api = {
   study: {
     today: () => request<Today>('GET', '/study/today'),
     homeworks: () => request<Homework[]>('GET', '/study/homeworks'),
+    homeworkCards: (homeworkId: string) =>
+      request<Card[]>('GET', `/study/homeworks/${homeworkId}/cards`),
     myCards: () => request<Card[]>('GET', '/study/cards'),
-    startSession: (type: SessionType) =>
-      request<Session>('POST', '/study/sessions', { type }),
+    startSession: (type: SessionType, homeworkId?: string) =>
+      request<Session>('POST', '/study/sessions', homeworkId ? { type, homeworkId } : { type }),
     getSession: (sessionId: string) => request<Session>('GET', `/study/sessions/${sessionId}`),
     currentQuestion: (sessionId: string) =>
       request<Question>('GET', `/study/sessions/${sessionId}/current-question`),

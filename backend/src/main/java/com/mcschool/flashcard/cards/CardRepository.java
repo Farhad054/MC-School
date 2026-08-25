@@ -20,6 +20,8 @@ public interface CardRepository extends JpaRepository<Card, UUID> {
 
     List<Card> findAllByHomeworkIdAndArchivedFalseOrderByCreatedAtDesc(UUID homeworkId);
 
+    List<Card> findAllByHomeworkIdAndStudentIdAndArchivedFalseOrderByCreatedAtDesc(UUID homeworkId, UUID studentId);
+
     long countByStudentIdAndArchivedFalse(UUID studentId);
 
     /** Cards that are due for a scheduled session on the given day, oldest due first. */

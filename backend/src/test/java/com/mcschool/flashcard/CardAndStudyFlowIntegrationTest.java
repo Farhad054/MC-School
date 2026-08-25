@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.mcschool.flashcard.cards.CardStatus;
 import com.mcschool.flashcard.cards.CardRepository;
+import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryRepository;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import java.time.LocalDate;
@@ -42,6 +43,8 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
     private UserRepository userRepository;
     @Autowired
     private CardRepository cardRepository;
+    @Autowired
+    private DailyReviewHistoryRepository historyRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
 
@@ -441,6 +444,149 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
             assertThat(card.getRepetitionNumber()).isZero();
             assertThat(card.getDueDate()).isEqualTo(LocalDate.now());
         });
+    }
+
+    @Test
+    void studentOpensOwnHomeworkAndPracticesOnlyThoseCardsWithoutDailyProgress() throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        Map<UUID, String> answers = new HashMap<>();
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "h1", "a1"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "h2", "a2"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "h3", "a3"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "h4", "a4"));
+        UUID otherHomeworkId = createHomework(teacherToken, studentId, LocalDate.now().minusDays(1));
+        createCardInHomework(teacherToken, otherHomeworkId, "other1", "x1");
+        createCardInHomework(teacherToken, otherHomeworkId, "other2", "x2");
+        createCardInHomework(teacherToken, otherHomeworkId, "other3", "x3");
+        createCardInHomework(teacherToken, otherHomeworkId, "other4", "x4");
+
+        mockMvc.perform(get("/api/v1/study/homeworks/{id}/cards", homeworkId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$[?(@.homeworkId == '" + homeworkId + "')].length()").value(4));
+
+        var cardsBefore = cardRepository.findAllByHomeworkIdAndStudentIdAndArchivedFalseOrderByCreatedAtDesc(
+                homeworkId, studentId);
+        Map<UUID, LocalDate> dueDatesBefore = cardsBefore.stream()
+                .collect(java.util.stream.Collectors.toMap(card -> card.getId(), card -> card.getDueDate()));
+        Map<UUID, Integer> repetitionsBefore = cardsBefore.stream()
+                .collect(java.util.stream.Collectors.toMap(card -> card.getId(), card -> card.getRepetitionNumber()));
+        Map<UUID, CardStatus> statusesBefore = cardsBefore.stream()
+                .collect(java.util.stream.Collectors.toMap(card -> card.getId(), card -> card.getStatus()));
+
+        String start = postAndReturn("/api/v1/study/sessions", studentToken,
+                "{\"type\": \"PRACTICE\", \"homeworkId\": \"" + homeworkId + "\"}",
+                status().isCreated());
+        UUID sessionId = UUID.fromString(JsonPath.read(start, "$.id"));
+        assertThat((String) JsonPath.read(start, "$.type")).isEqualTo("PRACTICE");
+        assertThat((Integer) JsonPath.read(start, "$.totalCards")).isEqualTo(4);
+
+        String firstQuestion = mockMvc.perform(get("/api/v1/study/sessions/{id}/current-question", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID firstCardId = UUID.fromString(JsonPath.read(firstQuestion, "$.cardId"));
+        assertThat(answers).containsKey(firstCardId);
+
+        mockMvc.perform(post("/api/v1/study/sessions/{id}/answer", sessionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cardId\": \"" + firstCardId + "\", \"selectedAnswer\": \"wrong\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.correct").value(false))
+                .andExpect(jsonPath("$.sessionCompleted").value(false));
+
+        String nextQuestion = mockMvc.perform(get("/api/v1/study/sessions/{id}/current-question", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID nextCardId = UUID.fromString(JsonPath.read(nextQuestion, "$.cardId"));
+        assertThat(nextCardId).isNotEqualTo(firstCardId);
+        assertThat(answers).containsKey(nextCardId);
+
+        playSessionAnsweringCorrectly(sessionId, answers);
+
+        mockMvc.perform(get("/api/v1/study/sessions/{id}/result", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCards").value(4))
+                .andExpect(jsonPath("$.correctFirstTry").value(3))
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].correct")
+                        .value(false));
+
+        cardRepository.findAllByHomeworkIdAndStudentIdAndArchivedFalseOrderByCreatedAtDesc(
+                homeworkId, studentId).forEach(card -> {
+                    assertThat(card.getDueDate()).isEqualTo(dueDatesBefore.get(card.getId()));
+                    assertThat(card.getRepetitionNumber()).isEqualTo(repetitionsBefore.get(card.getId()));
+                    assertThat(card.getStatus()).isEqualTo(statusesBefore.get(card.getId()));
+                });
+        assertThat(historyRepository.findTop14ByStudentIdOrderByDateDesc(studentId)).isEmpty();
+
+        mockMvc.perform(get("/api/v1/study/today").header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dueCardCount").value(8))
+                .andExpect(jsonPath("$.canStartScheduled").value(true))
+                .andExpect(jsonPath("$.inProgressSessionId").doesNotExist());
+    }
+
+    @Test
+    void studentCannotOpenOrPracticeAnotherStudentsHomework() throws Exception {
+        String otherStudentInvitation = postAndReturn("/api/v1/students", teacherToken,
+                "{\"fullName\": \"Other Student\", \"email\": \"other-homework@test.local\"}",
+                status().isCreated());
+        UUID otherStudentId = UUID.fromString(JsonPath.read(otherStudentInvitation, "$.id"));
+        UUID otherHomeworkId = createHomework(teacherToken, otherStudentId, LocalDate.now());
+        createCardInHomework(teacherToken, otherHomeworkId, "o1", "a1");
+        createCardInHomework(teacherToken, otherHomeworkId, "o2", "a2");
+        createCardInHomework(teacherToken, otherHomeworkId, "o3", "a3");
+        createCardInHomework(teacherToken, otherHomeworkId, "o4", "a4");
+
+        mockMvc.perform(get("/api/v1/study/homeworks/{id}/cards", otherHomeworkId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/v1/study/sessions")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\": \"PRACTICE\", \"homeworkId\": \"" + otherHomeworkId + "\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void homeworkPracticeUsesOnlyNonArchivedCardsFromSelectedHomework() throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        Map<UUID, String> answers = new HashMap<>();
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "h1", "a1"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "h2", "a2"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "h3", "a3"));
+        answers.putAll(createCardInHomework(teacherToken, homeworkId, "h4", "a4"));
+        Map<UUID, String> archived = createCardInHomework(teacherToken, homeworkId, "archived", "archived answer");
+        UUID archivedCardId = archived.keySet().iterator().next();
+
+        mockMvc.perform(delete("/api/v1/cards/{id}", archivedCardId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/study/homeworks/{id}/cards", homeworkId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$[?(@.id == '" + archivedCardId + "')].length()").value(0));
+
+        String start = postAndReturn("/api/v1/study/sessions", studentToken,
+                "{\"type\": \"PRACTICE\", \"homeworkId\": \"" + homeworkId + "\"}",
+                status().isCreated());
+        UUID sessionId = UUID.fromString(JsonPath.read(start, "$.id"));
+        assertThat((Integer) JsonPath.read(start, "$.totalCards")).isEqualTo(4);
+
+        playSessionAnsweringCorrectly(sessionId, answers);
+
+        mockMvc.perform(get("/api/v1/study/sessions/{id}/result", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.review.length()").value(4))
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + archivedCardId + "')].length()").value(0));
     }
 
     @Test

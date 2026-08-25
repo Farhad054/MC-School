@@ -7,6 +7,7 @@ import com.mcschool.flashcard.cards.CardStatus;
 import com.mcschool.flashcard.cards.dto.CardResponse;
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.homeworks.HomeworkRepository;
 import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryService;
 import com.mcschool.flashcard.study.dto.AnswerRequest;
 import com.mcschool.flashcard.study.dto.AnswerResultResponse;
@@ -52,6 +53,7 @@ public class StudyService {
     private final StudySessionRepository sessionRepository;
     private final StudySessionItemRepository itemRepository;
     private final CardRepository cardRepository;
+    private final HomeworkRepository homeworkRepository;
     private final UserRepository userRepository;
     private final Sm2Scheduler sm2Scheduler;
     private final DistractorGenerator distractorGenerator;
@@ -61,6 +63,7 @@ public class StudyService {
     public StudyService(StudySessionRepository sessionRepository,
                         StudySessionItemRepository itemRepository,
                         CardRepository cardRepository,
+                        HomeworkRepository homeworkRepository,
                         UserRepository userRepository,
                         Sm2Scheduler sm2Scheduler,
                         DistractorGenerator distractorGenerator,
@@ -69,6 +72,7 @@ public class StudyService {
         this.sessionRepository = sessionRepository;
         this.itemRepository = itemRepository;
         this.cardRepository = cardRepository;
+        this.homeworkRepository = homeworkRepository;
         this.userRepository = userRepository;
         this.sm2Scheduler = sm2Scheduler;
         this.distractorGenerator = distractorGenerator;
@@ -101,6 +105,16 @@ public class StudyService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<CardResponse> listHomeworkCards(AuthenticatedUser student, UUID homeworkId) {
+        requireOwnedHomework(student.id(), homeworkId);
+        return cardRepository
+                .findAllByHomeworkIdAndStudentIdAndArchivedFalseOrderByCreatedAtDesc(homeworkId, student.id())
+                .stream()
+                .map(CardResponse::from)
+                .toList();
+    }
+
     @Transactional
     public SessionResponse startSession(AuthenticatedUser student, StartSessionRequest request) {
         UUID studentId = student.id();
@@ -108,13 +122,12 @@ public class StudyService {
             throw new ConflictException("SESSION_IN_PROGRESS",
                     "Finish or resume your current session before starting a new one");
         }
-        long availableCards = cardRepository.countAvailableStudyCards(studentId, LocalDate.now());
-        if (availableCards < MIN_CARDS_TO_START) {
+        List<Card> cards = selectCardsForSession(studentId, request);
+        if (availableCardsForSession(studentId, request, cards) < MIN_CARDS_TO_START) {
             throw new ConflictException("NOT_ENOUGH_CARDS",
                     "At least " + MIN_CARDS_TO_START + " cards are needed to start a session");
         }
 
-        List<Card> cards = selectCardsForSession(studentId, request.type());
         User studentEntity = userRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student account no longer exists"));
 
@@ -149,7 +162,9 @@ public class StudyService {
 
         Card card = item.getCard();
         List<String> options = distractorGenerator.buildOptions(card,
-                cardRepository.findAvailableStudyCards(student.id(), LocalDate.now()));
+                itemRepository.findAllBySessionId(sessionId).stream()
+                        .map(StudySessionItem::getCard)
+                        .toList());
         int answered = (int) itemRepository.countBySessionIdAndState(sessionId, ItemState.ANSWERED_CORRECT);
         return new QuestionResponse(card.getId(), card.getQuestion(), options, answered, session.getTotalCards());
     }
@@ -199,16 +214,28 @@ public class StudyService {
 
     // --- Internals ---
 
-    private List<Card> selectCardsForSession(UUID studentId, SessionType type) {
-        if (type == SessionType.SCHEDULED) {
+    private List<Card> selectCardsForSession(UUID studentId, StartSessionRequest request) {
+        if (request.type() == SessionType.SCHEDULED) {
             List<Card> due = cardRepository.findDueCards(studentId, LocalDate.now());
             if (due.isEmpty()) {
                 throw new ConflictException("NO_CARDS_DUE", "No cards are due for review today");
             }
             return due;
         }
+        if (request.homeworkId() != null) {
+            requireOwnedHomework(studentId, request.homeworkId());
+            return cardRepository.findAllByHomeworkIdAndStudentIdAndArchivedFalseOrderByCreatedAtDesc(
+                    request.homeworkId(), studentId);
+        }
         // PRACTICE uses the currently available study pool; the schedule is left untouched.
         return cardRepository.findAvailableStudyCards(studentId, LocalDate.now());
+    }
+
+    private long availableCardsForSession(UUID studentId, StartSessionRequest request, List<Card> selectedCards) {
+        if (request.type() == SessionType.SCHEDULED) {
+            return cardRepository.countAvailableStudyCards(studentId, LocalDate.now());
+        }
+        return selectedCards.size();
     }
 
     /** Marks the session completed and, for scheduled sessions, advances the SM-2 schedule. */
@@ -260,5 +287,10 @@ public class StudyService {
     private StudySession requireOwnedSession(UUID studentId, UUID sessionId) {
         return sessionRepository.findByIdAndStudentId(sessionId, studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
+    }
+
+    private void requireOwnedHomework(UUID studentId, UUID homeworkId) {
+        homeworkRepository.findByIdAndStudentId(homeworkId, studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Homework not found"));
     }
 }

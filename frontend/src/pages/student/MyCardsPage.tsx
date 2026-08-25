@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { Homework } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
@@ -33,13 +34,18 @@ export function MyCardsPage() {
       ) : (
         <div className="panel stack">
           {homeworks.map((homework) => (
-            <div key={homework.id} className="list-row">
+            <Link
+              key={homework.id}
+              className="list-row"
+              to={`/student/homeworks/${homework.id}`}
+              style={{ textDecoration: 'none' }}
+            >
               <div className="list-row__title">{homework.startDate}</div>
               <div className="muted">
                 {t('homeworks.total')}: {homework.totalCards} · {t('homeworks.notStarted')}: {homework.notStarted} ·{' '}
                 {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

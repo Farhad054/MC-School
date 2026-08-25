@@ -13,6 +13,7 @@ import { TodayPage } from './pages/student/TodayPage';
 import { SessionPage } from './pages/student/SessionPage';
 import { ResultPage } from './pages/student/ResultPage';
 import { MyCardsPage } from './pages/student/MyCardsPage';
+import { StudentHomeworkDetailPage } from './pages/student/StudentHomeworkDetailPage';
 import { SettingsPage } from './pages/student/SettingsPage';
 
 /** Top-level routes. Public: login and activation. Everything else is role-guarded. */
@@ -106,6 +107,16 @@ export function App() {
           <ProtectedRoute role="STUDENT">
             <Layout>
               <MyCardsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/homeworks/:homeworkId"
+        element={
+          <ProtectedRoute role="STUDENT">
+            <Layout>
+              <StudentHomeworkDetailPage />
             </Layout>
           </ProtectedRoute>
         }
