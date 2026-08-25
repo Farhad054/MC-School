@@ -9,6 +9,8 @@ import com.mcschool.flashcard.cards.dto.ImportPreviewRequest;
 import com.mcschool.flashcard.cards.dto.ImportPreviewResponse;
 import com.mcschool.flashcard.cards.dto.UpdateCardRequest;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.homeworks.Homework;
+import com.mcschool.flashcard.homeworks.HomeworkRepository;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
@@ -28,12 +30,14 @@ public class CardService {
 
     private final CardRepository cardRepository;
     private final UserRepository userRepository;
+    private final HomeworkRepository homeworkRepository;
     private final CardImportParser importParser;
 
     public CardService(CardRepository cardRepository, UserRepository userRepository,
-                       CardImportParser importParser) {
+                       HomeworkRepository homeworkRepository, CardImportParser importParser) {
         this.cardRepository = cardRepository;
         this.userRepository = userRepository;
+        this.homeworkRepository = homeworkRepository;
         this.importParser = importParser;
     }
 
@@ -48,11 +52,19 @@ public class CardService {
     @Transactional
     public List<CardResponse> importCards(AuthenticatedUser teacher, UUID studentId,
                                           ImportCardsRequest request) {
+        Homework homework = homeworkRepository.save(Homework.create(requireOwnedStudent(teacher.id(), studentId),
+                LocalDate.now()));
+        return importCardsIntoHomework(teacher, homework.getId(), request);
+    }
+
+    @Transactional
+    public List<CardResponse> importCardsIntoHomework(AuthenticatedUser teacher, UUID homeworkId,
+                                                      ImportCardsRequest request) {
         User teacherEntity = requireTeacher(teacher.id());
-        User student = requireOwnedStudent(teacher.id(), studentId);
+        Homework homework = requireOwnedHomework(teacher.id(), homeworkId);
         return request.cards().stream()
                 .map(parsed -> cardRepository.save(
-                        Card.create(student, teacherEntity, parsed.question(), parsed.correctAnswer())))
+                        Card.create(homework, teacherEntity, parsed.question(), parsed.correctAnswer())))
                 .map(CardResponse::from)
                 .toList();
     }
@@ -61,10 +73,18 @@ public class CardService {
 
     @Transactional
     public CardResponse createCard(AuthenticatedUser teacher, UUID studentId, CreateCardRequest request) {
+        Homework homework = homeworkRepository.save(Homework.create(requireOwnedStudent(teacher.id(), studentId),
+                LocalDate.now()));
+        return createCardInHomework(teacher, homework.getId(), request);
+    }
+
+    @Transactional
+    public CardResponse createCardInHomework(AuthenticatedUser teacher, UUID homeworkId,
+                                             CreateCardRequest request) {
         User teacherEntity = requireTeacher(teacher.id());
-        User student = requireOwnedStudent(teacher.id(), studentId);
+        Homework homework = requireOwnedHomework(teacher.id(), homeworkId);
         Card card = cardRepository.save(
-                Card.create(student, teacherEntity, request.question(), request.correctAnswer()));
+                Card.create(homework, teacherEntity, request.question(), request.correctAnswer()));
         return CardResponse.from(card);
     }
 
@@ -77,13 +97,21 @@ public class CardService {
     }
 
     @Transactional(readOnly = true)
+    public List<CardResponse> listCardsForHomework(AuthenticatedUser teacher, UUID homeworkId) {
+        Homework homework = requireOwnedHomework(teacher.id(), homeworkId);
+        return cardRepository.findAllByHomeworkIdAndArchivedFalseOrderByCreatedAtDesc(homework.getId()).stream()
+                .map(CardResponse::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public CardSummaryResponse summary(AuthenticatedUser teacher, UUID studentId) {
         requireOwnedStudent(teacher.id(), studentId);
         LocalDate today = LocalDate.now();
         long total = cardRepository.countByStudentIdAndArchivedFalse(studentId);
         long learned = cardRepository.countByStudentIdAndStatusAndArchivedFalse(studentId, CardStatus.LEARNED);
-        long awaiting = cardRepository.countAwaitingRepetition(studentId, today);
-        long dueNow = total - learned - awaiting;
+        long dueNow = cardRepository.countDueCards(studentId, today);
+        long awaiting = total - learned - dueNow;
         return new CardSummaryResponse(total, dueNow, awaiting, learned);
     }
 
@@ -129,5 +157,13 @@ public class CardService {
                 .filter(card -> card.getStudent().getTeacher() != null
                         && card.getStudent().getTeacher().getId().equals(teacherId))
                 .orElseThrow(() -> new ResourceNotFoundException("Card not found"));
+    }
+
+    private Homework requireOwnedHomework(UUID teacherId, UUID homeworkId) {
+        return homeworkRepository.findById(homeworkId)
+                .filter(homework -> homework.getStudent().getTeacher() != null
+                        && homework.getStudent().getTeacher().getId().equals(teacherId))
+                .filter(homework -> !homework.getStudent().isArchived())
+                .orElseThrow(() -> new ResourceNotFoundException("Homework not found"));
     }
 }

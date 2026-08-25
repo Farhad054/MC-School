@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { Card, CardSummary, DailyReviewHistoryItem, DailyReviewStatus } from '../../api/types';
+import type { Card, CardSummary, DailyReviewHistoryItem, DailyReviewStatus, Homework } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 import { CardCreator } from './CardCreator';
@@ -15,6 +15,9 @@ export function StudentDetailPage() {
   const { studentId = '' } = useParams();
   const { language, t } = useI18n();
   const [cards, setCards] = useState<Card[]>([]);
+  const [homeworks, setHomeworks] = useState<Homework[]>([]);
+  const [selectedHomeworkId, setSelectedHomeworkId] = useState<string | null>(null);
+  const [newHomeworkDate, setNewHomeworkDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [summary, setSummary] = useState<CardSummary | null>(null);
   const [reviewHistory, setReviewHistory] = useState<DailyReviewHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -23,21 +26,53 @@ export function StudentDetailPage() {
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    const [cardList, cardSummary, history] = await Promise.all([
-      api.cards.listForStudent(studentId),
+    const [homeworkList, cardSummary, history] = await Promise.all([
+      api.homeworks.listForStudent(studentId),
       api.cards.summaryForStudent(studentId),
       api.students.reviewHistory(studentId),
     ]);
+    const nextSelectedHomeworkId = selectedHomeworkId ?? homeworkList[0]?.id ?? null;
+    const cardList = nextSelectedHomeworkId
+      ? await api.cards.listForHomework(nextSelectedHomeworkId)
+      : await api.cards.listForStudent(studentId);
+    setHomeworks(homeworkList);
+    setSelectedHomeworkId(nextSelectedHomeworkId);
     setCards(cardList);
     setSummary(cardSummary);
     setReviewHistory(history);
     setLoading(false);
-  }, [studentId]);
+  }, [studentId, selectedHomeworkId]);
 
   useEffect(() => {
     reload().catch((e) => setError(toErrorMessage(e, t)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload]);
+
+  async function createHomework(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    try {
+      const homework = await api.homeworks.create(studentId, newHomeworkDate);
+      const [homeworkList, cardSummary, history, cardList] = await Promise.all([
+        api.homeworks.listForStudent(studentId),
+        api.cards.summaryForStudent(studentId),
+        api.students.reviewHistory(studentId),
+        api.cards.listForHomework(homework.id),
+      ]);
+      setSelectedHomeworkId(homework.id);
+      setHomeworks(homeworkList);
+      setSummary(cardSummary);
+      setReviewHistory(history);
+      setCards(cardList);
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    }
+  }
+
+  async function selectHomework(homeworkId: string) {
+    setSelectedHomeworkId(homeworkId);
+    setCards(await api.cards.listForHomework(homeworkId));
+  }
 
   async function makeOneCardDueToday() {
     setPilotBusy(true);
@@ -125,8 +160,50 @@ export function StudentDetailPage() {
         </div>
       </div>
 
+      <h2>{t('homeworks.create')}</h2>
+      <div className="panel stack">
+        <form className="row" onSubmit={createHomework}>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">{t('homeworks.startDate')}</span>
+            <input
+              className="input"
+              type="date"
+              value={newHomeworkDate}
+              onChange={(e) => setNewHomeworkDate(e.target.value)}
+              required
+            />
+          </label>
+          <button className="btn" type="submit">{t('homeworks.create')}</button>
+        </form>
+      </div>
+
+      <h2>{t('homeworks.title')}</h2>
+      <div className="panel stack">
+        {homeworks.length === 0 ? (
+          <p className="muted">{t('homeworks.empty')}</p>
+        ) : (
+          homeworks.map((homework) => (
+            <button
+              key={homework.id}
+              className={`list-row ${selectedHomeworkId === homework.id ? 'btn--secondary' : ''}`}
+              type="button"
+              onClick={() => selectHomework(homework.id).catch((e) => setError(toErrorMessage(e, t)))}
+              style={{ textAlign: 'left' }}
+            >
+              <div>
+                <div className="list-row__title">{formatHomeworkDate(homework.startDate, language)}</div>
+                <div className="muted">
+                  {t('homeworks.total')}: {homework.totalCards} · {t('homeworks.notStarted')}: {homework.notStarted} ·{' '}
+                  {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
+                </div>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+
       <h2>{t('cards.add')}</h2>
-      <CardCreator studentId={studentId} onChanged={reload} />
+      <CardCreator homeworkId={selectedHomeworkId} onChanged={reload} />
 
       <h2>{t('cards.title')}</h2>
       {loading ? (
@@ -144,6 +221,14 @@ function formatHistoryDate(date: string, language: 'DE' | 'RU') {
   return new Intl.DateTimeFormat(language === 'DE' ? 'de-DE' : 'ru-RU', {
     day: '2-digit',
     month: '2-digit',
+  }).format(new Date(`${date}T00:00:00`));
+}
+
+function formatHomeworkDate(date: string, language: 'DE' | 'RU') {
+  return new Intl.DateTimeFormat(language === 'DE' ? 'de-DE' : 'ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
   }).format(new Date(`${date}T00:00:00`));
 }
 

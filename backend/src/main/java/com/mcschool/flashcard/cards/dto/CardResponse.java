@@ -12,6 +12,7 @@ import java.util.UUID;
  */
 public record CardResponse(
         UUID id,
+        UUID homeworkId,
         String question,
         String correctAnswer,
         CardStatus status,
@@ -19,7 +20,7 @@ public record CardResponse(
         LocalDate dueDate
 ) {
     public static CardResponse from(Card card) {
-        return new CardResponse(card.getId(), card.getQuestion(), card.getCorrectAnswer(),
+        return new CardResponse(card.getId(), card.getHomework().getId(), card.getQuestion(), card.getCorrectAnswer(),
                 card.getStatus(), card.getRepetitionNumber(), card.getDueDate());
     }
 }

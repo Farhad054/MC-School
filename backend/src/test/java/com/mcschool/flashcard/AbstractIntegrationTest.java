@@ -41,7 +41,7 @@ public abstract class AbstractIntegrationTest {
     @BeforeEach
     void cleanDatabaseBeforeEachTest() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE daily_review_history, study_session_items, study_sessions, cards, users "
+                "TRUNCATE TABLE daily_review_history, study_session_items, study_sessions, cards, homeworks, users "
                         + "RESTART IDENTITY CASCADE");
     }
 }

@@ -7,9 +7,13 @@ import { toErrorMessage } from '../../lib/errors';
 type Tab = 'manual' | 'import';
 
 /** Add cards to a student, either one by one or by pasting "question → answer" text. */
-export function CardCreator({ studentId, onChanged }: { studentId: string; onChanged: () => void }) {
+export function CardCreator({ homeworkId, onChanged }: { homeworkId: string | null; onChanged: () => void }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('manual');
+
+  if (!homeworkId) {
+    return <div className="panel muted">{t('homeworks.selectFirst')}</div>;
+  }
 
   return (
     <div className="panel">
@@ -30,15 +34,15 @@ export function CardCreator({ studentId, onChanged }: { studentId: string; onCha
         </button>
       </div>
       {tab === 'manual' ? (
-        <ManualForm studentId={studentId} onChanged={onChanged} />
+        <ManualForm homeworkId={homeworkId} onChanged={onChanged} />
       ) : (
-        <ImportForm studentId={studentId} onChanged={onChanged} />
+        <ImportForm homeworkId={homeworkId} onChanged={onChanged} />
       )}
     </div>
   );
 }
 
-function ManualForm({ studentId, onChanged }: { studentId: string; onChanged: () => void }) {
+function ManualForm({ homeworkId, onChanged }: { homeworkId: string; onChanged: () => void }) {
   const { t } = useI18n();
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
@@ -50,7 +54,7 @@ function ManualForm({ studentId, onChanged }: { studentId: string; onChanged: ()
     setError(null);
     setSaved(false);
     try {
-      await api.cards.create(studentId, question.trim(), answer.trim());
+      await api.cards.createInHomework(homeworkId, question.trim(), answer.trim());
       setQuestion('');
       setAnswer('');
       setSaved(true);
@@ -77,7 +81,7 @@ function ManualForm({ studentId, onChanged }: { studentId: string; onChanged: ()
   );
 }
 
-function ImportForm({ studentId, onChanged }: { studentId: string; onChanged: () => void }) {
+function ImportForm({ homeworkId, onChanged }: { homeworkId: string; onChanged: () => void }) {
   const { t } = useI18n();
   const [rawText, setRawText] = useState('');
   const [qaSeparator, setQaSeparator] = useState('->');
@@ -103,7 +107,7 @@ function ImportForm({ studentId, onChanged }: { studentId: string; onChanged: ()
     }
     setError(null);
     try {
-      await api.cards.importConfirm(studentId, preview.cards);
+      await api.cards.importConfirmInHomework(homeworkId, preview.cards);
       setPreview(null);
       setRawText('');
       setImported(true);

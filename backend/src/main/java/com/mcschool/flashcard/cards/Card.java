@@ -1,6 +1,7 @@
 package com.mcschool.flashcard.cards;
 
 import com.mcschool.flashcard.users.User;
+import com.mcschool.flashcard.homeworks.Homework;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -44,6 +45,10 @@ public class Card {
     @JoinColumn(name = "created_by_teacher_id", nullable = false)
     private User createdByTeacher;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "homework_id", nullable = false)
+    private Homework homework;
+
     @Column(nullable = false, length = 1000)
     private String question;
 
@@ -80,20 +85,21 @@ public class Card {
     @Column(nullable = false)
     private Long version;
 
-    private Card(User student, User createdByTeacher, String question, String correctAnswer) {
+    private Card(Homework homework, User createdByTeacher, String question, String correctAnswer) {
         this.id = UUID.randomUUID();
-        this.student = student;
+        this.homework = homework;
+        this.student = homework.getStudent();
         this.createdByTeacher = createdByTeacher;
         this.question = question;
         this.correctAnswer = correctAnswer;
         this.status = CardStatus.ACTIVE;
         this.repetitionNumber = 0;
-        // Newly created cards are due immediately so they appear in the next session.
-        this.dueDate = LocalDate.now();
+        // New homework cards first become due on the homework's start date.
+        this.dueDate = homework.getStartDate();
     }
 
-    public static Card create(User student, User createdByTeacher, String question, String correctAnswer) {
-        return new Card(student, createdByTeacher, question.strip(), correctAnswer.strip());
+    public static Card create(Homework homework, User createdByTeacher, String question, String correctAnswer) {
+        return new Card(homework, createdByTeacher, question.strip(), correctAnswer.strip());
     }
 
     /** Teacher edits the question and/or answer; the review schedule is left untouched. */
@@ -120,6 +126,9 @@ public class Card {
     }
 
     public boolean isDueOn(LocalDate day) {
-        return status == CardStatus.ACTIVE && dueDate != null && !dueDate.isAfter(day);
+        if (status != CardStatus.ACTIVE || dueDate == null || dueDate.isAfter(day)) {
+            return false;
+        }
+        return repetitionNumber > 0 || !homework.getStartDate().isAfter(day);
     }
 }

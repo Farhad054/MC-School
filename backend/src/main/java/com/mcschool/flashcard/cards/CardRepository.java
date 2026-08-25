@@ -18,6 +18,8 @@ public interface CardRepository extends JpaRepository<Card, UUID> {
 
     List<Card> findAllByStudentIdAndArchivedFalseOrderByCreatedAtDesc(UUID studentId);
 
+    List<Card> findAllByHomeworkIdAndArchivedFalseOrderByCreatedAtDesc(UUID homeworkId);
+
     long countByStudentIdAndArchivedFalse(UUID studentId);
 
     /** Cards that are due for a scheduled session on the given day, oldest due first. */
@@ -27,6 +29,7 @@ public interface CardRepository extends JpaRepository<Card, UUID> {
               AND c.archived = false
               AND c.status = com.mcschool.flashcard.cards.CardStatus.ACTIVE
               AND c.dueDate <= :day
+              AND (c.repetitionNumber > 0 OR c.homework.startDate <= :day)
             ORDER BY c.dueDate ASC, c.createdAt ASC
             """)
     List<Card> findDueCards(@Param("studentId") UUID studentId, @Param("day") LocalDate day);
@@ -37,8 +40,30 @@ public interface CardRepository extends JpaRepository<Card, UUID> {
               AND c.archived = false
               AND c.status = com.mcschool.flashcard.cards.CardStatus.ACTIVE
               AND c.dueDate <= :day
+              AND (c.repetitionNumber > 0 OR c.homework.startDate <= :day)
             """)
     long countDueCards(@Param("studentId") UUID studentId, @Param("day") LocalDate day);
+
+    @Query("""
+            SELECT c FROM Card c
+            WHERE c.student.id = :studentId
+              AND c.archived = false
+              AND c.status = com.mcschool.flashcard.cards.CardStatus.ACTIVE
+              AND c.dueDate <= :day
+              AND (c.repetitionNumber > 0 OR c.homework.startDate <= :day)
+            ORDER BY c.createdAt DESC
+            """)
+    List<Card> findAvailableStudyCards(@Param("studentId") UUID studentId, @Param("day") LocalDate day);
+
+    @Query("""
+            SELECT COUNT(c) FROM Card c
+            WHERE c.student.id = :studentId
+              AND c.archived = false
+              AND c.status = com.mcschool.flashcard.cards.CardStatus.ACTIVE
+              AND c.dueDate <= :day
+              AND (c.repetitionNumber > 0 OR c.homework.startDate <= :day)
+            """)
+    long countAvailableStudyCards(@Param("studentId") UUID studentId, @Param("day") LocalDate day);
 
     /** A student's non-archived cards (any status) — used to build the distractor pool. */
     List<Card> findAllByStudentIdAndArchivedFalse(UUID studentId);

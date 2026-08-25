@@ -42,11 +42,23 @@ export interface StudentInvitation {
 
 export interface Card {
   id: string;
+  homeworkId: string;
   question: string;
   correctAnswer: string;
   status: CardStatus;
   repetitionNumber: number;
   dueDate: string | null;
+}
+
+export interface Homework {
+  id: string;
+  studentId: string;
+  startDate: string;
+  createdAt: string;
+  totalCards: number;
+  notStarted: number;
+  inProgress: number;
+  learned: number;
 }
 
 export interface CardSummary {

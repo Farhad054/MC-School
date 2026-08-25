@@ -45,10 +45,24 @@ public class CardController {
         return cardService.createCard(caller, studentId, request);
     }
 
+    @PostMapping("/api/v1/homeworks/{homeworkId}/cards")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CardResponse createCardInHomework(@AuthenticationPrincipal AuthenticatedUser caller,
+                                             @PathVariable UUID homeworkId,
+                                             @Valid @RequestBody CreateCardRequest request) {
+        return cardService.createCardInHomework(caller, homeworkId, request);
+    }
+
     @GetMapping("/api/v1/students/{studentId}/cards")
     public List<CardResponse> listCards(@AuthenticationPrincipal AuthenticatedUser caller,
                                         @PathVariable UUID studentId) {
         return cardService.listCards(caller, studentId);
+    }
+
+    @GetMapping("/api/v1/homeworks/{homeworkId}/cards")
+    public List<CardResponse> listCardsForHomework(@AuthenticationPrincipal AuthenticatedUser caller,
+                                                   @PathVariable UUID homeworkId) {
+        return cardService.listCardsForHomework(caller, homeworkId);
     }
 
     @GetMapping("/api/v1/students/{studentId}/cards/summary")
@@ -69,6 +83,14 @@ public class CardController {
                                           @PathVariable UUID studentId,
                                           @Valid @RequestBody ImportCardsRequest request) {
         return cardService.importCards(caller, studentId, request);
+    }
+
+    @PostMapping("/api/v1/homeworks/{homeworkId}/cards/import")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<CardResponse> importCardsIntoHomework(@AuthenticationPrincipal AuthenticatedUser caller,
+                                                      @PathVariable UUID homeworkId,
+                                                      @Valid @RequestBody ImportCardsRequest request) {
+        return cardService.importCardsIntoHomework(caller, homeworkId, request);
     }
 
     @PutMapping("/api/v1/cards/{cardId}")

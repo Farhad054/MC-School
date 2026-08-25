@@ -76,6 +76,16 @@ const ru = {
   'cards.deleteConfirm': 'Удалить эту карточку?',
   'cards.tooFew': 'Меньше {min} карточек — ученик пока не сможет начать сессию. Добавьте ещё карточки.',
 
+  'homeworks.title': 'Домашние задания',
+  'homeworks.create': 'Создать домашку',
+  'homeworks.startDate': 'Дата начала',
+  'homeworks.empty': 'Домашек пока нет',
+  'homeworks.selectFirst': 'Сначала создайте или выберите домашку',
+  'homeworks.total': 'Всего',
+  'homeworks.notStarted': 'Новые',
+  'homeworks.inProgress': 'В процессе',
+  'homeworks.learned': 'Выучены',
+
   'createCards.manual': 'Вручную',
   'createCards.import': 'Импорт текстом',
   'createCards.addOne': 'Добавить карточку',
@@ -203,6 +213,16 @@ const de: Record<keyof typeof ru, string> = {
   'cards.summary.learned': 'Gelernt',
   'cards.deleteConfirm': 'Diese Karte löschen?',
   'cards.tooFew': 'Weniger als {min} Karten — der Schüler kann noch keine Sitzung starten. Füge weitere Karten hinzu.',
+
+  'homeworks.title': 'Hausaufgaben',
+  'homeworks.create': 'Hausaufgabe erstellen',
+  'homeworks.startDate': 'Startdatum',
+  'homeworks.empty': 'Noch keine Hausaufgaben',
+  'homeworks.selectFirst': 'Erstelle oder wähle zuerst eine Hausaufgabe',
+  'homeworks.total': 'Gesamt',
+  'homeworks.notStarted': 'Neu',
+  'homeworks.inProgress': 'In Arbeit',
+  'homeworks.learned': 'Gelernt',
 
   'createCards.manual': 'Manuell',
   'createCards.import': 'Textimport',

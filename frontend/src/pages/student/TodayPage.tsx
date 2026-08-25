@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { SessionType, Today } from '../../api/types';
+import type { Homework, SessionType, Today } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 
@@ -10,13 +10,16 @@ export function TodayPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [today, setToday] = useState<Today | null>(null);
+  const [homeworks, setHomeworks] = useState<Homework[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.study
-      .today()
-      .then(setToday)
+    Promise.all([api.study.today(), api.study.homeworks()])
+      .then(([todayPayload, homeworkPayload]) => {
+        setToday(todayPayload);
+        setHomeworks(homeworkPayload);
+      })
       .catch((e) => setError(toErrorMessage(e, t)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -88,6 +91,25 @@ export function TodayPage() {
       <p className="muted center">
         {t('today.learned')}: {today.learnedCount}
       </p>
+
+      {homeworks.length > 0 && (
+        <>
+          <h2>{t('homeworks.title')}</h2>
+          <div className="panel stack">
+            {homeworks.map((homework) => (
+              <div key={homework.id} className="list-row">
+                <div>
+                  <div className="list-row__title">{homework.startDate}</div>
+                  <div className="muted">
+                    {t('homeworks.total')}: {homework.totalCards} · {t('homeworks.notStarted')}: {homework.notStarted} ·{' '}
+                    {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

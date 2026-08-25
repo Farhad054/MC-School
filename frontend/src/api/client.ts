@@ -4,6 +4,7 @@ import type {
   Card,
   CardSummary,
   DailyReviewHistoryItem,
+  Homework,
   ImportPreview,
   Language,
   PilotDueCardResult,
@@ -128,9 +129,22 @@ export const api = {
       }),
     importConfirm: (studentId: string, cards: ParsedCard[]) =>
       request<Card[]>('POST', `/students/${studentId}/cards/import`, { cards }),
+    listForHomework: (homeworkId: string) =>
+      request<Card[]>('GET', `/homeworks/${homeworkId}/cards`),
+    createInHomework: (homeworkId: string, question: string, correctAnswer: string) =>
+      request<Card>('POST', `/homeworks/${homeworkId}/cards`, { question, correctAnswer }),
+    importConfirmInHomework: (homeworkId: string, cards: ParsedCard[]) =>
+      request<Card[]>('POST', `/homeworks/${homeworkId}/cards/import`, { cards }),
+  },
+  homeworks: {
+    listForStudent: (studentId: string) =>
+      request<Homework[]>('GET', `/students/${studentId}/homeworks`),
+    create: (studentId: string, startDate: string) =>
+      request<Homework>('POST', `/students/${studentId}/homeworks`, { startDate }),
   },
   study: {
     today: () => request<Today>('GET', '/study/today'),
+    homeworks: () => request<Homework[]>('GET', '/study/homeworks'),
     myCards: () => request<Card[]>('GET', '/study/cards'),
     startSession: (type: SessionType) =>
       request<Session>('POST', '/study/sessions', { type }),

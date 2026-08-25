@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
-import type { Card } from '../../api/types';
+import type { Card, Homework } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 
@@ -8,12 +8,15 @@ import { toErrorMessage } from '../../lib/errors';
 export function MyCardsPage() {
   const { t } = useI18n();
   const [cards, setCards] = useState<Card[] | null>(null);
+  const [homeworks, setHomeworks] = useState<Homework[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.study
-      .myCards()
-      .then(setCards)
+    Promise.all([api.study.myCards(), api.study.homeworks()])
+      .then(([cardPayload, homeworkPayload]) => {
+        setCards(cardPayload);
+        setHomeworks(homeworkPayload);
+      })
       .catch((e) => setError(toErrorMessage(e, t)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -28,6 +31,22 @@ export function MyCardsPage() {
   return (
     <div>
       <h1>{t('nav.myCards')}</h1>
+      {homeworks.length > 0 && (
+        <>
+          <h2>{t('homeworks.title')}</h2>
+          <div className="panel stack">
+            {homeworks.map((homework) => (
+              <div key={homework.id} className="list-row">
+                <div className="list-row__title">{homework.startDate}</div>
+                <div className="muted">
+                  {t('homeworks.total')}: {homework.totalCards} · {t('homeworks.notStarted')}: {homework.notStarted} ·{' '}
+                  {t('homeworks.inProgress')}: {homework.inProgress} · {t('homeworks.learned')}: {homework.learned}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       {cards.length === 0 ? (
         <p className="muted">{t('cards.empty')}</p>
       ) : (

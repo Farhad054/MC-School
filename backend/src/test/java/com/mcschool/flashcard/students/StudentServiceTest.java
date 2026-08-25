@@ -15,6 +15,7 @@ import com.mcschool.flashcard.cards.CardRepository;
 import com.mcschool.flashcard.cards.CardStatus;
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.homeworks.Homework;
 import com.mcschool.flashcard.notifications.NotificationService;
 import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryService;
 import com.mcschool.flashcard.students.dto.CreateStudentRequest;
@@ -150,7 +151,7 @@ class StudentServiceTest {
     @Test
     void makeOneCardDueTodayUpdatesOneActiveCardWithoutChangingProgress() {
         User student = activeStudent();
-        Card card = Card.create(student, teacherEntity, "Question", "Answer");
+        Card card = Card.create(Homework.create(student, LocalDate.now()), teacherEntity, "Question", "Answer");
         LocalDate today = LocalDate.now(ZoneId.of("Europe/Berlin"));
         when(userRepository.findById(student.getId())).thenReturn(Optional.of(student));
         when(cardRepository.findFirstByStudentIdAndStatusAndArchivedFalseOrderByCreatedAtAsc(
