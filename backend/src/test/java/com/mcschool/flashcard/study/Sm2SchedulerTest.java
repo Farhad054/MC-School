@@ -25,10 +25,10 @@ class Sm2SchedulerTest {
     }
 
     @Test
-    void wrongFirstAttemptSchedulesTomorrowWithoutProgressing() {
+    void wrongFirstAttemptSchedulesTomorrowAndResetsProgress() {
         Sm2Scheduler.Scheduling result = scheduler.afterReview(3, false, today);
 
-        assertThat(result.repetitionNumber()).isEqualTo(3);
+        assertThat(result.repetitionNumber()).isEqualTo(0);
         assertThat(result.dueDate()).isEqualTo(today.plusDays(1));
         assertThat(result.status()).isEqualTo(CardStatus.ACTIVE);
     }
