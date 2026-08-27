@@ -55,6 +55,12 @@ const ru = {
   'reviewHistory.status.PARTIAL': 'Начал, но не закончил',
   'reviewHistory.status.MISSED': 'Не выполнено',
 
+  'reviewSchedule.title': 'Следующие повторения',
+  'reviewSchedule.empty': 'Будущих повторений пока нет',
+  'reviewSchedule.expected': 'Ожидается',
+  'reviewSchedule.cardCount': '{count} карточек',
+  'reviewSchedule.stage': 'Этап повторения: {stage}',
+
   'pilot.title': 'Pilot / тест',
   'pilot.makeDueToday': 'Сделать 1 карточку на сегодня',
   'pilot.sendReminder': 'Отправить тестовое напоминание',
@@ -203,6 +209,12 @@ const de: Record<keyof typeof ru, string> = {
   'reviewHistory.status.COMPLETED': 'Erledigt',
   'reviewHistory.status.PARTIAL': 'Begonnen, nicht beendet',
   'reviewHistory.status.MISSED': 'Nicht erledigt',
+
+  'reviewSchedule.title': 'Nächste Wiederholungen',
+  'reviewSchedule.empty': 'Noch keine zukünftigen Wiederholungen',
+  'reviewSchedule.expected': 'Geplant',
+  'reviewSchedule.cardCount': '{count} Karten',
+  'reviewSchedule.stage': 'Wiederholungsstufe: {stage}',
 
   'pilot.title': 'Pilot / Test',
   'pilot.makeDueToday': '1 Karte für heute fällig machen',
