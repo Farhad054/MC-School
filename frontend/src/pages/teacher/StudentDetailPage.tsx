@@ -42,7 +42,7 @@ export function StudentDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload]);
 
-  const futureSchedule = buildFutureSchedule(cards);
+  const futureSchedule = buildReviewSchedule(cards);
 
   async function createHomework(event: FormEvent) {
     event.preventDefault();
@@ -223,12 +223,14 @@ export function StudentDetailPage() {
   );
 }
 
-function buildFutureSchedule(cards: Card[]) {
-  const today = localDateString(new Date());
+function buildReviewSchedule(cards: Card[]) {
   const grouped = new Map<string, Card[]>();
 
+  // Show every currently active scheduled card, including cards due today or
+  // already overdue. Previously the UI only displayed dueDate > today, which
+  // hid the most important case: cards that are assigned for the current day.
   cards
-    .filter((card) => card.status === 'ACTIVE' && card.dueDate != null && card.dueDate > today)
+    .filter((card) => card.status === 'ACTIVE' && card.dueDate != null)
     .forEach((card) => {
       const date = card.dueDate as string;
       const existing = grouped.get(date) ?? [];
@@ -242,13 +244,6 @@ function buildFutureSchedule(cards: Card[]) {
       date,
       cards: scheduledCards.sort((a, b) => a.question.localeCompare(b.question)),
     }));
-}
-
-function localDateString(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function formatHistoryDate(date: string, language: 'DE' | 'RU') {
