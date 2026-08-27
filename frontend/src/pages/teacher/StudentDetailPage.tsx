@@ -44,7 +44,7 @@ export function StudentDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload]);
 
-  const futureSchedule = buildReviewSchedule(cards);
+  const futureSchedule = buildFutureReviewSchedule(cards);
 
   async function createHomework(event: FormEvent) {
     event.preventDefault();
@@ -133,38 +133,36 @@ export function StudentDetailPage() {
         )}
       </div>
 
-      <h2>{t('reviewSchedule.title')}</h2>
-      <div className="panel">
-        {loading ? (
-          <p className="muted">{t('common.loading')}</p>
-        ) : futureSchedule.length === 0 ? (
-          <p className="muted">{t('reviewSchedule.empty')}</p>
-        ) : (
-          <div className="history-list">
-            {futureSchedule.map((day) => (
-              <details key={day.date}>
-                <summary className="history-row" style={{ cursor: 'pointer', listStyle: 'none' }}>
-                  <span>{formatHistoryDate(day.date, language)}</span>
-                  <span>{t('reviewSchedule.cardCount', { count: day.cards.length })}</span>
-                  <span className="pill pill--pending">{t('reviewSchedule.expected')}</span>
-                </summary>
-                <div className="stack" style={{ padding: '8px 16px 14px' }}>
-                  {day.cards.map((card) => (
-                    <div key={card.id} className="list-row" style={{ alignItems: 'flex-start' }}>
-                      <div>
-                        <div className="list-row__title">{card.question}</div>
-                        <div className="muted" style={{ fontSize: 13 }}>
-                          {t('reviewSchedule.stage', { stage: card.repetitionNumber })}
+      {futureSchedule.length > 0 && (
+        <>
+          <h2>{t('reviewSchedule.title')}</h2>
+          <div className="panel">
+            <div className="history-list">
+              {futureSchedule.map((day) => (
+                <details key={day.date}>
+                  <summary className="history-row" style={{ cursor: 'pointer', listStyle: 'none' }}>
+                    <span>{formatHistoryDate(day.date, language)}</span>
+                    <span>{t('reviewSchedule.cardCount', { count: day.cards.length })}</span>
+                    <span className="pill pill--pending">{t('reviewSchedule.expected')}</span>
+                  </summary>
+                  <div className="stack" style={{ padding: '8px 16px 14px' }}>
+                    {day.cards.map((card) => (
+                      <div key={card.id} className="list-row" style={{ alignItems: 'flex-start' }}>
+                        <div>
+                          <div className="list-row__title">{card.question}</div>
+                          <div className="muted" style={{ fontSize: 13 }}>
+                            {t('reviewSchedule.stage', { stage: card.repetitionNumber })}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            ))}
+                    ))}
+                  </div>
+                </details>
+              ))}
+            </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       <h2>{t('pilot.title')}</h2>
       <div className="panel stack">
@@ -228,11 +226,12 @@ export function StudentDetailPage() {
   );
 }
 
-function buildReviewSchedule(cards: Card[]) {
+function buildFutureReviewSchedule(cards: Card[]) {
+  const today = localDateString(new Date());
   const grouped = new Map<string, Card[]>();
 
   cards
-    .filter((card) => card.status === 'ACTIVE' && card.dueDate != null)
+    .filter((card) => card.status === 'ACTIVE' && card.dueDate != null && card.dueDate > today)
     .forEach((card) => {
       const date = card.dueDate as string;
       const existing = grouped.get(date) ?? [];
