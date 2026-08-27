@@ -54,6 +54,7 @@ const ru = {
   'reviewHistory.status.COMPLETED': 'Выполнено',
   'reviewHistory.status.PARTIAL': 'Начал, но не закончил',
   'reviewHistory.status.MISSED': 'Не выполнено',
+  'reviewHistory.status.EXPECTED': 'Ожидается',
 
   'reviewSchedule.title': 'Следующие повторения',
   'reviewSchedule.empty': 'Будущих повторений пока нет',
@@ -209,6 +210,7 @@ const de: Record<keyof typeof ru, string> = {
   'reviewHistory.status.COMPLETED': 'Erledigt',
   'reviewHistory.status.PARTIAL': 'Begonnen, nicht beendet',
   'reviewHistory.status.MISSED': 'Nicht erledigt',
+  'reviewHistory.status.EXPECTED': 'Erwartet',
 
   'reviewSchedule.title': 'Nächste Wiederholungen',
   'reviewSchedule.empty': 'Noch keine zukünftigen Wiederholungen',
