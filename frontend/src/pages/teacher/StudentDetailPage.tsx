@@ -8,6 +8,8 @@ import { toErrorMessage } from '../../lib/errors';
 /** Minimum cards a student needs before any session can start (mirrors the backend). */
 const MIN_CARDS_TO_START = 4;
 
+type ReviewHistoryDisplayStatus = DailyReviewStatus | 'EXPECTED';
+
 /** A single student's cards: status summary, review schedule, homework, and pilot controls. */
 export function StudentDetailPage() {
   const { studentId = '' } = useParams();
@@ -115,15 +117,18 @@ export function StudentDetailPage() {
           <p className="muted">{t('reviewHistory.empty')}</p>
         ) : (
           <div className="history-list">
-            {reviewHistory.map((item) => (
-              <div key={item.date} className="history-row">
-                <span>{formatHistoryDate(item.date, language)}</span>
-                <span>{item.completedCount}/{item.dueCount}</span>
-                <span className={`pill ${statusClass(item.status)}`}>
-                  {t(`reviewHistory.status.${item.status}`)}
-                </span>
-              </div>
-            ))}
+            {reviewHistory.map((item) => {
+              const displayStatus = resolveHistoryStatus(item);
+              return (
+                <div key={item.date} className="history-row">
+                  <span>{formatHistoryDate(item.date, language)}</span>
+                  <span>{item.completedCount}/{item.dueCount}</span>
+                  <span className={`pill ${historyStatusClass(displayStatus)}`}>
+                    {t(`reviewHistory.status.${displayStatus}`)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -226,9 +231,6 @@ export function StudentDetailPage() {
 function buildReviewSchedule(cards: Card[]) {
   const grouped = new Map<string, Card[]>();
 
-  // Show every currently active scheduled card, including cards due today or
-  // already overdue. Previously the UI only displayed dueDate > today, which
-  // hid the most important case: cards that are assigned for the current day.
   cards
     .filter((card) => card.status === 'ACTIVE' && card.dueDate != null)
     .forEach((card) => {
@@ -246,6 +248,23 @@ function buildReviewSchedule(cards: Card[]) {
     }));
 }
 
+function resolveHistoryStatus(item: DailyReviewHistoryItem): ReviewHistoryDisplayStatus {
+  const today = localDateString(new Date());
+
+  if (item.date === today && item.dueCount > 0 && item.completedCount === 0) {
+    return 'EXPECTED';
+  }
+
+  return item.status;
+}
+
+function localDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function formatHistoryDate(date: string, language: 'DE' | 'RU') {
   return new Intl.DateTimeFormat(language === 'DE' ? 'de-DE' : 'ru-RU', {
     day: '2-digit',
@@ -261,12 +280,15 @@ function formatHomeworkDate(date: string, language: 'DE' | 'RU') {
   }).format(new Date(`${date}T00:00:00`));
 }
 
-function statusClass(status: DailyReviewStatus) {
+function historyStatusClass(status: ReviewHistoryDisplayStatus) {
   if (status === 'COMPLETED') {
     return 'pill--learned';
   }
   if (status === 'PARTIAL') {
     return 'pill--active';
+  }
+  if (status === 'EXPECTED') {
+    return 'pill--pending';
   }
   return 'pill--wrong';
 }
