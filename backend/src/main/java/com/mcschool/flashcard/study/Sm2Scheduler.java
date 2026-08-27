@@ -20,10 +20,12 @@ import org.springframework.stereotype.Component;
  *   repetition 6  -> next review in 30 days
  * </pre>
  *
- * <p>After the 30-day interval is reached, the interval is capped there. A wrong
- * first attempt keeps the current repetition number and schedules the card for
- * tomorrow. The wrong card is still retried within the same session by
- * {@link StudySessionItem}; voluntary practice sessions never call this scheduler.
+ * <p>After the 30-day interval is reached, the interval is capped there. If the
+ * first attempt is wrong, the card is scheduled for tomorrow and its repetition
+ * streak is fully reset to 0. The student must then build the sequence again from
+ * the beginning: 1 -> 2 -> 4 -> 7 -> 14 -> 30 days. The wrong card is still
+ * retried within the same session by {@link StudySessionItem}; voluntary practice
+ * sessions never call this scheduler.
  */
 @Component
 public class Sm2Scheduler {
@@ -48,7 +50,7 @@ public class Sm2Scheduler {
      */
     public Scheduling afterReview(int currentRepetition, boolean firstAttemptCorrect, LocalDate today) {
         if (!firstAttemptCorrect) {
-            return new Scheduling(currentRepetition, today.plusDays(1), CardStatus.ACTIVE);
+            return new Scheduling(0, today.plusDays(1), CardStatus.ACTIVE);
         }
 
         int newRepetition = Math.min(currentRepetition + 1, MAX_REPETITION);
