@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { CardSummary, DailyReviewHistoryItem, DailyReviewStatus, Homework } from '../../api/types';
+import type { Card, CardSummary, DailyReviewHistoryItem, DailyReviewStatus, Homework } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 
 /** Minimum cards a student needs before any session can start (mirrors the backend). */
 const MIN_CARDS_TO_START = 4;
 
-/** A single student's cards: status summary, add-cards panel, and the editable card list. */
+/** A single student's cards: status summary, review schedule, homework, and pilot controls. */
 export function StudentDetailPage() {
   const { studentId = '' } = useParams();
   const navigate = useNavigate();
   const { language, t } = useI18n();
   const [homeworks, setHomeworks] = useState<Homework[]>([]);
+  const [cards, setCards] = useState<Card[]>([]);
   const [newHomeworkDate, setNewHomeworkDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [summary, setSummary] = useState<CardSummary | null>(null);
   const [reviewHistory, setReviewHistory] = useState<DailyReviewHistoryItem[]>([]);
@@ -23,12 +24,14 @@ export function StudentDetailPage() {
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    const [homeworkList, cardSummary, history] = await Promise.all([
+    const [homeworkList, cardList, cardSummary, history] = await Promise.all([
       api.homeworks.listForStudent(studentId),
+      api.cards.listForStudent(studentId),
       api.cards.summaryForStudent(studentId),
       api.students.reviewHistory(studentId),
     ]);
     setHomeworks(homeworkList);
+    setCards(cardList);
     setSummary(cardSummary);
     setReviewHistory(history);
     setLoading(false);
@@ -38,6 +41,8 @@ export function StudentDetailPage() {
     reload().catch((e) => setError(toErrorMessage(e, t)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload]);
+
+  const futureSchedule = buildFutureSchedule(cards);
 
   async function createHomework(event: FormEvent) {
     event.preventDefault();
@@ -123,6 +128,39 @@ export function StudentDetailPage() {
         )}
       </div>
 
+      <h2>{t('reviewSchedule.title')}</h2>
+      <div className="panel">
+        {loading ? (
+          <p className="muted">{t('common.loading')}</p>
+        ) : futureSchedule.length === 0 ? (
+          <p className="muted">{t('reviewSchedule.empty')}</p>
+        ) : (
+          <div className="history-list">
+            {futureSchedule.map((day) => (
+              <details key={day.date}>
+                <summary className="history-row" style={{ cursor: 'pointer', listStyle: 'none' }}>
+                  <span>{formatHistoryDate(day.date, language)}</span>
+                  <span>{t('reviewSchedule.cardCount', { count: day.cards.length })}</span>
+                  <span className="pill pill--pending">{t('reviewSchedule.expected')}</span>
+                </summary>
+                <div className="stack" style={{ padding: '8px 16px 14px' }}>
+                  {day.cards.map((card) => (
+                    <div key={card.id} className="list-row" style={{ alignItems: 'flex-start' }}>
+                      <div>
+                        <div className="list-row__title">{card.question}</div>
+                        <div className="muted" style={{ fontSize: 13 }}>
+                          {t('reviewSchedule.stage', { stage: card.repetitionNumber })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
+      </div>
+
       <h2>{t('pilot.title')}</h2>
       <div className="panel stack">
         {pilotMessage && <div className="banner banner--success">{pilotMessage}</div>}
@@ -183,6 +221,34 @@ export function StudentDetailPage() {
       </div>
     </div>
   );
+}
+
+function buildFutureSchedule(cards: Card[]) {
+  const today = localDateString(new Date());
+  const grouped = new Map<string, Card[]>();
+
+  cards
+    .filter((card) => card.status === 'ACTIVE' && card.dueDate != null && card.dueDate > today)
+    .forEach((card) => {
+      const date = card.dueDate as string;
+      const existing = grouped.get(date) ?? [];
+      existing.push(card);
+      grouped.set(date, existing);
+    });
+
+  return Array.from(grouped.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, scheduledCards]) => ({
+      date,
+      cards: scheduledCards.sort((a, b) => a.question.localeCompare(b.question)),
+    }));
+}
+
+function localDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function formatHistoryDate(date: string, language: 'DE' | 'RU') {
