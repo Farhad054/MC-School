@@ -672,6 +672,45 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
     // --- Helpers ---
 
     /** Creates four cards for the student and returns a card-id → correct-answer map. */
+    @Test
+    void teacherSetsCardTimeLimitAndTimeoutScoresIncorrect() throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        // A card with a 15-second limit, plus three without, to reach the four-card minimum.
+        String created = mockMvc.perform(post("/api/v1/homeworks/{id}/cards", homeworkId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\": \"timed\", \"correctAnswer\": \"yes\", \"timeLimitSeconds\": 15}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.timeLimitSeconds").value(15))
+                .andReturn().getResponse().getContentAsString();
+        UUID timedCardId = UUID.fromString(JsonPath.read(created, "$.id"));
+        createCardInHomework(teacherToken, homeworkId, "b", "2");
+        createCardInHomework(teacherToken, homeworkId, "c", "3");
+        createCardInHomework(teacherToken, homeworkId, "d", "4");
+
+        // The limit is visible in the teacher's card list.
+        mockMvc.perform(get("/api/v1/homeworks/{id}/cards", homeworkId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(jsonPath("$[?(@.id == '" + timedCardId + "')].timeLimitSeconds", hasItem(15)));
+
+        // Time out on the current card: it is scored incorrect and stays in the session.
+        String start = postAndReturn("/api/v1/study/sessions", studentToken, "{\"type\": \"SCHEDULED\"}",
+                status().isCreated());
+        UUID sessionId = UUID.fromString(JsonPath.read(start, "$.id"));
+        String question = mockMvc.perform(get("/api/v1/study/sessions/{id}/current-question", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andReturn().getResponse().getContentAsString();
+        UUID cardId = UUID.fromString(JsonPath.read(question, "$.cardId"));
+
+        mockMvc.perform(post("/api/v1/study/sessions/{id}/answer", sessionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cardId\": \"" + cardId + "\", \"selectedAnswer\": \"\", \"timedOut\": true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.correct").value(false))
+                .andExpect(jsonPath("$.sessionCompleted").value(false));
+    }
+
     private Map<UUID, String> createFourCards() throws Exception {
         UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
         Map<UUID, String> answers = new HashMap<>();

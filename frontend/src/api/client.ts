@@ -116,8 +116,8 @@ export const api = {
       request<Card[]>('GET', `/students/${studentId}/cards`),
     summaryForStudent: (studentId: string) =>
       request<CardSummary>('GET', `/students/${studentId}/cards/summary`),
-    update: (cardId: string, question: string, correctAnswer: string) =>
-      request<Card>('PUT', `/cards/${cardId}`, { question, correctAnswer }),
+    update: (cardId: string, question: string, correctAnswer: string, timeLimitSeconds: number | null) =>
+      request<Card>('PUT', `/cards/${cardId}`, { question, correctAnswer, timeLimitSeconds }),
     remove: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`),
     importPreview: (rawText: string, questionAnswerSeparator: string, cardSeparator: string) =>
       request<ImportPreview>('POST', '/cards/import/preview', {
@@ -127,8 +127,13 @@ export const api = {
       }),
     listForHomework: (homeworkId: string) =>
       request<Card[]>('GET', `/homeworks/${homeworkId}/cards`),
-    createInHomework: (homeworkId: string, question: string, correctAnswer: string) =>
-      request<Card>('POST', `/homeworks/${homeworkId}/cards`, { question, correctAnswer }),
+    createInHomework: (
+      homeworkId: string,
+      question: string,
+      correctAnswer: string,
+      timeLimitSeconds: number | null,
+    ) =>
+      request<Card>('POST', `/homeworks/${homeworkId}/cards`, { question, correctAnswer, timeLimitSeconds }),
     importConfirmInHomework: (homeworkId: string, cards: ParsedCard[]) =>
       request<Card[]>('POST', `/homeworks/${homeworkId}/cards/import`, { cards }),
   },
@@ -149,10 +154,11 @@ export const api = {
     getSession: (sessionId: string) => request<Session>('GET', `/study/sessions/${sessionId}`),
     currentQuestion: (sessionId: string) =>
       request<Question>('GET', `/study/sessions/${sessionId}/current-question`),
-    answer: (sessionId: string, cardId: string, selectedAnswer: string) =>
+    answer: (sessionId: string, cardId: string, selectedAnswer: string, timedOut = false) =>
       request<AnswerResult>('POST', `/study/sessions/${sessionId}/answer`, {
         cardId,
         selectedAnswer,
+        timedOut,
       }),
     result: (sessionId: string) =>
       request<SessionResult>('GET', `/study/sessions/${sessionId}/result`),

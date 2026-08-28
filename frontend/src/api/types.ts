@@ -49,6 +49,8 @@ export interface Card {
   status: CardStatus;
   repetitionNumber: number;
   dueDate: string | null;
+  /** Optional per-card answer time limit in seconds; null means no limit. */
+  timeLimitSeconds: number | null;
 }
 
 export interface Homework {
@@ -136,6 +138,8 @@ export interface Question {
   options: string[];
   answeredCount: number;
   totalCards: number;
+  /** Countdown limit in seconds for this card; null means no limit. */
+  timeLimitSeconds: number | null;
 }
 
 export interface AnswerResult {
