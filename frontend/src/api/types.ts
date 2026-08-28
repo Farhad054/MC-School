@@ -70,11 +70,20 @@ export interface CardSummary {
   learned: number;
 }
 
+export interface DailyReviewAnswer {
+  cardId: string;
+  question: string;
+  selectedAnswer: string | null;
+  correctAnswer: string;
+  correct: boolean;
+}
+
 export interface DailyReviewHistoryItem {
   date: string;
   dueCount: number;
   completedCount: number;
   status: DailyReviewStatus;
+  answers: DailyReviewAnswer[];
 }
 
 export interface TestReviewReminderResult {
