@@ -7,6 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mcschool.flashcard.study.StudySessionItemRepository;
+import com.mcschool.flashcard.study.StudySessionRepository;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import java.time.Instant;
@@ -20,8 +22,10 @@ class DailyReviewHistoryServiceTest {
 
     private final DailyReviewHistoryRepository historyRepository = mock(DailyReviewHistoryRepository.class);
     private final UserRepository userRepository = mock(UserRepository.class);
+    private final StudySessionRepository sessionRepository = mock(StudySessionRepository.class);
+    private final StudySessionItemRepository itemRepository = mock(StudySessionItemRepository.class);
     private final DailyReviewHistoryService service =
-            new DailyReviewHistoryService(historyRepository, userRepository);
+            new DailyReviewHistoryService(historyRepository, userRepository, sessionRepository, itemRepository, "Europe/Berlin");
 
     private final User teacher = User.invitedTeacher("Teacher", "teacher@test.local",
             "teacher-token", Instant.now().plusSeconds(3600));
@@ -110,6 +114,8 @@ class DailyReviewHistoryServiceTest {
         when(userRepository.findById(student.getId())).thenReturn(Optional.of(student));
         when(historyRepository.findTop14ByStudentIdOrderByDateDesc(student.getId()))
                 .thenReturn(List.of(history));
+        when(sessionRepository.findAllByStudentIdAndStatusAndSessionTypeOrderByCompletedAtDesc(
+                any(), any(), any())).thenReturn(List.of());
 
         var rows = service.listForTeacher(teacher.getId(), student.getId());
 
@@ -117,5 +123,6 @@ class DailyReviewHistoryServiceTest {
         assertThat(rows.get(0).date()).isEqualTo(today);
         assertThat(rows.get(0).dueCount()).isEqualTo(6);
         assertThat(rows.get(0).status()).isEqualTo(DailyReviewStatus.MISSED);
+        assertThat(rows.get(0).answers()).isEmpty();
     }
 }
