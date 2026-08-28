@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -203,7 +205,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(6))
-                .andExpect(jsonPath("$[?(@.homeworkId == '" + homeworkId + "')].length()").value(6));
+                .andExpect(jsonPath("$[?(@.homeworkId == '" + homeworkId + "')]", hasSize(6)));
     }
 
     @Test
@@ -242,7 +244,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/study/homeworks").header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
-                .andExpect(jsonPath("$[?(@.id == '" + futureHomework + "')][0].inProgress").value(1));
+                .andExpect(jsonPath("$[?(@.id == '" + futureHomework + "')].inProgress", hasItem(1)));
 
         mockMvc.perform(get("/api/v1/study/today").header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
@@ -318,7 +320,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         assertThat(sessionId).isNotNull();
         mockMvc.perform(get("/api/v1/study/today")
                         .header("Authorization", "Bearer " + studentToken))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -376,7 +378,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.correctFirstTry").value(4))
                 .andExpect(jsonPath("$.nextReviewDate").value(LocalDate.now().plusDays(1).toString()))
                 .andExpect(jsonPath("$.review.length()").value(4))
-                .andExpect(jsonPath("$.review[?(@.correct == true)].length()").value(4));
+                .andExpect(jsonPath("$.review[?(@.correct == true)]", hasSize(4)));
 
         // Every card advanced to repetition 1, due tomorrow.
         cardRepository.findAllByStudentIdAndArchivedFalse(studentId).forEach(card -> {
@@ -434,12 +436,12 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.correctFirstTry").value(3))
-                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].selectedAnswer")
-                        .value("definitely wrong"))
-                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].correct")
-                        .value(false))
-                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].correctAnswer")
-                        .value(answers.get(firstCardId)));
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')].selectedAnswer",
+                        hasItem("definitely wrong")))
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')].correct",
+                        hasItem(false)))
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')].correctAnswer",
+                        hasItem(answers.get(firstCardId))));
 
         cardRepository.findById(firstCardId).ifPresentOrElse(card -> {
             assertThat(card.getRepetitionNumber()).isZero();
@@ -490,7 +492,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(4))
-                .andExpect(jsonPath("$[?(@.homeworkId == '" + homeworkId + "')].length()").value(4));
+                .andExpect(jsonPath("$[?(@.homeworkId == '" + homeworkId + "')]", hasSize(4)));
 
         var cardsBefore = cardRepository.findAllByHomeworkIdAndStudentIdAndArchivedFalseOrderByCreatedAtDesc(
                 homeworkId, studentId);
@@ -538,8 +540,8 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCards").value(4))
                 .andExpect(jsonPath("$.correctFirstTry").value(3))
-                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')][0].correct")
-                        .value(false));
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + firstCardId + "')].correct",
+                        hasItem(false)));
 
         cardRepository.findAllByHomeworkIdAndStudentIdAndArchivedFalseOrderByCreatedAtDesc(
                 homeworkId, studentId).forEach(card -> {
@@ -561,7 +563,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         String otherStudentInvitation = postAndReturn("/api/v1/students", teacherToken,
                 "{\"fullName\": \"Other Student\", \"email\": \"other-homework@test.local\"}",
                 status().isCreated());
-        UUID otherStudentId = UUID.fromString(JsonPath.read(otherStudentInvitation, "$.id"));
+        UUID otherStudentId = UUID.fromString(JsonPath.read(otherStudentInvitation, "$.student.id"));
         UUID otherHomeworkId = createHomework(teacherToken, otherStudentId, LocalDate.now());
         createCardInHomework(teacherToken, otherHomeworkId, "o1", "a1");
         createCardInHomework(teacherToken, otherHomeworkId, "o2", "a2");
@@ -598,7 +600,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(4))
-                .andExpect(jsonPath("$[?(@.id == '" + archivedCardId + "')].length()").value(0));
+                .andExpect(jsonPath("$[?(@.id == '" + archivedCardId + "')]", hasSize(0)));
 
         String start = postAndReturn("/api/v1/study/sessions", studentToken,
                 "{\"type\": \"PRACTICE\", \"homeworkId\": \"" + homeworkId + "\"}",
@@ -612,7 +614,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.review.length()").value(4))
-                .andExpect(jsonPath("$.review[?(@.cardId == '" + archivedCardId + "')].length()").value(0));
+                .andExpect(jsonPath("$.review[?(@.cardId == '" + archivedCardId + "')]", hasSize(0)));
     }
 
     @Test
