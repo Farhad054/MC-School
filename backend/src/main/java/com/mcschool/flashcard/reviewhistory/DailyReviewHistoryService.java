@@ -1,13 +1,24 @@
 package com.mcschool.flashcard.reviewhistory;
 
+import com.mcschool.flashcard.cards.Card;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.reviewhistory.dto.DailyReviewAnswerResponse;
 import com.mcschool.flashcard.reviewhistory.dto.DailyReviewHistoryResponse;
+import com.mcschool.flashcard.study.SessionStatus;
+import com.mcschool.flashcard.study.SessionType;
+import com.mcschool.flashcard.study.StudySession;
+import com.mcschool.flashcard.study.StudySessionItem;
+import com.mcschool.flashcard.study.StudySessionItemRepository;
+import com.mcschool.flashcard.study.StudySessionRepository;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,11 +27,20 @@ public class DailyReviewHistoryService {
 
     private final DailyReviewHistoryRepository historyRepository;
     private final UserRepository userRepository;
+    private final StudySessionRepository sessionRepository;
+    private final StudySessionItemRepository itemRepository;
+    private final ZoneId reviewZone;
 
     public DailyReviewHistoryService(DailyReviewHistoryRepository historyRepository,
-                                     UserRepository userRepository) {
+                                     UserRepository userRepository,
+                                     StudySessionRepository sessionRepository,
+                                     StudySessionItemRepository itemRepository,
+                                     @Value("${app.notifications.review-reminders.zone}") String reviewZone) {
         this.historyRepository = historyRepository;
         this.userRepository = userRepository;
+        this.sessionRepository = sessionRepository;
+        this.itemRepository = itemRepository;
+        this.reviewZone = ZoneId.of(reviewZone);
     }
 
     @Transactional
@@ -56,8 +76,35 @@ public class DailyReviewHistoryService {
     @Transactional(readOnly = true)
     public List<DailyReviewHistoryResponse> listForTeacher(UUID teacherId, UUID studentId) {
         requireOwnedStudent(teacherId, studentId);
+        List<StudySession> sessions = sessionRepository
+                .findAllByStudentIdAndStatusAndSessionTypeOrderByCompletedAtDesc(
+                        studentId, SessionStatus.COMPLETED, SessionType.SCHEDULED);
+
         return historyRepository.findTop14ByStudentIdOrderByDateDesc(studentId).stream()
-                .map(DailyReviewHistoryResponse::from)
+                .map(history -> DailyReviewHistoryResponse.from(history, answersForDate(history.getDate(), sessions)))
+                .toList();
+    }
+
+    private List<DailyReviewAnswerResponse> answersForDate(LocalDate date, List<StudySession> sessions) {
+        return sessions.stream()
+                .filter(session -> session.getCompletedAt() != null)
+                .filter(session -> session.getCompletedAt().atZone(reviewZone).toLocalDate().equals(date))
+                .findFirst()
+                .map(this::answersForSession)
+                .orElseGet(List::of);
+    }
+
+    private List<DailyReviewAnswerResponse> answersForSession(StudySession session) {
+        return itemRepository.findAllBySessionId(session.getId()).stream()
+                .sorted(Comparator.comparing(StudySessionItem::getCreatedAt)
+                        .thenComparing(StudySessionItem::getId))
+                .map(item -> {
+                    Card card = item.getCard();
+                    String selectedAnswer = item.getFirstSelectedAnswer();
+                    boolean correct = item.isFirstTryClean();
+                    return new DailyReviewAnswerResponse(card.getId(), card.getQuestion(), selectedAnswer,
+                            card.getCorrectAnswer(), correct);
+                })
                 .toList();
     }
 
