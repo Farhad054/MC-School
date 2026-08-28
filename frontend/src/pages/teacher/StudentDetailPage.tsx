@@ -20,6 +20,7 @@ export function StudentDetailPage() {
   const [newHomeworkDate, setNewHomeworkDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [summary, setSummary] = useState<CardSummary | null>(null);
   const [reviewHistory, setReviewHistory] = useState<DailyReviewHistoryItem[]>([]);
+  const [openHistoryDate, setOpenHistoryDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pilotMessage, setPilotMessage] = useState<string | null>(null);
   const [pilotBusy, setPilotBusy] = useState(false);
@@ -89,6 +90,29 @@ export function StudentDetailPage() {
     }
   }
 
+  function downloadReviewTable(item: DailyReviewHistoryItem) {
+    const rows = [
+      [historyText(language, 'Вопрос', 'Frage'), historyText(language, 'Ответ ученика', 'Antwort des Schülers'),
+        historyText(language, 'Правильный ответ', 'Richtige Antwort'), historyText(language, 'Результат', 'Ergebnis')],
+      ...item.answers.map((answer) => [
+        answer.question,
+        answer.selectedAnswer ?? historyText(language, 'Ответ не сохранён', 'Antwort nicht gespeichert'),
+        answer.correctAnswer,
+        answer.correct ? historyText(language, 'Правильно', 'Richtig') : historyText(language, 'Неправильно', 'Falsch'),
+      ]),
+    ];
+    const csv = rows.map((row) => row.map(csvCell).join(';')).join('\r\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `review-${item.date}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
       <p>
@@ -119,13 +143,72 @@ export function StudentDetailPage() {
           <div className="history-list">
             {reviewHistory.map((item) => {
               const displayStatus = resolveHistoryStatus(item);
+              const isOpen = openHistoryDate === item.date;
+              const correctCount = item.answers.filter((answer) => answer.correct).length;
+              const wrongCount = item.answers.filter((answer) => !answer.correct).length;
               return (
-                <div key={item.date} className="history-row">
-                  <span>{formatHistoryDate(item.date, language)}</span>
-                  <span>{item.completedCount}/{item.dueCount}</span>
-                  <span className={`pill ${historyStatusClass(displayStatus)}`}>
-                    {t(`reviewHistory.status.${displayStatus}`)}
-                  </span>
+                <div key={item.date}>
+                  <button
+                    type="button"
+                    className="history-row"
+                    onClick={() => setOpenHistoryDate(isOpen ? null : item.date)}
+                    style={{ width: '100%', border: 0, background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+                  >
+                    <span>{formatHistoryDate(item.date, language)}</span>
+                    <span>
+                      {item.answers.length > 0
+                        ? `${historyText(language, 'Правильных ответов', 'Richtige Antworten')}: ${correctCount}; ${historyText(language, 'Неправильных ответов', 'Falsche Antworten')}: ${wrongCount}`
+                        : `${item.completedCount}/${item.dueCount}`}
+                    </span>
+                    <span className={`pill ${historyStatusClass(displayStatus)}`}>
+                      {t(`reviewHistory.status.${displayStatus}`)}
+                    </span>
+                  </button>
+
+                  {isOpen && (
+                    <div style={{ padding: '10px 16px 16px' }}>
+                      {item.answers.length === 0 ? (
+                        <p className="muted" style={{ margin: 0 }}>
+                          {historyText(language, 'Подробные ответы для этого повторения не сохранены', 'Detaillierte Antworten für diese Wiederholung wurden nicht gespeichert')}
+                        </p>
+                      ) : (
+                        <>
+                          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <div className="row">
+                              <span>{historyText(language, 'Всего карточек', 'Karten gesamt')}: {item.answers.length}</span>
+                              <span>{historyText(language, 'Правильных ответов', 'Richtige Antworten')}: {correctCount}</span>
+                              <span>{historyText(language, 'Неправильных ответов', 'Falsche Antworten')}: {wrongCount}</span>
+                            </div>
+                            <button className="btn btn--secondary" type="button" onClick={() => downloadReviewTable(item)}>
+                              {historyText(language, 'Скачать таблицу', 'Tabelle herunterladen')}
+                            </button>
+                          </div>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+                              <thead>
+                                <tr>
+                                  <HistoryHeader>{historyText(language, 'Вопрос', 'Frage')}</HistoryHeader>
+                                  <HistoryHeader>{historyText(language, 'Ответ ученика', 'Antwort des Schülers')}</HistoryHeader>
+                                  <HistoryHeader>{historyText(language, 'Правильный ответ', 'Richtige Antwort')}</HistoryHeader>
+                                  <HistoryHeader>{historyText(language, 'Результат', 'Ergebnis')}</HistoryHeader>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {item.answers.map((answer) => (
+                                  <tr key={answer.cardId}>
+                                    <HistoryCell>{answer.question}</HistoryCell>
+                                    <HistoryCell>{answer.selectedAnswer ?? historyText(language, 'Ответ не сохранён', 'Antwort nicht gespeichert')}</HistoryCell>
+                                    <HistoryCell>{answer.correctAnswer}</HistoryCell>
+                                    <HistoryCell>{answer.correct ? historyText(language, 'Правильно', 'Richtig') : historyText(language, 'Неправильно', 'Falsch')}</HistoryCell>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -309,4 +392,28 @@ function SummaryStat({ label, value }: { label: string; value: number }) {
       <div className="muted" style={{ fontSize: 13 }}>{label}</div>
     </div>
   );
+}
+
+function HistoryHeader({ children }: { children: string }) {
+  return (
+    <th style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid rgba(128,128,128,.3)' }}>
+      {children}
+    </th>
+  );
+}
+
+function HistoryCell({ children }: { children: string }) {
+  return (
+    <td style={{ padding: '10px 12px', borderBottom: '1px solid rgba(128,128,128,.18)', verticalAlign: 'top' }}>
+      {children}
+    </td>
+  );
+}
+
+function csvCell(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function historyText(language: 'DE' | 'RU', ru: string, de: string) {
+  return language === 'DE' ? de : ru;
 }
