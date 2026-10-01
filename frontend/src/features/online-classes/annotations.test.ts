@@ -223,3 +223,56 @@ describe('undoable operations', () => {
     expect(undoableOperations([mine, undo], TEACHER)).toEqual([]);
   });
 });
+
+describe('UPDATE that targets an existing shape', () => {
+  const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+
+  it('moves the shape in place, keeping its z-order', () => {
+    const ops = [
+      op('ADD', TEACHER, JSON.stringify({ kind: 'rect', x: 0.1, y: 0.1, w: 0.2, h: 0.2 }), id(1)),
+      op('ADD', TEACHER, JSON.stringify({ kind: 'rect', x: 0.5, y: 0.5, w: 0.1, h: 0.1 }), id(2)),
+      op(
+        'UPDATE',
+        TEACHER,
+        JSON.stringify({ kind: 'rect', x: 0.3, y: 0.3, w: 0.2, h: 0.2, targetOperationId: id(1) }),
+      ),
+    ];
+    const shapes = foldOperations(ops);
+    expect(shapes.map((entry) => entry.operationId)).toEqual([id(1), id(2)]);
+    expect(shapes[0].shape.x).toBe(0.3);
+  });
+
+  it('cannot move another participant\'s shape', () => {
+    const ops = [
+      op('ADD', STUDENT, JSON.stringify({ kind: 'rect', x: 0.1, y: 0.1, w: 0.2, h: 0.2 }), id(1)),
+      op(
+        'UPDATE',
+        TEACHER,
+        JSON.stringify({ kind: 'rect', x: 0.9, y: 0.9, w: 0.05, h: 0.05, targetOperationId: id(1) }),
+      ),
+    ];
+    expect(foldOperations(ops)[0].shape.x).toBe(0.1);
+  });
+
+  it('ignores a target that does not exist', () => {
+    const ops = [
+      op('UPDATE', TEACHER, JSON.stringify({ kind: 'rect', x: 0.3, y: 0.3, w: 0.1, h: 0.1, targetOperationId: id(9) })),
+    ];
+    expect(foldOperations(ops)).toEqual([]);
+  });
+
+  it('still behaves as an add when no target is named', () => {
+    const ops = [op('UPDATE', TEACHER, JSON.stringify({ kind: 'rect', x: 0.3, y: 0.3, w: 0.1, h: 0.1 }))];
+    expect(foldOperations(ops)).toHaveLength(1);
+  });
+
+  it('redo after undo restores the moved geometry, not the original', () => {
+    const ops = [
+      op('ADD', TEACHER, JSON.stringify({ kind: 'rect', x: 0.1, y: 0.1, w: 0.2, h: 0.2 }), id(1)),
+      op('UPDATE', TEACHER, JSON.stringify({ kind: 'rect', x: 0.4, y: 0.4, w: 0.2, h: 0.2, targetOperationId: id(1) })),
+      op('UNDO', TEACHER, JSON.stringify({ targetOperationId: id(1) })),
+      op('REDO', TEACHER, JSON.stringify({ targetOperationId: id(1) })),
+    ];
+    expect(foldOperations(ops)[0].shape.x).toBe(0.4);
+  });
+});

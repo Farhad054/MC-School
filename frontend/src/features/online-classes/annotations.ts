@@ -159,6 +159,17 @@ function targetOf(payload: string): string | null {
   }
 }
 
+/** The newest geometry for an operation: the last in-order UPDATE that moved it. */
+function latestShape(ordered: Operation[], operationId: string): Shape | null {
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const candidate = ordered[index];
+    if (candidate.operationType === 'UPDATE' && targetOf(candidate.payload) === operationId) {
+      return parseShape(candidate.payload);
+    }
+  }
+  return null;
+}
+
 /**
  * Folds an ordered operation stream into the shapes currently visible.
  *
@@ -173,8 +184,29 @@ export function foldOperations(operations: Operation[]): RenderableShape[] {
 
   for (const operation of ordered) {
     switch (operation.operationType) {
+      case 'UPDATE': {
+        // An update that names a target replaces that shape in place (same
+        // z-order), but only for its own author: a move can never rewrite
+        // someone else's work. Without a target it behaves as it always did.
+        const target = targetOf(operation.payload);
+        const shape = parseShape(operation.payload);
+        if (!shape) break;
+        if (!target) {
+          shapes.set(operation.operationId, {
+            operationId: operation.operationId,
+            layerOwnerId: operation.layerOwnerId,
+            sequence: operation.sequence,
+            shape,
+          });
+          break;
+        }
+        const existing = shapes.get(target);
+        if (existing && existing.layerOwnerId === operation.layerOwnerId) {
+          shapes.set(target, { ...existing, shape });
+        }
+        break;
+      }
       case 'ADD':
-      case 'UPDATE':
       case 'ERASE': {
         const shape = parseShape(operation.payload);
         if (shape) {
@@ -214,7 +246,7 @@ export function foldOperations(operations: Operation[]): RenderableShape[] {
         if (!target || !undone.has(target)) break;
         const original = ordered.find((candidate) => candidate.operationId === target);
         if (original && original.layerOwnerId === operation.layerOwnerId) {
-          const shape = parseShape(original.payload);
+          const shape = latestShape(ordered, target) ?? parseShape(original.payload);
           if (shape) {
             shapes.set(target, {
               operationId: target,
