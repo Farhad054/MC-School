@@ -239,3 +239,7 @@ export function annotationEvent(
   if (encodeEvent(event).byteLength > MAX_PACKET_BYTES) delete event.payload;
   return event;
 }
+
+export function pointerEvent(classId: string, targetId: string, x: number, y: number): PointerEvent_ {
+  return { v: 1, type: 'pointer', classId, id: newId(), at: Date.now(), targetId, x, y };
+}
