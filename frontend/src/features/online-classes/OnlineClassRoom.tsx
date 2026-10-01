@@ -14,6 +14,9 @@ import { useI18n } from '../../i18n/I18nContext';
 import type { ClassFeatureState, OnlineClassConnection } from '../../api/onlineClasses';
 import { ChatPanel } from './ChatPanel';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { BoardSwitcher } from './BoardSwitcher';
+import { SHARED_BOARD_ID, isPersonalBoard } from './boards';
+import { useStudentRoster } from './useStudentRoster';
 import { AnswersButton } from './AnswersButton';
 import { AnswersPanel } from './AnswersPanel';
 import { CameraColumn } from './CameraColumn';
@@ -120,6 +123,15 @@ function RoomBody({
   const hostUserId = useHostUserId(classId);
   const answers = useAnswersPanel(eventId, connection.host);
   const boardDocument = useBoardDocument(classId);
+  const students = useStudentRoster(classId, connection.host);
+  const [activeBoard, setActiveBoard] = useState(SHARED_BOARD_ID);
+  // Boards stay mounted once opened, so flipping between them keeps each one's
+  // page, zoom, tool and marks. Only the visible one polls.
+  const [openedBoards, setOpenedBoards] = useState<string[]>([SHARED_BOARD_ID]);
+  const chooseBoard = (id: string) => {
+    setActiveBoard(id);
+    setOpenedBoards((current) => (current.includes(id) ? current : [...current, id]));
+  };
 
   // A new screen share takes the main area; the user can switch back to the
   // board at any time, and the board keeps its marks while it is not shown.
@@ -147,40 +159,57 @@ function RoomBody({
           transcriptionState={transcriptionState}
           onChanged={onStateChanged}
         />
+        <BoardSwitcher
+          isHost={connection.host}
+          currentUserId={currentUserId}
+          students={students}
+          activeId={activeBoard}
+          onChange={chooseBoard}
+        />
       </div>
 
       <div className="online-class-room__stage">
         <div className="online-class-room__main">
           {/* The board stays mounted while a screen is shown, so switching back
               returns to the same page, zoom, tool and marks. */}
-          <div className="online-class-room__board" hidden={showScreen}>
-            <Suspense fallback={null}>
-              <WhiteboardPanel
-                classId={classId}
-                actorId={currentUserId}
-                isHost={connection.host}
-                canAnnotate={connection.host || studentAnnotationAllowed}
-                document={boardDocument}
-                hostActions={
-                  connection.host ? (
-                    <AnswersButton status={answers.status} open={answers.open} onToggle={answers.toggle} />
-                  ) : undefined
-                }
-                overlay={
-                  connection.host && answers.open && answers.status === 'available' ? (
-                    <AnswersPanel
-                      pdf={answers.pdf}
-                      view={answers.view}
-                      getView={answers.getView}
-                      onViewChange={answers.setView}
-                      onScroll={answers.rememberScroll}
-                      onClose={answers.close}
-                    />
-                  ) : undefined
-                }
-              />
-            </Suspense>
-          </div>
+          {openedBoards.map((boardId) => {
+            const visible = boardId === activeBoard && !showScreen;
+            const personal = isPersonalBoard(boardId);
+            return (
+              <div key={boardId} className="online-class-room__board" hidden={!visible}>
+                <Suspense fallback={null}>
+                  <WhiteboardPanel
+                    classId={classId}
+                    actorId={currentUserId}
+                    isHost={connection.host}
+                    targetId={boardId}
+                    // Everyone may draw on a personal board; the shared one follows the class setting.
+                    canAnnotate={personal || connection.host || studentAnnotationAllowed}
+                    document={boardDocument}
+                    active={visible}
+                    // Answers belong to whichever board the teacher is looking at.
+                    hostActions={
+                      connection.host && visible ? (
+                        <AnswersButton status={answers.status} open={answers.open} onToggle={answers.toggle} />
+                      ) : undefined
+                    }
+                    overlay={
+                      connection.host && visible && answers.open && answers.status === 'available' ? (
+                        <AnswersPanel
+                          pdf={answers.pdf}
+                          view={answers.view}
+                          getView={answers.getView}
+                          onViewChange={answers.setView}
+                          onScroll={answers.rememberScroll}
+                          onClose={answers.close}
+                        />
+                      ) : undefined
+                    }
+                  />
+                </Suspense>
+              </div>
+            );
+          })}
           {showScreen && (
             <div className="online-class-room__screen">
               <ScreenShareView />

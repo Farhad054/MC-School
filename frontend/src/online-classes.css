@@ -780,3 +780,35 @@
 .board-toolbar__group {
   flex-wrap: wrap;
 }
+
+/* --- Board switcher ------------------------------------------------------- */
+
+.board-switcher {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.board-switcher button,
+.board-switcher select {
+  min-height: 32px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.board-switcher button.is-active {
+  background: var(--accent);
+  border-color: var(--accent-dark);
+  color: #fff;
+}
+
+@media (pointer: coarse) {
+  .board-switcher button,
+  .board-switcher select {
+    min-height: 44px;
+  }
+}
