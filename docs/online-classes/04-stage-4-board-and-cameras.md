@@ -32,11 +32,14 @@ listed in section 3 for the joint test pass.
 
 ### Things the spec assumed that were not in the code
 
-1. **Personal boards for students do not exist.** §8 says they are "already
-   implemented". The code has only the shared board (`targetId = 'board-1'`).
-   Follow mode is implemented for the shared board and is keyed by `boardId`, so
-   a personal board (any other `targetId`) is automatically excluded, but the
-   personal boards themselves still need building.
+1. **Personal boards for students did not exist.** §8 says they were "already
+   implemented"; the code had only the shared board. They are now built: target
+   id `personal-<studentId>`, **private on the server** (only the owner and the
+   teacher can open, read, write or list them; others get not-found), never
+   broadcast over the data channel, excluded from follow mode, polled every 2 s
+   while the teacher is viewing one. Students switch between «Общая доска» and
+   «Моя доска»; the teacher picks any student from a drop-down. If you already
+   have a different personal-board design elsewhere, this needs reconciling.
 2. **Realtime sync did not exist.** Annotation operations were saved over REST
    only; other participants never saw them live. This stage adds the data-channel
    layer (`mc.class.annotation.v1`, `mc.class.view.v1`, `mc.class.pointer.v1`).
@@ -102,13 +105,21 @@ one. Online classes must be enabled and a LiveKit server reachable
 2. Finger mode: one finger draws; a second finger cancels the stroke and pans/zooms.
 3. The switch is visible in the toolbar and remembered.
 
+### Personal boards (§8)
+1. Student switches to «Моя доска», draws; the teacher picks that student in the
+   board drop-down and sees the marks within ~2 s.
+2. A second student never sees the first student's board or its marks, and the
+   drop-down does not exist for students.
+3. Teacher on a student's board: other students stay on the shared board and do
+   not move; follow keeps working for the shared board in the background.
+
 ### Follow the teacher (§8)
 1. Teacher: «Следовать за учителем» on. Teacher changes page, zooms, pans → student mirrors all three.
 2. Student tries to flip/zoom/pan → blocked; notice shown; arrows disabled.
 3. Teacher draws → student sees it live.
 4. Turn follow off → student can navigate freely again.
 5. Student joins while follow is on → catches up within ~2 s.
-6. Teacher opens a student's personal board (when built) → others do **not** move.
+6. Teacher opens a student's personal board → others do **not** move.
 
 ---
 
