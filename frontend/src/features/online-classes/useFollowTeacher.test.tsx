@@ -18,7 +18,7 @@ vi.mock('./useClassEvents', () => ({
 
 const board = { width: 1000, height: 500 };
 
-function mount(isHost: boolean, hostUserId: string | null = 'teacher') {
+function mount(isHost: boolean, hostUserId: string | null = 'teacher', enabled = true) {
   return renderHook(
     ({ start }: { start: BoardPages }) => {
       const [pages, setPages] = useState<BoardPages>(start);
@@ -30,6 +30,7 @@ function mount(isHost: boolean, hostUserId: string | null = 'teacher') {
         pages,
         setPages,
         getBoardSize: () => board,
+        enabled,
       });
       return { pages, setPages, ...follow };
     },
@@ -177,5 +178,29 @@ describe('useFollowTeacher — teacher', () => {
     const { result } = mount(true);
     act(() => handler({ event: hostView(), senderIdentity: 'teacher|tab' }));
     expect(result.current.following).toBe(false);
+  });
+});
+
+describe('useFollowTeacher — disabled (personal boards)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    publish.mockClear();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('a student on a personal board is never moved by the teacher', () => {
+    const { result } = mount(false, 'teacher', false);
+    act(() => handler({ event: hostView(), senderIdentity: 'teacher|tab' }));
+    expect(result.current.following).toBe(false);
+    expect(result.current.pages.current).toBe(0);
+  });
+
+  it('the teacher publishes nothing about a personal board', () => {
+    const { result } = mount(true, 'teacher', false);
+    act(() => result.current.setFollowEnabled(true));
+    act(() => {
+      vi.advanceTimersByTime(HEARTBEAT_MS * 3);
+    });
+    expect(publish).not.toHaveBeenCalled();
   });
 });

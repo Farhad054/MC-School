@@ -27,6 +27,7 @@ export function useFollowTeacher({
   pages,
   setPages,
   getBoardSize,
+  enabled = true,
 }: {
   classId: string;
   boardId: string;
@@ -35,6 +36,8 @@ export function useFollowTeacher({
   pages: BoardPages;
   setPages: Dispatch<SetStateAction<BoardPages>>;
   getBoardSize: () => BoardSize;
+  /** Off for personal boards: follow mode only ever applies to the shared board. */
+  enabled?: boolean;
 }) {
   const [followEnabled, setFollowEnabled] = useState(false);
   const [following, setFollowing] = useState(false);
@@ -43,7 +46,7 @@ export function useFollowTeacher({
   const lastSentFollow = useRef(false);
 
   const { publish } = useClassEvents(classId, VIEW_TOPIC, ({ event, senderIdentity }) => {
-    if (isHost || event.type !== 'view' || event.boardId !== boardId) return;
+    if (!enabled || isHost || event.type !== 'view' || event.boardId !== boardId) return;
     // Any participant can publish data, so only the host's packets count.
     if (!isFromHost(senderIdentity, hostUserId)) return;
     lastHostEvent.current = Date.now();
@@ -72,21 +75,21 @@ export function useFollowTeacher({
 
   // Teacher: announce changes (throttled), and always a new page count.
   useEffect(() => {
-    if (!isHost) return;
+    if (!isHost || !enabled) return;
     const countChanged = pages.count !== lastSentCount.current;
     // Turning follow off must be announced too, or students stay locked.
     const followChanged = followEnabled !== lastSentFollow.current;
     if (!followEnabled && !countChanged && !followChanged && lastSentCount.current !== 0) return;
     const timer = window.setTimeout(send, SEND_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [isHost, followEnabled, pages, viewNow, send]);
+  }, [isHost, enabled, followEnabled, pages, viewNow, send]);
 
   // Teacher: heartbeat while following.
   useEffect(() => {
-    if (!isHost || !followEnabled) return;
+    if (!isHost || !enabled || !followEnabled) return;
     const timer = window.setInterval(send, HEARTBEAT_MS);
     return () => window.clearInterval(timer);
-  }, [isHost, followEnabled, send]);
+  }, [isHost, enabled, followEnabled, send]);
 
   // Student: release the lock if the teacher stops talking.
   useEffect(() => {
@@ -101,6 +104,6 @@ export function useFollowTeacher({
     followEnabled,
     setFollowEnabled,
     /** True only for a student currently mirrored to the teacher. */
-    following: !isHost && following,
+    following: enabled && !isHost && following,
   };
 }
