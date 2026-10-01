@@ -35,6 +35,7 @@ export function OnlineClassPage() {
       <OnlineClassRoom
         classId={classId!}
         currentUserId={user?.id ?? ''}
+        eventId={session.onlineClass?.eventId}
         connection={session.connection}
         recordingState={session.onlineClass?.recordingState ?? 'INACTIVE'}
         transcriptionState={session.onlineClass?.transcriptionState ?? 'INACTIVE'}

@@ -30,6 +30,7 @@
 .online-class-room :focus-visible,
 .online-class-page :focus-visible,
 .whiteboard :focus-visible,
+.board-toolbar :focus-visible,
 .chat :focus-visible,
 .participants :focus-visible,
 .waiting-room :focus-visible,
@@ -41,19 +42,81 @@
 
 /* --- Room layout --------------------------------------------------------- */
 
-.online-class-room__stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 12px;
-  min-height: 60vh;
+/*
+ * The lesson fills the browser window: the board is the main surface, cameras
+ * sit in a permanent column on the right, and everything else is compact chrome
+ * at the edges. Fixed positioning takes the room out of the app shell's header
+ * so the board gets almost the whole screen.
+ */
+.online-class-room {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  --camera-column-width: 200px;
 }
 
-.online-class-room__sidebar {
+.online-class-room__topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 0 8px;
+}
+
+.online-class-room__stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--camera-column-width);
+}
+
+.online-class-room__main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.online-class-room__board,
+.online-class-room__screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.online-class-room__board[hidden] {
+  display: none;
+}
+
+/* Chat, roster and waiting room float over the board's right edge. */
+.online-class-room__drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  width: min(340px, 92%);
   display: flex;
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
-  max-height: 80vh;
+  padding: 12px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 24px rgba(15, 23, 32, 0.18);
+}
+
+.online-class-room__drawer[hidden] {
+  display: none;
+}
+
+.online-class-room__badge {
+  font-weight: 700;
 }
 
 .online-class-room__controls {
@@ -61,7 +124,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .online-class-room__leave {
@@ -167,25 +232,76 @@
 
 /* --- Whiteboard ----------------------------------------------------------- */
 
-.whiteboard__toolbar {
+.whiteboard {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  padding: 6px 0;
+  flex-direction: column;
 }
 
-.whiteboard__toolbar button[aria-pressed='true'] {
-  background: var(--accent);
-  color: #fff;
+.whiteboard__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.whiteboard__notice {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.whiteboard__notice:empty {
+  display: none;
+}
+
+/* Page switcher: bottom-left, compact, never in the way of writing. */
+.whiteboard__pages {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 4;
+}
+
+.whiteboard__zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(15, 23, 32, 0.15);
+}
+
+.whiteboard__zoom button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.whiteboard__zoom button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+@media (pointer: coarse) {
+  .whiteboard__zoom button {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .whiteboard__surface {
   width: 100%;
-  height: min(60vh, 640px);
+  height: 100%;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   /* Stops the browser panning the page while drawing with a finger. */
   touch-action: none;
   position: relative;
@@ -230,33 +346,20 @@
 
 /* --- Responsive ----------------------------------------------------------- */
 
-/* Tablet and below: the sidebar moves under the video rather than squeezing it. */
+/* Smaller screens keep the camera column (it is permanent) but narrower. */
 @media (max-width: 1024px) {
-  .online-class-room__stage {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .online-class-room__sidebar {
-    max-height: none;
+  .online-class-room {
+    --camera-column-width: 160px;
   }
 }
 
 /*
- * Landscape tablet and phone: vertical space is scarce, so the stage keeps the
- * height and the panels stay scrollable instead of pushing controls off-screen.
+ * Landscape tablet and phone: vertical space is scarce, so the board keeps the
+ * height and the control bar stays compact.
  */
 @media (max-height: 560px) and (orientation: landscape) {
-  .online-class-room__stage {
-    grid-template-columns: minmax(0, 1fr) 280px;
-    min-height: 0;
-  }
-
-  .online-class-room__sidebar {
-    max-height: 100vh;
-  }
-
-  .whiteboard__surface {
-    height: 70vh;
+  .online-class-room {
+    --camera-column-width: 140px;
   }
 
   .captions__lines {
@@ -266,20 +369,12 @@
 }
 
 @media (max-width: 640px) {
-  .online-class-room__controls {
-    /* Touch targets stay reachable at the bottom of a phone screen. */
-    position: sticky;
-    bottom: 0;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
+  .online-class-room {
+    --camera-column-width: 104px;
   }
 
   .online-class-room__controls button {
     min-height: 44px;
-  }
-
-  .whiteboard__toolbar button {
-    min-height: 40px;
   }
 }
 
