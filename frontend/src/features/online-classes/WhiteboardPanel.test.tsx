@@ -234,4 +234,70 @@ describe('WhiteboardPanel', () => {
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
     expect(canvasProps.readOnly).toBe(true);
   });
+
+  describe('personal board', () => {
+    const personal = { targetId: 'personal-student' };
+
+    it('never announces strokes to the room', async () => {
+      mount('student', personal);
+      await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalledWith('c1', 'WHITEBOARD', 'personal-student', 0, undefined, undefined));
+      await act(async () => {
+        canvasProps.onCommit({ kind: 'pen', width: 0.004, points: [[0.1, 0.2]] });
+      });
+      await waitFor(() => expect(api.appendAnnotation).toHaveBeenCalled());
+      expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'annotation' }));
+    });
+
+    it('has no follow control for the teacher, and is not moved by the teacher', async () => {
+      const { unmount } = mount('host', personal);
+      await screen.findByTestId('canvas');
+      expect(screen.queryByRole('button', { name: 'Следовать за учителем' })).not.toBeInTheDocument();
+      unmount();
+
+      mount('student', personal);
+      await screen.findByTestId('canvas');
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        handlers[VIEW_TOPIC]({ event: hostView({ boardId: 'personal-student' }), senderIdentity: 'teacher|tab' });
+      });
+      expect(screen.getByTestId('canvas')).toHaveAttribute('data-locked', 'false');
+    });
+
+    it('lets the owner add pages to their own board', async () => {
+      mount('student', personal);
+      await screen.findByTestId('canvas');
+      expect(screen.getByRole('button', { name: 'Добавить страницу' })).toBeInTheDocument();
+    });
+
+    it('re-reads the board while it is on screen, and stops when it is not', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const { rerender } = mount('host', personal);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10);
+        });
+        api.replayAnnotations.mockClear();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(4100);
+        });
+        const whileActive = api.replayAnnotations.mock.calls.length;
+        expect(whileActive).toBeGreaterThanOrEqual(1);
+
+        rerender(
+          <I18nProvider>
+            <WhiteboardPanel classId="c1" actorId="teacher" isHost targetId="personal-student" active={false} />
+          </I18nProvider>,
+        );
+        api.replayAnnotations.mockClear();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6000);
+        });
+        expect(api.replayAnnotations).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

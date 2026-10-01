@@ -18,6 +18,7 @@ import {
   type BoardPages,
   type PageView,
 } from './boardView';
+import { isPersonalBoard } from './boards';
 import { ANNOTATION_TOPIC, annotationEvent } from './events';
 import type { InputMode } from './inputPolicy';
 import { navigationLocked } from './followTeacher';
@@ -43,6 +44,8 @@ const INPUT_MODE_KEY = 'mc.board.inputMode';
  */
 const REFRESH_COOLDOWN_MS = 150;
 const ZOOM_BUTTON_FACTOR = 1.25;
+/** How often a personal board is re-read while it is on screen. */
+const PERSONAL_POLL_MS = 2000;
 
 function loadInputMode(): InputMode {
   try {
@@ -71,6 +74,7 @@ export function WhiteboardPanel({
   document: pdfDocument = null,
   hostActions,
   overlay,
+  active = true,
 }: {
   classId: string;
   actorId: string;
@@ -85,8 +89,14 @@ export function WhiteboardPanel({
   hostActions?: ReactNode;
   /** Floats over the board area, below the toolbar. */
   overlay?: ReactNode;
+  /** False while another board is on screen: pauses polling, keeps state. */
+  active?: boolean;
 }) {
   const { t } = useI18n();
+  // A personal board is private: nothing about it is broadcast and it never
+  // follows (or is followed by) anyone. The teacher sees a student's marks by
+  // polling the server, which is what enforces who may read them.
+  const personal = isPersonalBoard(targetId);
   const [tool, setTool] = useState<Tool>('pen');
   const [toolSettings, setToolSettings] = useState<Record<Tool, ToolSettings>>(DEFAULT_TOOL_SETTINGS);
   const [eraserMode, setEraserMode] = useState<EraserMode>('partial');
@@ -109,6 +119,7 @@ export function WhiteboardPanel({
     pages,
     setPages,
     getBoardSize,
+    enabled: !personal,
   });
   const locked = navigationLocked(isHost, follow.following);
 
@@ -140,7 +151,7 @@ export function WhiteboardPanel({
   // the one source of truth, and a forged packet can at most trigger a harmless
   // re-fetch.
   const { publish: publishAnnotation } = useClassEvents(classId, ANNOTATION_TOPIC, ({ event }) => {
-    if (event.type === 'annotation') requestRefresh.current();
+    if (event.type === 'annotation' && !personal) requestRefresh.current();
   });
 
   const board = useAnnotationBoard({
@@ -151,6 +162,7 @@ export function WhiteboardPanel({
     actorId,
     isHost,
     onSaved: (operation, documentId) => {
+      if (personal) return;
       void publishAnnotation(
         annotationEvent(classId, {
           documentId,
@@ -164,7 +176,15 @@ export function WhiteboardPanel({
   });
   boardRef.current = board;
 
-  const { lasers, sendLaser } = useLaserPointers(classId, targetId);
+  const { lasers, sendLaser: broadcastLaser } = useLaserPointers(classId, targetId);
+  const sendLaser = personal ? undefined : broadcastLaser;
+
+  // Personal board: nobody is told when it changes, so a viewer polls instead.
+  useEffect(() => {
+    if (!personal || !active) return;
+    const timer = window.setInterval(() => void boardRef.current?.refresh(), PERSONAL_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [personal, active]);
 
   // --- Pages ----------------------------------------------------------------
   // A joiner (or a reload) learns how many pages already exist from the server.
@@ -250,14 +270,16 @@ export function WhiteboardPanel({
       <button type="button" onClick={() => void saveSnapshot()}>
         {t('onlineClass.whiteboard.saveSnapshot')}
       </button>
-      <button
-        type="button"
-        aria-pressed={follow.followEnabled}
-        className={follow.followEnabled ? 'is-active' : undefined}
-        onClick={() => follow.setFollowEnabled((enabled) => !enabled)}
-      >
-        {t('onlineClass.board.follow')}
-      </button>
+      {!personal && (
+        <button
+          type="button"
+          aria-pressed={follow.followEnabled}
+          className={follow.followEnabled ? 'is-active' : undefined}
+          onClick={() => follow.setFollowEnabled((enabled) => !enabled)}
+        >
+          {t('onlineClass.board.follow')}
+        </button>
+      )}
       {hostActions}
     </>
   ) : null;
@@ -324,7 +346,7 @@ export function WhiteboardPanel({
             disabled={locked}
             onPrevious={() => setPages(previousPage)}
             onNext={() => setPages(nextPage)}
-            onAdd={isHost && canAnnotate ? () => setPages(addPage) : undefined}
+            onAdd={(isHost || personal) && canAnnotate ? () => setPages(addPage) : undefined}
           />
         </div>
 
