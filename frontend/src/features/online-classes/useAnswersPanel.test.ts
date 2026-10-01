@@ -5,7 +5,7 @@ import type { LessonPreparation } from '../../api/types';
 import { useAnswersPanel } from './useAnswersPanel';
 
 vi.mock('../../api/lessonPreparation', () => ({
-  lessonPreparationApi: { get: vi.fn(), answersUrl: vi.fn() },
+  lessonPreparationApi: { get: vi.fn(), answersBytes: vi.fn() },
 }));
 // The PDF layer is exercised in its own tests; here only the gating matters.
 vi.mock('./usePdf', () => ({

@@ -52,16 +52,10 @@ describe('annotation events', () => {
     layerOwnerId: 'u-1',
   };
 
-  it('round-trips with an inline payload', () => {
-    const event = annotationEvent(classId, { ...base, payload: '{"kind":"pen"}' });
+  it('round-trips and stays far below the packet cap', () => {
+    const event = annotationEvent(classId, base);
     expect(parseClassEvent(encodeEvent(event), classId)).toEqual(event);
-  });
-
-  it('drops an oversized payload so the packet stays within the cap', () => {
-    const event = annotationEvent(classId, { ...base, payload: 'x'.repeat(MAX_PACKET_BYTES) });
-    expect(event.payload).toBeUndefined();
-    expect(encodeEvent(event).byteLength).toBeLessThanOrEqual(MAX_PACKET_BYTES);
-    expect(parseClassEvent(encodeEvent(event), classId)).not.toBeNull();
+    expect(encodeEvent(event).byteLength).toBeLessThan(MAX_PACKET_BYTES / 8);
   });
 
   it('rejects a malformed sequence', () => {

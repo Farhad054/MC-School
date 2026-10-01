@@ -40,7 +40,7 @@ vi.mock('./WhiteboardPanel', () => ({
 }));
 
 vi.mock('../../api/lessonPreparation', () => ({
-  lessonPreparationApi: { get: vi.fn(), answersUrl: vi.fn() },
+  lessonPreparationApi: { get: vi.fn(), answersBytes: vi.fn() },
 }));
 vi.mock('../../api/onlineClasses', async () => {
   const actual = await vi.importActual<typeof import('../../api/onlineClasses')>('../../api/onlineClasses');
@@ -86,7 +86,7 @@ describe('OnlineClassRoom', () => {
     await screen.findByTestId('board-board-1');
     expect(screen.queryByRole('button', { name: /Ответы/ })).not.toBeInTheDocument();
     expect(lessonPreparationApi.get).not.toHaveBeenCalled();
-    expect(lessonPreparationApi.answersUrl).not.toHaveBeenCalled();
+    expect(lessonPreparationApi.answersBytes).not.toHaveBeenCalled();
   });
 
   it('gives the teacher the answers button on the board they are looking at', async () => {

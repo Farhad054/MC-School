@@ -1,6 +1,4 @@
-import { ApiRequestError, getAccessToken, request } from './client';
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api/v1';
+import { ApiRequestError, request, requestBlob } from './client';
 
 /**
  * Online-class API. Kept in its own module rather than added to the `api`
@@ -337,13 +335,12 @@ export const onlineClassesApi = {
    * none (404). Never the answers file: the server only serves the workbook.
    */
   documentBytes: async (classId: string): Promise<ArrayBuffer | null> => {
-    const token = getAccessToken();
-    const response = await fetch(`${BASE_URL}/online-classes/${classId}/document`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) throw new ApiRequestError(response.status, 'DOCUMENT', response.statusText);
-    return response.arrayBuffer();
+    try {
+      return await (await requestBlob(`/online-classes/${classId}/document`)).arrayBuffer();
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) return null;
+      throw error;
+    }
   },
 
   findByEvent: (eventId: string) =>

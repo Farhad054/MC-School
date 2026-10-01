@@ -199,26 +199,6 @@ describe('useAnnotationBoard', () => {
     );
   });
 
-  it('merges a realtime operation without duplicating it', async () => {
-    const { result } = board();
-    await waitFor(() => expect(result.current.document).not.toBeNull());
-
-    const incoming = {
-      operationId: 'op-remote',
-      sequence: 5,
-      actorId: 'student-1',
-      layerOwnerId: 'student-1',
-      operationType: 'ADD' as const,
-      payload: JSON.stringify(PEN),
-    };
-
-    act(() => {
-      result.current.ingest(incoming);
-      result.current.ingest(incoming);
-    });
-
-    expect(result.current.shapes).toHaveLength(1);
-  });
 });
 
 describe('useAnnotationBoard — pages, eraser and move', () => {
@@ -291,30 +271,6 @@ describe('useAnnotationBoard — pages, eraser and move', () => {
       await result.current.addShape(PEN);
     });
     expect(api.appendAnnotation).not.toHaveBeenCalled();
-  });
-
-  it('files a realtime operation under the page its document belongs to', async () => {
-    const { result, rerender } = paged(0);
-    await waitFor(() => expect(result.current.document?.id).toBe('doc-0'));
-    rerender({ page: 1 });
-    await waitFor(() => expect(result.current.document?.id).toBe('doc-1'));
-
-    act(() => {
-      result.current.ingest(
-        {
-          operationId: 'op-r',
-          sequence: 3,
-          actorId: 's',
-          layerOwnerId: 's',
-          operationType: 'ADD',
-          payload: JSON.stringify(PEN),
-        },
-        'doc-0',
-      );
-    });
-    expect(result.current.shapes).toHaveLength(0);
-    rerender({ page: 0 });
-    expect(result.current.shapes).toHaveLength(1);
   });
 
   it('deletes a whole own stroke without touching the redo stack', async () => {

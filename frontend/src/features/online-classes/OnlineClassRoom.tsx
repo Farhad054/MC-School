@@ -125,13 +125,11 @@ function RoomBody({
   const boardDocument = useBoardDocument(classId);
   const students = useStudentRoster(classId, connection.host);
   const [activeBoard, setActiveBoard] = useState(SHARED_BOARD_ID);
-  // Boards stay mounted once opened, so flipping between them keeps each one's
-  // page, zoom, tool and marks. Only the visible one polls.
-  const [openedBoards, setOpenedBoards] = useState<string[]>([SHARED_BOARD_ID]);
-  const chooseBoard = (id: string) => {
-    setActiveBoard(id);
-    setOpenedBoards((current) => (current.includes(id) ? current : [...current, id]));
-  };
+  // Only the shared board and the one in view are mounted: the shared board
+  // keeps its page, zoom and tool while a personal board is open, and a teacher
+  // walking through a whole group does not pile up one canvas per student
+  // (their marks live on the server, so reopening one loses nothing).
+  const boardsToShow = activeBoard === SHARED_BOARD_ID ? [SHARED_BOARD_ID] : [SHARED_BOARD_ID, activeBoard];
 
   // A new screen share takes the main area; the user can switch back to the
   // board at any time, and the board keeps its marks while it is not shown.
@@ -164,7 +162,7 @@ function RoomBody({
           currentUserId={currentUserId}
           students={students}
           activeId={activeBoard}
-          onChange={chooseBoard}
+          onChange={setActiveBoard}
         />
       </div>
 
@@ -172,7 +170,7 @@ function RoomBody({
         <div className="online-class-room__main">
           {/* The board stays mounted while a screen is shown, so switching back
               returns to the same page, zoom, tool and marks. */}
-          {openedBoards.map((boardId) => {
+          {boardsToShow.map((boardId) => {
             const visible = boardId === activeBoard && !showScreen;
             const personal = isPersonalBoard(boardId);
             return (

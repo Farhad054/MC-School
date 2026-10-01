@@ -69,9 +69,9 @@ export interface ViewEvent extends BaseEvent {
 }
 
 /**
- * A durable annotation operation was saved; peers apply it or replay from
- * their last known sequence. `payload` is omitted when the packet would be
- * too large — the receiver then simply replays over REST.
+ * A durable annotation operation was saved. A hint only: any participant can
+ * publish data, so receivers never apply anything from the packet and instead
+ * replay from their last known sequence over REST.
  */
 export interface AnnotationEvent extends BaseEvent {
   type: 'annotation';
@@ -80,7 +80,6 @@ export interface AnnotationEvent extends BaseEvent {
   sequence: number;
   op: string;
   layerOwnerId: string;
-  payload?: string;
 }
 
 /** Server-authored. Clients render these but never send them. */
@@ -171,8 +170,7 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
         typeof parsed.operationId === 'string' &&
         typeof parsed.op === 'string' &&
         typeof parsed.layerOwnerId === 'string' &&
-        isInt(parsed.sequence, 0, Number.MAX_SAFE_INTEGER) &&
-        (parsed.payload === undefined || typeof parsed.payload === 'string')
+        isInt(parsed.sequence, 0, Number.MAX_SAFE_INTEGER)
         ? (parsed as unknown as AnnotationEvent)
         : null;
     default:
@@ -234,10 +232,7 @@ export function annotationEvent(
   classId: string,
   operation: Omit<AnnotationEvent, 'v' | 'type' | 'classId' | 'id' | 'at'>,
 ): AnnotationEvent {
-  const event: AnnotationEvent = { v: 1, type: 'annotation', classId, id: newId(), at: Date.now(), ...operation };
-  // Too big for one packet: drop the inline payload, peers replay instead.
-  if (encodeEvent(event).byteLength > MAX_PACKET_BYTES) delete event.payload;
-  return event;
+  return { v: 1, type: 'annotation', classId, id: newId(), at: Date.now(), ...operation };
 }
 
 export function pointerEvent(classId: string, targetId: string, x: number, y: number): PointerEvent_ {

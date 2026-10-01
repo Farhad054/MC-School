@@ -18,16 +18,6 @@ export const MIN_ANSWERS_ZOOM = 1;
 export const MAX_ANSWERS_ZOOM = 3;
 const INITIAL_VIEW: AnswersView = { page: 0, zoom: 1, scrollTop: 0, scrollLeft: 0 };
 
-async function fetchAnswersBytes(eventId: string): Promise<ArrayBuffer> {
-  const url = await lessonPreparationApi.answersUrl(eventId);
-  try {
-    const response = await fetch(url);
-    return await response.arrayBuffer();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
 /**
  * Teacher-only answers file for the lesson.
  *
@@ -70,7 +60,7 @@ export function useAnswersPanel(eventId: string | undefined, isHost: boolean) {
   }, [eventId, isHost]);
 
   const pdfKey = isHost && eventId && status === 'available' && everOpened ? `${eventId}:${filename ?? ''}` : null;
-  const pdf: PdfState = usePdf(pdfKey, () => fetchAnswersBytes(eventId!));
+  const pdf: PdfState = usePdf(pdfKey, () => lessonPreparationApi.answersBytes(eventId!));
 
   const setView = useCallback((patch: Partial<AnswersView>) => {
     viewRef.current = { ...viewRef.current, ...patch };

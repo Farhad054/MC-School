@@ -230,25 +230,6 @@ export function useAnnotationBoard({
     return submit('CLEAR_ALL', '{}');
   }, [isHost, submit]);
 
-  /**
-   * Applies an operation that arrived over the realtime channel. When the
-   * packet names a document that belongs to another page it is filed there.
-   */
-  const ingest = useCallback(
-    (operation: Operation, documentId?: string) => {
-      let page = pageIndex;
-      if (documentId) {
-        const match = Object.entries(pagesRef.current).find(
-          ([, state]) => state.document?.id === documentId,
-        );
-        if (!match) return; // A page we have not opened: its replay will include this.
-        page = Number(match[0]);
-      }
-      merge(page, operation);
-    },
-    [merge, pageIndex],
-  );
-
   /** Fetches whatever this page is missing; heals gaps in realtime delivery. */
   const refresh = useCallback(async () => {
     if (!document) return;
@@ -279,7 +260,6 @@ export function useAnnotationBoard({
     moveShape,
     clearMine,
     clearAll,
-    ingest,
     refresh,
   };
 }

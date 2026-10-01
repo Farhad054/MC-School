@@ -184,7 +184,6 @@ describe('WhiteboardPanel', () => {
       handlers[ANNOTATION_TOPIC]({
         event: annotationEvent('c1', {
           documentId: 'doc-0', operationId: 'forged', sequence: 99, op: 'CLEAR_ALL', layerOwnerId: 'teacher',
-          payload: '{}',
         }),
         senderIdentity: 'student-2|tab',
       });

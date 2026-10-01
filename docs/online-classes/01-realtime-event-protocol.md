@@ -125,7 +125,7 @@ carries content.
 **Stage 4 treats the `annotation` packet as a hint only.** Any participant can
 publish on the data channel, so its contents are never applied: a receiver
 replays from its last known sequence over REST and shows what the server
-returns. The sender omits `payload`, and a forged packet (e.g. a fake
+returns. The sender no longer includes `payload` (the field is not parsed), and a forged packet (e.g. a fake
 `CLEAR_ALL`) can at most trigger a harmless re-fetch. Bursts collapse into one
 replay per 150 ms.
 
