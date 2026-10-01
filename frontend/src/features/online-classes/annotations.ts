@@ -178,9 +178,26 @@ function latestShape(ordered: Operation[], operationId: string): Shape | null {
  * everyone else's live view.
  */
 export function foldOperations(operations: Operation[]): RenderableShape[] {
+  return foldDetailed(operations).shapes;
+}
+
+interface MoveRecord {
+  target: string;
+  layerOwnerId: string;
+  previous: Shape;
+  next: Shape;
+}
+
+/**
+ * Like {@link foldOperations}, and also reports which targeted UPDATEs (moves)
+ * are currently in effect, so a move can be undone on its own.
+ */
+function foldDetailed(operations: Operation[]): { shapes: RenderableShape[]; appliedMoves: Set<string> } {
   const ordered = [...operations].sort((a, b) => a.sequence - b.sequence);
   const shapes = new Map<string, RenderableShape>();
   const undone = new Set<string>();
+  const moves = new Map<string, MoveRecord>();
+  const appliedMoves = new Set<string>();
 
   for (const operation of ordered) {
     switch (operation.operationType) {
@@ -202,6 +219,13 @@ export function foldOperations(operations: Operation[]): RenderableShape[] {
         }
         const existing = shapes.get(target);
         if (existing && existing.layerOwnerId === operation.layerOwnerId) {
+          moves.set(operation.operationId, {
+            target,
+            layerOwnerId: operation.layerOwnerId,
+            previous: existing.shape,
+            next: shape,
+          });
+          appliedMoves.add(operation.operationId);
           shapes.set(target, { ...existing, shape });
         }
         break;
@@ -232,6 +256,16 @@ export function foldOperations(operations: Operation[]): RenderableShape[] {
         break;
       case 'UNDO': {
         const target = targetOf(operation.payload);
+        const move = target ? moves.get(target) : undefined;
+        if (target && move) {
+          // Undoing a move puts the shape back where it was; the shape itself stays.
+          const entry = shapes.get(move.target);
+          if (entry && appliedMoves.has(target) && move.layerOwnerId === operation.layerOwnerId) {
+            shapes.set(move.target, { ...entry, shape: move.previous });
+            appliedMoves.delete(target);
+          }
+          break;
+        }
         const entry = target ? shapes.get(target) : undefined;
         // An undo may only hide the actor's own work, even if the payload
         // names someone else's operation.
@@ -243,6 +277,15 @@ export function foldOperations(operations: Operation[]): RenderableShape[] {
       }
       case 'REDO': {
         const target = targetOf(operation.payload);
+        const move = target ? moves.get(target) : undefined;
+        if (target && move) {
+          const entry = shapes.get(move.target);
+          if (entry && !appliedMoves.has(target) && move.layerOwnerId === operation.layerOwnerId) {
+            shapes.set(move.target, { ...entry, shape: move.next });
+            appliedMoves.add(target);
+          }
+          break;
+        }
         if (!target || !undone.has(target)) break;
         const original = ordered.find((candidate) => candidate.operationId === target);
         if (original && original.layerOwnerId === operation.layerOwnerId) {
@@ -264,18 +307,25 @@ export function foldOperations(operations: Operation[]): RenderableShape[] {
     }
   }
 
-  return [...shapes.values()].sort((a, b) => a.sequence - b.sequence);
+  return {
+    shapes: [...shapes.values()].sort((a, b) => a.sequence - b.sequence),
+    appliedMoves,
+  };
 }
 
-/** The actor's own operations that can still be undone, newest last. */
+/**
+ * The actor's own operations that can still be undone, newest last: shapes
+ * they drew that are still visible, and moves that are still in effect.
+ */
 export function undoableOperations(operations: Operation[], actorId: string): Operation[] {
-  const visible = new Set(foldOperations(operations).map((entry) => entry.operationId));
+  const { shapes, appliedMoves } = foldDetailed(operations);
+  const visible = new Set(shapes.map((entry) => entry.operationId));
   return operations
     .filter(
       (operation) =>
         operation.layerOwnerId === actorId &&
         ['ADD', 'UPDATE', 'ERASE'].includes(operation.operationType) &&
-        visible.has(operation.operationId),
+        (visible.has(operation.operationId) || appliedMoves.has(operation.operationId)),
     )
     .sort((a, b) => a.sequence - b.sequence);
 }

@@ -276,3 +276,61 @@ describe('UPDATE that targets an existing shape', () => {
     expect(foldOperations(ops)[0].shape.x).toBe(0.4);
   });
 });
+
+describe('undoing a move', () => {
+  const id = (n: number) => `00000000-0000-4000-8000-00000000010${n}`;
+  const rect = (x: number) => JSON.stringify({ kind: 'rect', x, y: 0.1, w: 0.1, h: 0.1 });
+  const moved = (x: number, target: string) =>
+    JSON.stringify({ kind: 'rect', x, y: 0.1, w: 0.1, h: 0.1, targetOperationId: target });
+
+  it('offers the move as the newest undoable step', () => {
+    const add = op('ADD', TEACHER, rect(0.1), id(1));
+    const move = op('UPDATE', TEACHER, moved(0.5, id(1)), id(2));
+    const steps = undoableOperations([add, move], TEACHER);
+    expect(steps[steps.length - 1].operationId).toBe(id(2));
+  });
+
+  it('puts the shape back instead of deleting it', () => {
+    const ops = [
+      op('ADD', TEACHER, rect(0.1), id(1)),
+      op('UPDATE', TEACHER, moved(0.5, id(1)), id(2)),
+      op('UNDO', TEACHER, JSON.stringify({ targetOperationId: id(2) })),
+    ];
+    const shapes = foldOperations(ops);
+    expect(shapes).toHaveLength(1);
+    expect(shapes[0].shape.x).toBe(0.1);
+  });
+
+  it('undoes several moves one at a time, newest first', () => {
+    const ops = [
+      op('ADD', TEACHER, rect(0.1), id(1)),
+      op('UPDATE', TEACHER, moved(0.3, id(1)), id(2)),
+      op('UPDATE', TEACHER, moved(0.6, id(1)), id(3)),
+      op('UNDO', TEACHER, JSON.stringify({ targetOperationId: id(3) })),
+    ];
+    expect(foldOperations(ops)[0].shape.x).toBe(0.3);
+    ops.push(op('UNDO', TEACHER, JSON.stringify({ targetOperationId: id(2) })));
+    expect(foldOperations(ops)[0].shape.x).toBe(0.1);
+    // Nothing of that shape's moves remains to undo; the drawing itself still can be.
+    expect(undoableOperations(ops, TEACHER).map((o) => o.operationId)).toEqual([id(1)]);
+  });
+
+  it('redo re-applies an undone move', () => {
+    const ops = [
+      op('ADD', TEACHER, rect(0.1), id(1)),
+      op('UPDATE', TEACHER, moved(0.5, id(1)), id(2)),
+      op('UNDO', TEACHER, JSON.stringify({ targetOperationId: id(2) })),
+      op('REDO', TEACHER, JSON.stringify({ targetOperationId: id(2) })),
+    ];
+    expect(foldOperations(ops)[0].shape.x).toBe(0.5);
+  });
+
+  it('cannot undo someone else’s move', () => {
+    const ops = [
+      op('ADD', STUDENT, rect(0.1), id(1)),
+      op('UPDATE', STUDENT, moved(0.5, id(1)), id(2)),
+      op('UNDO', TEACHER, JSON.stringify({ targetOperationId: id(2) })),
+    ];
+    expect(foldOperations(ops)[0].shape.x).toBe(0.5);
+  });
+});
