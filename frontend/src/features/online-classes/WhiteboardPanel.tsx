@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { onlineClassesApi, type AnnotationTargetType } from '../../api/onlineClasses';
 import { useI18n } from '../../i18n/I18nContext';
-import type { Operation, OperationType } from './annotations';
 import { BoardToolbar } from './BoardToolbar';
 import {
   DEFAULT_TOOL_SETTINGS,
@@ -38,8 +37,11 @@ import {
 } from './WhiteboardCanvas';
 
 const INPUT_MODE_KEY = 'mc.board.inputMode';
-/** Remote operations are applied at once; this heals any gap a lossy network left. */
-const REFRESH_DELAY_MS = 600;
+/**
+ * After a refresh, further packets within this window collapse into one more
+ * refresh, so a burst of strokes costs a couple of replays, not one per packet.
+ */
+const REFRESH_COOLDOWN_MS = 150;
 const ZOOM_BUTTON_FACTOR = 1.25;
 
 function loadInputMode(): InputMode {
@@ -114,27 +116,31 @@ export function WhiteboardPanel({
   // The board hook and the packet handler need each other, so the handler
   // reaches the board through a ref.
   const boardRef = useRef<ReturnType<typeof useAnnotationBoard> | null>(null);
-  const refreshTimer = useRef<number | undefined>(undefined);
-  const scheduleRefresh = useCallback(() => {
-    window.clearTimeout(refreshTimer.current);
-    refreshTimer.current = window.setTimeout(() => void boardRef.current?.refresh(), REFRESH_DELAY_MS);
-  }, []);
-  useEffect(() => () => window.clearTimeout(refreshTimer.current), []);
-
-  const { publish: publishAnnotation } = useClassEvents(classId, ANNOTATION_TOPIC, ({ event }) => {
-    if (event.type !== 'annotation') return;
-    if (event.payload !== undefined) {
-      const operation: Operation = {
-        operationId: event.operationId,
-        sequence: event.sequence,
-        actorId: event.layerOwnerId,
-        layerOwnerId: event.layerOwnerId,
-        operationType: event.op as OperationType,
-        payload: event.payload,
-      };
-      boardRef.current?.ingest(operation, event.documentId);
+  const refresh = useRef({ cooling: false, pending: false });
+  const requestRefresh = useRef<() => void>(() => undefined);
+  requestRefresh.current = () => {
+    const state = refresh.current;
+    if (state.cooling) {
+      state.pending = true;
+      return;
     }
-    scheduleRefresh();
+    state.cooling = true;
+    void boardRef.current?.refresh();
+    window.setTimeout(() => {
+      state.cooling = false;
+      if (state.pending) {
+        state.pending = false;
+        requestRefresh.current();
+      }
+    }, REFRESH_COOLDOWN_MS);
+  };
+
+  // A packet only says "something was saved". Any participant can publish on
+  // the data channel, so its contents are never applied: the server's replay is
+  // the one source of truth, and a forged packet can at most trigger a harmless
+  // re-fetch.
+  const { publish: publishAnnotation } = useClassEvents(classId, ANNOTATION_TOPIC, ({ event }) => {
+    if (event.type === 'annotation') requestRefresh.current();
   });
 
   const board = useAnnotationBoard({
@@ -152,7 +158,6 @@ export function WhiteboardPanel({
           sequence: operation.sequence,
           op: operation.operationType,
           layerOwnerId: operation.layerOwnerId,
-          payload: operation.payload,
         }),
       );
     },

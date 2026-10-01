@@ -122,8 +122,12 @@ user id, and while `follow` is true their own navigation is locked. The packet
 is client-published and therefore advisory: it can only move a view, it never
 carries content.
 
-The `annotation` event above may omit `payload` when it would exceed the packet
-cap; receivers then replay over REST from their last known sequence.
+**Stage 4 treats the `annotation` packet as a hint only.** Any participant can
+publish on the data channel, so its contents are never applied: a receiver
+replays from its last known sequence over REST and shows what the server
+returns. The sender omits `payload`, and a forged packet (e.g. a fake
+`CLEAR_ALL`) can at most trigger a harmless re-fetch. Bursts collapse into one
+replay per 150 ms.
 
 ## Reconnect and late join
 

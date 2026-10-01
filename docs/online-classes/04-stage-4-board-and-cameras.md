@@ -53,7 +53,10 @@ so a view packet is advisory. Students accept it only when the sender's identity
 (`<userId>|<device>`) carries the **host's user id**, taken from the roster. A
 forged packet from another student is ignored (test:
 `WhiteboardPanel.test.tsx`, `useFollowTeacher.test.tsx`). A forged packet can at
-worst move a view; it never carries content. If the teacher goes silent for 6 s
+worst move a view; it never carries content. Annotation packets are likewise
+only a "something was saved" hint: peers re-fetch from the server and never
+apply packet contents, so a student cannot fake a teacher's stroke or a
+«clear all» over the data channel. If the teacher goes silent for 6 s
 the student is unlocked.
 
 ---

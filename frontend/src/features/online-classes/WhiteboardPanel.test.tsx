@@ -150,19 +150,46 @@ describe('WhiteboardPanel', () => {
     );
   });
 
-  it('draws a stroke that arrives from someone else', async () => {
+  it('fetches from the server when told something was saved, and shows what it finds', async () => {
     mount('student');
     await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalled());
     await waitFor(() => expect(canvasProps.shapes).toEqual([]));
+    api.replayAnnotations.mockResolvedValue([
+      {
+        id: 'r1', operationId: 'op-1', sequence: 4, actorId: 'teacher', layerOwnerId: 'teacher',
+        operationType: 'ADD', payload: JSON.stringify({ kind: 'pen', points: [[0.1, 0.1]] }), createdAt: '',
+      },
+    ] as never);
     await act(async () => {
       handlers[ANNOTATION_TOPIC]({
         event: annotationEvent('c1', {
           documentId: 'doc-0', operationId: 'op-1', sequence: 4, op: 'ADD', layerOwnerId: 'teacher',
-          payload: JSON.stringify({ kind: 'pen', points: [[0.1, 0.1]] }),
         }),
         senderIdentity: 'teacher|tab',
       });
     });
+    await waitFor(() => expect(canvasProps.shapes).toHaveLength(1));
+  });
+
+  it('never applies the contents of a packet — a forged "clear all" does nothing', async () => {
+    mount('student');
+    await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalled());
+    api.replayAnnotations.mockResolvedValue([
+      {
+        id: 'r1', operationId: 'op-1', sequence: 1, actorId: 'teacher', layerOwnerId: 'teacher',
+        operationType: 'ADD', payload: JSON.stringify({ kind: 'pen', points: [[0.1, 0.1]] }), createdAt: '',
+      },
+    ] as never);
+    await act(async () => {
+      handlers[ANNOTATION_TOPIC]({
+        event: annotationEvent('c1', {
+          documentId: 'doc-0', operationId: 'forged', sequence: 99, op: 'CLEAR_ALL', layerOwnerId: 'teacher',
+          payload: '{}',
+        }),
+        senderIdentity: 'student-2|tab',
+      });
+    });
+    // The real stroke from the server is what is shown; the forged operation is not.
     await waitFor(() => expect(canvasProps.shapes).toHaveLength(1));
   });
 
