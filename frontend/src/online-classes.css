@@ -767,3 +767,16 @@
 .camera-card__indicator[data-off='true'] {
   opacity: 0.85;
 }
+
+/*
+ * While the answers panel covers the board's left edge, the board's own page
+ * switcher moves to the panel's right edge so the teacher can still flip board
+ * pages without closing the answers.
+ */
+.whiteboard__stage:has(.answers-panel) .whiteboard__pages {
+  left: calc(clamp(320px, 33vw, 560px) + 12px);
+}
+
+.board-toolbar__group {
+  flex-wrap: wrap;
+}

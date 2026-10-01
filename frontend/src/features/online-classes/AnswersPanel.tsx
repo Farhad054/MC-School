@@ -59,11 +59,16 @@ export function AnswersPanel({
     canvas.width = page.canvas.width;
     canvas.height = page.canvas.height;
     canvas.getContext('2d')?.drawImage(page.canvas, 0, 0);
-    if (!restored.current && scrollRef.current) {
-      restored.current = true;
+    const container = scrollRef.current;
+    if (!restored.current && container) {
       const saved = getView();
-      scrollRef.current.scrollTop = saved.scrollTop;
-      scrollRef.current.scrollLeft = saved.scrollLeft;
+      container.scrollTop = saved.scrollTop;
+      container.scrollLeft = saved.scrollLeft;
+      // The browser clamps the offset while the page is still shorter than it
+      // will be (a sharper render is on its way): keep trying until it sticks.
+      restored.current =
+        Math.abs(container.scrollTop - saved.scrollTop) < 2 &&
+        Math.abs(container.scrollLeft - saved.scrollLeft) < 2;
     }
   }, [page, getView]);
 

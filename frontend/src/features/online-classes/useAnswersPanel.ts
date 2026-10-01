@@ -82,6 +82,8 @@ export function useAnswersPanel(eventId: string | undefined, isHost: boolean) {
     viewRef.current = { ...viewRef.current, scrollTop, scrollLeft };
   }, []);
 
+  const getView = useCallback(() => viewRef.current, []);
+
   const openPanel = useCallback(() => {
     if (status !== 'available') return;
     setEverOpened(true);
@@ -105,7 +107,7 @@ export function useAnswersPanel(eventId: string | undefined, isHost: boolean) {
     close: closePanel,
     pdf,
     /** Read at mount time by the panel to restore scroll; always the latest. */
-    getView: () => viewRef.current,
+    getView,
     view,
     setView,
     rememberScroll,
