@@ -62,6 +62,7 @@ public class OnlineClassAnnotationService {
                                                    int pageIndex, Integer sourceWidth,
                                                    Integer sourceHeight) {
         OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        requireBoardAccess(caller, onlineClass, targetId);
         OnlineClassAnnotationDocument document = documentRepository
                 .findByOnlineClassIdAndTargetTypeAndTargetIdAndPageIndex(
                         classId, targetType, targetId, pageIndex)
@@ -87,6 +88,7 @@ public class OnlineClassAnnotationService {
                                               UUID documentId, AnnotationOperationRequest request) {
         OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
         OnlineClassAnnotationDocument document = requireDocument(classId, documentId);
+        requireBoardAccess(caller, onlineClass, document.getTargetId());
         User actor = accessService.requireActiveUser(caller.id());
         boolean host = accessService.isHost(caller, onlineClass);
 
@@ -124,8 +126,9 @@ public class OnlineClassAnnotationService {
     @Transactional(readOnly = true)
     public List<AnnotationOperationResponse> replay(AuthenticatedUser caller, UUID classId,
                                                     UUID documentId, long afterSequence) {
-        accessService.requireParticipant(caller, classId);
-        requireDocument(classId, documentId);
+        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClassAnnotationDocument document = requireDocument(classId, documentId);
+        requireBoardAccess(caller, onlineClass, document.getTargetId());
 
         return eventRepository
                 .findAllByDocumentIdAndSequenceGreaterThanOrderBySequenceAsc(documentId, afterSequence)
@@ -137,8 +140,10 @@ public class OnlineClassAnnotationService {
 
     @Transactional(readOnly = true)
     public List<AnnotationDocumentResponse> listDocuments(AuthenticatedUser caller, UUID classId) {
-        accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
         return documentRepository.findAllByOnlineClassIdOrderByPageIndexAsc(classId).stream()
+                // Someone else's private board is not merely unreadable: it is not listed.
+                .filter(document -> canAccessBoard(caller, onlineClass, document.getTargetId()))
                 .map(AnnotationDocumentResponse::from)
                 .toList();
     }
@@ -177,6 +182,27 @@ public class OnlineClassAnnotationService {
         document.recordSnapshot(objectKey, clock.instant());
         log.info("Whiteboard snapshot saved: classId={} page={}", classId, document.getPageIndex());
         return AnnotationDocumentResponse.from(document);
+    }
+
+    /**
+     * Shared surfaces are open to every participant. A personal board is open
+     * only to its owner and the class's teacher; anyone else gets the same
+     * not-found as for a missing document.
+     */
+    private boolean canAccessBoard(AuthenticatedUser caller, OnlineClass onlineClass, String targetId) {
+        if (!PersonalBoard.isPersonal(targetId)) {
+            return true;
+        }
+        if (accessService.isHost(caller, onlineClass)) {
+            return true;
+        }
+        return PersonalBoard.ownerOf(targetId).filter(owner -> owner.equals(caller.id())).isPresent();
+    }
+
+    private void requireBoardAccess(AuthenticatedUser caller, OnlineClass onlineClass, String targetId) {
+        if (!canAccessBoard(caller, onlineClass, targetId)) {
+            throw new ResourceNotFoundException("Annotation document not found");
+        }
     }
 
     private OnlineClassAnnotationDocument requireDocument(UUID classId, UUID documentId) {
