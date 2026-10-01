@@ -115,3 +115,22 @@ describe('locked navigation (student following the teacher)', () => {
     expect(types(controller.down(1, 'pen', { x: 1, y: 1 }))).toEqual(['stroke-start']);
   });
 });
+
+describe('mouse navigation (middle button / space)', () => {
+  it('pans instead of drawing when navigation is forced', () => {
+    const { controller, state } = setup('stylus');
+    state.view = { zoom: 2, panX: -100, panY: -100 };
+    expect(controller.down(1, 'mouse', { x: 200, y: 200 }, false, true)).toEqual([]);
+    const moved = controller.move(1, { x: 230, y: 210 });
+    expect(types(moved)).toEqual(['view']);
+    expect(moved[0]).toMatchObject({ view: { panX: -70, panY: -90 } });
+    expect(controller.up(1)).toEqual([]);
+    expect(types(controller.down(2, 'mouse', { x: 1, y: 1 }))).toEqual(['stroke-start']);
+  });
+
+  it('respects the navigation lock', () => {
+    const { controller } = setup('stylus', true);
+    controller.down(1, 'mouse', { x: 200, y: 200 }, false, true);
+    expect(controller.move(1, { x: 300, y: 300 })).toEqual([]);
+  });
+});

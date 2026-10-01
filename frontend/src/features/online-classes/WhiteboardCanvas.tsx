@@ -156,6 +156,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   }, []);
 
   const eraseHits = useRef(new Set<string>());
+  const spaceHeld = useRef(false);
 
   /** Local pixel → normalized page coordinate, through the current zoom/pan. */
   const toPage = useCallback((local: Point) => {
@@ -338,7 +339,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     } catch {
       // Capture is a nicety (keeps a drag alive off-surface); not required.
     }
-    applyIntents(controller.down(event.pointerId, kind, localPoint(event), palm));
+    // Middle button, or space held, moves the page instead of drawing.
+    const navigate = kind === 'mouse' && (event.button === 1 || spaceHeld.current);
+    if (navigate) event.preventDefault();
+    applyIntents(controller.down(event.pointerId, kind, localPoint(event), palm, navigate));
   };
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     applyIntents(controller.move(event.pointerId, localPoint(event)));
@@ -362,7 +366,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     }
   };
 
+  const onKeyUp = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === ' ') spaceHeld.current = false;
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === ' ') {
+      spaceHeld.current = true;
+      event.preventDefault();
+    }
     if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId && !readOnly) {
       onEraseShape?.(selectedId);
       setSelectedId(null);
@@ -499,6 +511,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       onPointerCancel={onPointerCancel}
       onWheel={onWheel}
       onKeyDown={onKeyDown}
+      onKeyUp={onKeyUp}
+      onBlur={() => {
+        spaceHeld.current = false;
+      }}
       onContextMenu={(event) => event.preventDefault()}
       style={{ touchAction: 'none' }}
     >

@@ -47,7 +47,16 @@ export class GestureController {
 
   constructor(private readonly deps: GestureDeps) {}
 
-  down(id: number, kind: PointerKind, position: Point, palm = false): Intent[] {
+  /**
+   * @param navigate forces a pan with this pointer (mouse: middle button or
+   *   space held), so a mouse user can move a zoomed page without a touch screen
+   */
+  down(id: number, kind: PointerKind, position: Point, palm = false, navigate = false): Intent[] {
+    if (navigate && this.state === 'idle') {
+      this.touches.set(id, position);
+      this.beginNavigation();
+      return [];
+    }
     // A palm resting while a pen writes (or a large contact area) never counts.
     if (kind === 'touch' && (palm || this.penDown !== null)) return [];
 
