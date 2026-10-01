@@ -466,3 +466,110 @@
     min-height: 44px;
   }
 }
+
+/* --- Answers panel (teacher only) ----------------------------------------- */
+
+/*
+ * Pinned to the left edge of the board area and floating over it. It is
+ * absolutely positioned, so the board underneath keeps its size; the camera
+ * column is a sibling of the board area and is never covered.
+ */
+.answers-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  /* Fixed share of the screen; not user-resizable. */
+  width: clamp(320px, 33vw, 560px);
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  box-shadow: 4px 0 24px rgba(15, 23, 32, 0.18);
+}
+
+.answers-panel__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #eef0f3;
+}
+
+.answers-panel__page {
+  display: block;
+  height: auto;
+  background: #fff;
+}
+
+.answers-panel__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.answers-panel__zoom {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.answers-panel__zoom button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.answers-panel__zoom button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The × sits on the panel's right border, half outside it. */
+.answers-panel__close {
+  position: absolute;
+  top: 12px;
+  right: -16px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 32, 0.2);
+}
+
+.answers-button.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.answers-panel :focus-visible,
+.page-nav :focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .answers-panel__close {
+    width: 44px;
+    height: 44px;
+    right: -22px;
+  }
+
+  .answers-panel__zoom button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
