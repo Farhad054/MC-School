@@ -188,6 +188,20 @@
   border-radius: var(--radius);
   /* Stops the browser panning the page while drawing with a finger. */
   touch-action: none;
+  position: relative;
+  overflow: hidden;
+  /* Selecting text on the page while drawing would fight the pointer. */
+  user-select: none;
+}
+
+.whiteboard__text-input {
+  position: absolute;
+  min-width: 160px;
+  padding: 2px 4px;
+  font-size: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
 }
 
 /* --- Participants and waiting room --------------------------------------- */

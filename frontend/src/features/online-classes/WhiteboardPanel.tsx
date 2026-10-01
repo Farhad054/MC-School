@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { onlineClassesApi, type AnnotationTargetType } from '../../api/onlineClasses';
 import { useI18n } from '../../i18n/I18nContext';
 import type { TranslationKey } from '../../i18n/translations';
-import { WhiteboardCanvas, type Tool } from './WhiteboardCanvas';
+import { WhiteboardCanvas, type Tool, type WhiteboardCanvasHandle } from './WhiteboardCanvas';
 import { useAnnotationBoard } from './useAnnotationBoard';
 
 const TOOLS: { tool: Tool; labelKey: TranslationKey }[] = [
@@ -50,6 +50,7 @@ export function WhiteboardPanel({
   const [color, setColor] = useState(COLORS[0]);
   const [strokeWidth, setStrokeWidth] = useState(0.004);
   const [saved, setSaved] = useState(false);
+  const canvasRef = useRef<WhiteboardCanvasHandle | null>(null);
 
   const board = useAnnotationBoard({
     classId,
@@ -60,13 +61,13 @@ export function WhiteboardPanel({
   });
 
   const saveSnapshot = async () => {
-    const stage = document.querySelector<HTMLCanvasElement>('.whiteboard__surface canvas');
-    if (!stage || !board.document) return;
+    const image = canvasRef.current?.toDataURL();
+    if (!image || !board.document) return;
     try {
       await onlineClassesApi.saveAnnotationSnapshot(
         classId,
         board.document.id,
-        stage.toDataURL('image/png'),
+        image,
       );
       setSaved(true);
     } catch {
@@ -149,6 +150,7 @@ export function WhiteboardPanel({
       </div>
 
       <WhiteboardCanvas
+        ref={canvasRef}
         shapes={board.shapes}
         tool={tool}
         color={color}
@@ -157,7 +159,6 @@ export function WhiteboardPanel({
         readOnly={!canAnnotate}
         onCommit={(shape) => void board.addShape(shape)}
         onLaserMove={onLaserMove}
-        onRequestText={() => window.prompt(t('onlineClass.whiteboard.textPrompt'))}
       />
     </section>
   );
