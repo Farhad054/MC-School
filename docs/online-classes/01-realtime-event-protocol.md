@@ -106,6 +106,25 @@ Coordinates are normalized to the target surface (0..1), never CSS pixels.
 
 Ephemeral laser pointer. Never persisted; fades client-side.
 
+### `mc.class.view.v1` (stage 4)
+
+```jsonc
+{ "v": 1, "type": "view", "classId": "<uuid>", "id": "<uuid>", "at": 1789744374000,
+  "boardId": "board-1", "page": 2, "pageCount": 5,
+  "zoom": 2, "panX": -0.5, "panY": -0.25, "follow": true }
+```
+
+Teacher's view of the **shared** board only; personal boards never emit it.
+`page` is zero-based. Pan is a fraction of the board size (0 = no offset,
+negative = scrolled), so different screen sizes land on the same region.
+Students accept it only from the participant whose identity carries the HOST
+user id, and while `follow` is true their own navigation is locked. The packet
+is client-published and therefore advisory: it can only move a view, it never
+carries content.
+
+The `annotation` event above may omit `payload` when it would exceed the packet
+cap; receivers then replay over REST from their last known sequence.
+
 ## Reconnect and late join
 
 1. Fetch durable state over REST (participants, chat page, annotation replay

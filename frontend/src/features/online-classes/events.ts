@@ -12,6 +12,8 @@ export const HAND_TOPIC = 'mc.class.hand.v1';
 export const POINTER_TOPIC = 'mc.class.pointer.v1';
 export const ANNOTATION_TOPIC = 'mc.class.annotation.v1';
 export const CONTROL_TOPIC = 'mc.class.control.v1';
+/** Teacher's shared-board view (page, zoom, pan) for "follow the teacher". */
+export const VIEW_TOPIC = 'mc.class.view.v1';
 
 /** Hard cap per packet; annotation batches are chunked below this. */
 export const MAX_PACKET_BYTES = 8192;
@@ -50,6 +52,37 @@ export interface PointerEvent_ extends BaseEvent {
   y: number;
 }
 
+/**
+ * The teacher's view of the shared board. Pan is a fraction of the board size,
+ * not pixels, so a tablet and a laptop land on the same part of the page.
+ */
+export interface ViewEvent extends BaseEvent {
+  type: 'view';
+  boardId: string;
+  page: number;
+  pageCount: number;
+  zoom: number;
+  panX: number;
+  panY: number;
+  /** Whether students are currently locked to this view. */
+  follow: boolean;
+}
+
+/**
+ * A durable annotation operation was saved; peers apply it or replay from
+ * their last known sequence. `payload` is omitted when the packet would be
+ * too large — the receiver then simply replays over REST.
+ */
+export interface AnnotationEvent extends BaseEvent {
+  type: 'annotation';
+  documentId: string;
+  operationId: string;
+  sequence: number;
+  op: string;
+  layerOwnerId: string;
+  payload?: string;
+}
+
 /** Server-authored. Clients render these but never send them. */
 export interface ControlEvent {
   v: 1;
@@ -59,7 +92,13 @@ export interface ControlEvent {
   version: number;
 }
 
-export type ClassEvent = HandEvent | ReactionEvent | ChatEvent | PointerEvent_;
+export type ClassEvent =
+  | HandEvent
+  | ReactionEvent
+  | ChatEvent
+  | PointerEvent_
+  | ViewEvent
+  | AnnotationEvent;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -117,9 +156,36 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
         parsed.y <= 1
         ? (parsed as unknown as PointerEvent_)
         : null;
+    case 'view':
+      return typeof parsed.boardId === 'string' &&
+        isInt(parsed.page, 0, 10_000) &&
+        isInt(parsed.pageCount, 1, 10_000) &&
+        isFiniteIn(parsed.zoom, 1, 5) &&
+        isFiniteIn(parsed.panX, -5, 0) &&
+        isFiniteIn(parsed.panY, -5, 0) &&
+        typeof parsed.follow === 'boolean'
+        ? (parsed as unknown as ViewEvent)
+        : null;
+    case 'annotation':
+      return typeof parsed.documentId === 'string' &&
+        typeof parsed.operationId === 'string' &&
+        typeof parsed.op === 'string' &&
+        typeof parsed.layerOwnerId === 'string' &&
+        isInt(parsed.sequence, 0, Number.MAX_SAFE_INTEGER) &&
+        (parsed.payload === undefined || typeof parsed.payload === 'string')
+        ? (parsed as unknown as AnnotationEvent)
+        : null;
     default:
       return null;
   }
+}
+
+function isInt(value: unknown, min: number, max: number): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+}
+
+function isFiniteIn(value: unknown, min: number, max: number): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 }
 
 export function parseControlEvent(raw: Uint8Array, classId: string): ControlEvent | null {
@@ -155,4 +221,21 @@ export function reactionEvent(classId: string, emoji: ReactionEmoji): ReactionEv
 
 export function chatEvent(classId: string, clientMessageId: string, body: string): ChatEvent {
   return { v: 1, type: 'chat', classId, id: newId(), at: Date.now(), clientMessageId, body };
+}
+
+export function viewEvent(
+  classId: string,
+  view: Omit<ViewEvent, 'v' | 'type' | 'classId' | 'id' | 'at'>,
+): ViewEvent {
+  return { v: 1, type: 'view', classId, id: newId(), at: Date.now(), ...view };
+}
+
+export function annotationEvent(
+  classId: string,
+  operation: Omit<AnnotationEvent, 'v' | 'type' | 'classId' | 'id' | 'at'>,
+): AnnotationEvent {
+  const event: AnnotationEvent = { v: 1, type: 'annotation', classId, id: newId(), at: Date.now(), ...operation };
+  // Too big for one packet: drop the inline payload, peers replay instead.
+  if (encodeEvent(event).byteLength > MAX_PACKET_BYTES) delete event.payload;
+  return event;
 }
