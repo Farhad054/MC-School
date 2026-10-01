@@ -297,3 +297,123 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* --- Board toolbar (stage 4) ---------------------------------------------- */
+
+.board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  /* The bar never collapses or scrolls away during a lesson. */
+  position: relative;
+  z-index: 5;
+}
+
+.board-toolbar__tools,
+.board-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.board-toolbar__slot {
+  position: relative;
+}
+
+.board-toolbar button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.board-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The selected tool must be unmistakable: filled, with a lifted outline. */
+.board-toolbar .board-toolbar__tool.is-active,
+.board-toolbar .board-toolbar__group button.is-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent-dark);
+  box-shadow: 0 2px 0 var(--accent-dark);
+}
+
+.board-toolbar__tool span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.board-toolbar__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 190px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(15, 23, 32, 0.18);
+}
+
+.board-toolbar__swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.board-toolbar .board-toolbar__swatches button {
+  min-width: 30px;
+  min-height: 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+}
+
+.board-toolbar .board-toolbar__swatches button.is-active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+}
+
+.board-toolbar__size {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.board-toolbar [role='radiogroup'] button.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Tablet and stylus: fingertip-sized targets. */
+@media (pointer: coarse) {
+  .board-toolbar button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .board-toolbar .board-toolbar__swatches button {
+    min-width: 40px;
+    min-height: 40px;
+    width: 40px;
+    height: 40px;
+  }
+}
