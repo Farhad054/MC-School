@@ -1,30 +1,62 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { onlineClassesApi, type AnnotationTargetType } from '../../api/onlineClasses';
 import { useI18n } from '../../i18n/I18nContext';
-import type { TranslationKey } from '../../i18n/translations';
-import { WhiteboardCanvas, type Tool, type WhiteboardCanvasHandle } from './WhiteboardCanvas';
+import type { Operation, OperationType } from './annotations';
+import { BoardToolbar } from './BoardToolbar';
+import {
+  DEFAULT_TOOL_SETTINGS,
+  type ToolSettings,
+} from './boardTools';
+import {
+  addPage,
+  ensurePageCount,
+  initialPages,
+  nextPage,
+  previousPage,
+  viewOf,
+  withView,
+  zoomAbout,
+  type BoardPages,
+  type PageView,
+} from './boardView';
+import { ANNOTATION_TOPIC, annotationEvent } from './events';
+import type { InputMode } from './inputPolicy';
+import { navigationLocked } from './followTeacher';
+import { PageNavigator } from './PageNavigator';
+import type { PdfDoc } from './pdfDocument';
 import { useAnnotationBoard } from './useAnnotationBoard';
+import { useClassEvents } from './useClassEvents';
+import { useFollowTeacher } from './useFollowTeacher';
+import { useHostUserId } from './useHostUserId';
+import { useLaserPointers } from './useLaserPointers';
+import { usePdfPage } from './usePdf';
+import {
+  WhiteboardCanvas,
+  type EraserMode,
+  type Tool,
+  type WhiteboardCanvasHandle,
+} from './WhiteboardCanvas';
 
-const TOOLS: { tool: Tool; labelKey: TranslationKey }[] = [
-  { tool: 'pen', labelKey: 'onlineClass.whiteboard.pen' },
-  { tool: 'highlighter', labelKey: 'onlineClass.whiteboard.highlighter' },
-  { tool: 'line', labelKey: 'onlineClass.whiteboard.line' },
-  { tool: 'arrow', labelKey: 'onlineClass.whiteboard.arrow' },
-  { tool: 'rect', labelKey: 'onlineClass.whiteboard.rect' },
-  { tool: 'ellipse', labelKey: 'onlineClass.whiteboard.ellipse' },
-  { tool: 'text', labelKey: 'onlineClass.whiteboard.text' },
-  { tool: 'erase', labelKey: 'onlineClass.whiteboard.eraser' },
-  { tool: 'laser', labelKey: 'onlineClass.whiteboard.laser' },
-];
+const INPUT_MODE_KEY = 'mc.board.inputMode';
+/** Remote operations are applied at once; this heals any gap a lossy network left. */
+const REFRESH_DELAY_MS = 600;
+const ZOOM_BUTTON_FACTOR = 1.25;
 
-const COLORS = ['#111111', '#d62828', '#0353a4', '#2a9d8f', '#e9c46a'];
+function loadInputMode(): InputMode {
+  try {
+    return localStorage.getItem(INPUT_MODE_KEY) === 'stylus' ? 'stylus' : 'finger';
+  } catch {
+    return 'finger';
+  }
+}
 
 /**
- * Whiteboard, or an overlay on a shared screen.
+ * The lesson board: toolbar, canvas, page switcher, zoom, and (for the host)
+ * follow-the-teacher.
  *
- * <p>The same component serves both: only the target type differs, which is
- * what keeps a later notebook-camera surface a matter of passing a different
- * `targetType`.
+ * <p>Serves the shared board by default; only the target differs for a screen
+ * share overlay. The answers panel is passed in as `overlay` so it floats over
+ * the board without resizing it.
  */
 export function WhiteboardPanel({
   classId,
@@ -34,7 +66,9 @@ export function WhiteboardPanel({
   targetId = 'board-1',
   sourceAspect = null,
   canAnnotate = true,
-  onLaserMove,
+  document: pdfDocument = null,
+  hostActions,
+  overlay,
 }: {
   classId: string;
   actorId: string;
@@ -43,123 +77,273 @@ export function WhiteboardPanel({
   targetId?: string;
   sourceAspect?: number | null;
   canAnnotate?: boolean;
-  onLaserMove?: (point: { x: number; y: number }) => void;
+  /** A loaded PDF whose pages sit under the marks. */
+  document?: PdfDoc | null;
+  /** Extra teacher-only buttons next to "clear all" (e.g. Answers). */
+  hostActions?: ReactNode;
+  /** Floats over the board area, below the toolbar. */
+  overlay?: ReactNode;
 }) {
   const { t } = useI18n();
   const [tool, setTool] = useState<Tool>('pen');
-  const [color, setColor] = useState(COLORS[0]);
-  const [strokeWidth, setStrokeWidth] = useState(0.004);
+  const [toolSettings, setToolSettings] = useState<Record<Tool, ToolSettings>>(DEFAULT_TOOL_SETTINGS);
+  const [eraserMode, setEraserMode] = useState<EraserMode>('partial');
+  const [inputMode, setInputModeState] = useState<InputMode>(loadInputMode);
+  const [pages, setPages] = useState<BoardPages>(() => initialPages(1));
   const [saved, setSaved] = useState(false);
+  const [stageWidth, setStageWidth] = useState(0);
   const canvasRef = useRef<WhiteboardCanvasHandle | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+
+  const hostUserId = useHostUserId(classId);
+  const getBoardSize = useCallback(() => canvasRef.current?.getSize() ?? { width: 0, height: 0 }, []);
+
+  const view = viewOf(pages);
+  const follow = useFollowTeacher({
+    classId,
+    boardId: targetId,
+    isHost,
+    hostUserId,
+    pages,
+    setPages,
+    getBoardSize,
+  });
+  const locked = navigationLocked(isHost, follow.following);
+
+  // --- Realtime marks -------------------------------------------------------
+  // The board hook and the packet handler need each other, so the handler
+  // reaches the board through a ref.
+  const boardRef = useRef<ReturnType<typeof useAnnotationBoard> | null>(null);
+  const refreshTimer = useRef<number | undefined>(undefined);
+  const scheduleRefresh = useCallback(() => {
+    window.clearTimeout(refreshTimer.current);
+    refreshTimer.current = window.setTimeout(() => void boardRef.current?.refresh(), REFRESH_DELAY_MS);
+  }, []);
+  useEffect(() => () => window.clearTimeout(refreshTimer.current), []);
+
+  const { publish: publishAnnotation } = useClassEvents(classId, ANNOTATION_TOPIC, ({ event }) => {
+    if (event.type !== 'annotation') return;
+    if (event.payload !== undefined) {
+      const operation: Operation = {
+        operationId: event.operationId,
+        sequence: event.sequence,
+        actorId: event.layerOwnerId,
+        layerOwnerId: event.layerOwnerId,
+        operationType: event.op as OperationType,
+        payload: event.payload,
+      };
+      boardRef.current?.ingest(operation, event.documentId);
+    }
+    scheduleRefresh();
+  });
 
   const board = useAnnotationBoard({
     classId,
     targetType,
     targetId,
+    pageIndex: pages.current,
     actorId,
     isHost,
+    onSaved: (operation, documentId) => {
+      void publishAnnotation(
+        annotationEvent(classId, {
+          documentId,
+          operationId: operation.operationId,
+          sequence: operation.sequence,
+          op: operation.operationType,
+          layerOwnerId: operation.layerOwnerId,
+          payload: operation.payload,
+        }),
+      );
+    },
   });
+  boardRef.current = board;
+
+  const { lasers, sendLaser } = useLaserPointers(classId, targetId);
+
+  // --- Pages ----------------------------------------------------------------
+  // A joiner (or a reload) learns how many pages already exist from the server.
+  useEffect(() => {
+    let active = true;
+    onlineClassesApi
+      .listAnnotationDocuments(classId)
+      .then((documents) => {
+        if (!active) return;
+        const last = documents
+          .filter((entry) => entry.targetType === targetType && entry.targetId === targetId)
+          .reduce((max, entry) => Math.max(max, entry.pageIndex), 0);
+        setPages((current) => ensurePageCount(current, last + 1));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [classId, targetType, targetId]);
+
+  // A PDF sets the floor for the page count; blank pages can still be added after it.
+  useEffect(() => {
+    if (pdfDocument) setPages((current) => ensurePageCount(current, pdfDocument.pageCount));
+  }, [pdfDocument]);
+
+  useEffect(() => {
+    const element = stageRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box) setStageWidth(box.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const renderedPage = usePdfPage(pdfDocument, pages.current, stageWidth);
+  const pageAspect = renderedPage?.aspect ?? sourceAspect;
+
+  const setView = useCallback((next: PageView) => setPages((current) => withView(current, next)), []);
+
+  const zoomBy = (factor: number) => {
+    const size = getBoardSize();
+    setView(zoomAbout(view, view.zoom * factor, { x: size.width / 2, y: size.height / 2 }, size));
+  };
+
+  const changeInputMode = (mode: InputMode) => {
+    setInputModeState(mode);
+    try {
+      localStorage.setItem(INPUT_MODE_KEY, mode);
+    } catch {
+      // Remembering the choice is a convenience only.
+    }
+  };
 
   const saveSnapshot = async () => {
     const image = canvasRef.current?.toDataURL();
     if (!image || !board.document) return;
     try {
-      await onlineClassesApi.saveAnnotationSnapshot(
-        classId,
-        board.document.id,
-        image,
-      );
+      await onlineClassesApi.saveAnnotationSnapshot(classId, board.document.id, image);
       setSaved(true);
     } catch {
       setSaved(false);
     }
   };
 
+  const settingsOf = toolSettings[tool];
+  const updateSettings = (target: Tool, patch: Partial<ToolSettings>) =>
+    setToolSettings((current) => ({ ...current, [target]: { ...current[target], ...patch } }));
+
+  const hostButtons = isHost ? (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          if (window.confirm(t('onlineClass.whiteboard.clearAllConfirm'))) {
+            void board.clearAll();
+          }
+        }}
+      >
+        {t('onlineClass.whiteboard.clearAll')}
+      </button>
+      <button type="button" onClick={() => void saveSnapshot()}>
+        {t('onlineClass.whiteboard.saveSnapshot')}
+      </button>
+      <button
+        type="button"
+        aria-pressed={follow.followEnabled}
+        className={follow.followEnabled ? 'is-active' : undefined}
+        onClick={() => follow.setFollowEnabled((enabled) => !enabled)}
+      >
+        {t('onlineClass.board.follow')}
+      </button>
+      {hostActions}
+    </>
+  ) : null;
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (!canAnnotate || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+    event.preventDefault();
+    void (event.shiftKey ? board.redo() : board.undo());
+  };
+
   return (
-    <section className="whiteboard" aria-labelledby="whiteboard-title">
-      <h3 id="whiteboard-title">{t('onlineClass.whiteboard')}</h3>
-
+    <section className="whiteboard" aria-label={t('onlineClass.board.viewLabel')} onKeyDown={onKeyDown}>
       {canAnnotate && (
-        <div className="whiteboard__toolbar" role="toolbar" aria-label={t('onlineClass.whiteboard')}>
-          {TOOLS.map((entry) => (
-            <button
-              key={entry.tool}
-              type="button"
-              onClick={() => setTool(entry.tool)}
-              aria-pressed={tool === entry.tool}
-              aria-label={t(entry.labelKey)}
-            >
-              {t(entry.labelKey)}
-            </button>
-          ))}
-
-          <label>
-            {t('onlineClass.whiteboard.color')}
-            <select value={color} onChange={(event) => setColor(event.target.value)}>
-              {COLORS.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            {t('onlineClass.whiteboard.width')}
-            <input
-              type="range"
-              min={1}
-              max={20}
-              value={Math.round(strokeWidth * 1000)}
-              onChange={(event) => setStrokeWidth(Number(event.target.value) / 1000)}
-            />
-          </label>
-
-          <button type="button" onClick={() => void board.undo()} disabled={!board.canUndo}>
-            {t('onlineClass.whiteboard.undo')}
-          </button>
-          <button type="button" onClick={() => void board.redo()} disabled={!board.canRedo}>
-            {t('onlineClass.whiteboard.redo')}
-          </button>
-          <button type="button" onClick={() => void board.clearMine()}>
-            {t('onlineClass.whiteboard.clearMine')}
-          </button>
-
-          {isHost && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  if (window.confirm(t('onlineClass.whiteboard.clearAllConfirm'))) {
-                    void board.clearAll();
-                  }
-                }}
-              >
-                {t('onlineClass.whiteboard.clearAll')}
-              </button>
-              <button type="button" onClick={() => void saveSnapshot()}>
-                {t('onlineClass.whiteboard.saveSnapshot')}
-              </button>
-            </>
-          )}
-        </div>
+        <BoardToolbar
+          tool={tool}
+          onToolChange={setTool}
+          settings={toolSettings}
+          onSettingsChange={updateSettings}
+          eraserMode={eraserMode}
+          onEraserModeChange={setEraserMode}
+          inputMode={inputMode}
+          onInputModeChange={changeInputMode}
+          canUndo={board.canUndo}
+          canRedo={board.canRedo}
+          onUndo={() => void board.undo()}
+          onRedo={() => void board.redo()}
+          onClearMine={() => void board.clearMine()}
+          hostActions={hostButtons}
+        />
       )}
 
-      <div role="status" aria-live="polite">
+      <div role="status" aria-live="polite" className="whiteboard__notice">
         {saved && <span>{t('onlineClass.whiteboard.saved')}</span>}
+        {locked && <span>{t('onlineClass.board.follow.student')}</span>}
       </div>
 
-      <WhiteboardCanvas
-        ref={canvasRef}
-        shapes={board.shapes}
-        tool={tool}
-        color={color}
-        strokeWidth={strokeWidth}
-        sourceAspect={sourceAspect}
-        readOnly={!canAnnotate}
-        onCommit={(shape) => void board.addShape(shape)}
-        onLaserMove={onLaserMove}
-      />
+      <div ref={stageRef} className="whiteboard__stage">
+        <WhiteboardCanvas
+          ref={canvasRef}
+          shapes={board.shapes}
+          tool={tool}
+          color={settingsOf.color}
+          strokeWidth={settingsOf.width}
+          sourceAspect={pageAspect}
+          readOnly={!canAnnotate}
+          eraserMode={eraserMode}
+          inputMode={inputMode}
+          view={view}
+          onViewChange={setView}
+          navigationLocked={locked}
+          background={renderedPage?.canvas ?? null}
+          lasers={lasers}
+          actorId={actorId}
+          onCommit={(shape) => void board.addShape(shape)}
+          onEraseShape={(id) => void board.eraseShape(id)}
+          onMoveShape={(id, shape) => void board.moveShape(id, shape)}
+          onLaserMove={sendLaser}
+        />
+
+        <div className="whiteboard__pages">
+          <PageNavigator
+            current={pages.current}
+            count={pages.count}
+            disabled={locked}
+            onPrevious={() => setPages(previousPage)}
+            onNext={() => setPages(nextPage)}
+            onAdd={isHost && canAnnotate ? () => setPages(addPage) : undefined}
+          />
+        </div>
+
+        <div className="whiteboard__zoom" role="group">
+          <button
+            type="button"
+            onClick={() => zoomBy(1 / ZOOM_BUTTON_FACTOR)}
+            disabled={locked || view.zoom <= 1}
+            aria-label={t('onlineClass.board.zoomOut')}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={() => zoomBy(ZOOM_BUTTON_FACTOR)}
+            disabled={locked}
+            aria-label={t('onlineClass.board.zoomIn')}
+          >
+            +
+          </button>
+        </div>
+
+        {overlay}
+      </div>
     </section>
   );
 }

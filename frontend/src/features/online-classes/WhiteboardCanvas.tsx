@@ -54,6 +54,8 @@ const HIT_TOLERANCE = 0.015;
 export interface WhiteboardCanvasHandle {
   /** PNG of the board as currently drawn, or null before it has a size. */
   toDataURL: () => string | null;
+  /** Current size of the drawing surface in CSS pixels. */
+  getSize: () => { width: number; height: number };
 }
 
 export interface RemoteLaser {
@@ -137,6 +139,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
 
   useImperativeHandle(ref, () => ({
     toDataURL: () => stageRef.current?.toDataURL({ pixelRatio: 1 }) ?? null,
+    getSize: () => live.current.viewport,
   }));
 
   // The surface is responsive; normalized coordinates mean a resize never

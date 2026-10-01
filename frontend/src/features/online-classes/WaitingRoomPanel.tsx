@@ -12,13 +12,20 @@ import { useI18n } from '../../i18n/I18nContext';
 export function WaitingRoomPanel({
   classId,
   pollIntervalMs = 5000,
+  onPendingChange,
 }: {
   classId: string;
   pollIntervalMs?: number;
+  /** Lets a collapsed container show how many people are waiting. */
+  onPendingChange?: (count: number) => void;
 }) {
   const { t } = useI18n();
   const [pending, setPending] = useState<JoinRequest[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    onPendingChange?.(pending.length);
+  }, [pending.length, onPendingChange]);
 
   const refresh = useCallback(async () => {
     try {
