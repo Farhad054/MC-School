@@ -17,13 +17,29 @@ function newId(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+interface PageState {
+  document: AnnotationDocument | null;
+  operations: Operation[];
+}
+
+const EMPTY_PAGE: PageState = { document: null, operations: [] };
+
+/** Highest server-assigned sequence; optimistic entries are negative. */
+function lastSequence(operations: Operation[]): number {
+  return operations.reduce((max, item) => Math.max(max, item.sequence), 0);
+}
+
 /**
- * Board state for one annotated surface.
+ * Board state for one annotated surface, across its pages.
  *
  * <p>Operations are applied optimistically and reconciled against the server's
  * assigned sequence. Because the stream is append-only and folding is pure, a
  * reconnecting client can replay from its last known sequence rather than
  * refetching the whole document.
+ *
+ * <p>Each page is its own annotation document and keeps its own operations in
+ * memory, so flipping back to a page shows its marks immediately (and refreshes
+ * quietly) instead of waiting on the network.
  */
 export function useAnnotationBoard({
   classId,
@@ -34,6 +50,7 @@ export function useAnnotationBoard({
   isHost,
   sourceWidth,
   sourceHeight,
+  onSaved,
 }: {
   classId: string;
   targetType: AnnotationTargetType;
@@ -43,14 +60,23 @@ export function useAnnotationBoard({
   isHost: boolean;
   sourceWidth?: number;
   sourceHeight?: number;
+  /** Called after the server accepts an operation, e.g. to tell peers. */
+  onSaved?: (operation: Operation, documentId: string) => void;
 }) {
-  const [document, setDocument] = useState<AnnotationDocument | null>(null);
-  const [operations, setOperations] = useState<Operation[]>([]);
+  const [pages, setPages] = useState<Record<number, PageState>>({});
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const mounted = useRef(true);
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
   // Optimistic entries use a negative sequence so they sort after nothing and
   // are replaced the moment the server assigns a real one.
   const optimisticSequence = useRef(-1);
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+
+  const current = pages[pageIndex] ?? EMPTY_PAGE;
+  const document = current.document;
+  const operations = current.operations;
 
   useEffect(() => {
     mounted.current = true;
@@ -59,34 +85,54 @@ export function useAnnotationBoard({
     };
   }, []);
 
-  const merge = useCallback((incoming: Operation) => {
-    setOperations((current) => {
-      const index = current.findIndex((item) => item.operationId === incoming.operationId);
-      if (index >= 0) {
-        const next = current.slice();
-        next[index] = incoming;
-        return next;
-      }
-      return [...current, incoming];
-    });
+  const update = useCallback((page: number, change: (state: PageState) => PageState) => {
+    setPages((all) => ({ ...all, [page]: change(all[page] ?? EMPTY_PAGE) }));
   }, []);
+
+  const merge = useCallback(
+    (page: number, incoming: Operation) => {
+      update(page, (state) => {
+        const index = state.operations.findIndex((item) => item.operationId === incoming.operationId);
+        if (index >= 0) {
+          const next = state.operations.slice();
+          next[index] = incoming;
+          return { ...state, operations: next };
+        }
+        return { ...state, operations: [...state.operations, incoming] };
+      });
+    },
+    [update],
+  );
 
   useEffect(() => {
     let active = true;
+    // Marks from another page must never be drawn on this one, and a stroke
+    // must never be filed under the wrong page's document.
+    setRedoStack([]);
     onlineClassesApi
       .openAnnotationDocument(classId, targetType, targetId, pageIndex, sourceWidth, sourceHeight)
       .then(async (opened) => {
         if (!active) return;
-        setDocument(opened);
-        const replayed = await onlineClassesApi.replayAnnotations(classId, opened.id, 0);
+        update(pageIndex, (state) => ({ ...state, document: opened }));
+        const known = lastSequence(pagesRef.current[pageIndex]?.operations ?? []);
+        const replayed = (await onlineClassesApi.replayAnnotations(
+          classId,
+          opened.id,
+          known,
+        )) as unknown as Operation[];
         if (!active) return;
-        setOperations(replayed as unknown as Operation[]);
+        update(pageIndex, (state) => {
+          if (known === 0) return { ...state, operations: replayed };
+          const byId = new Map(state.operations.map((item) => [item.operationId, item]));
+          for (const item of replayed) byId.set(item.operationId, item);
+          return { ...state, operations: [...byId.values()] };
+        });
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [classId, targetType, targetId, pageIndex, sourceWidth, sourceHeight]);
+  }, [classId, targetType, targetId, pageIndex, sourceWidth, sourceHeight, update]);
 
   const shapes = useMemo(() => foldOperations(operations), [operations]);
   const undoable = useMemo(() => undoableOperations(operations, actorId), [operations, actorId]);
@@ -94,6 +140,7 @@ export function useAnnotationBoard({
   const submit = useCallback(
     async (operationType: Operation['operationType'], payload: string) => {
       if (!document) return;
+      const page = pageIndex;
       const operationId = newId();
       const optimistic: Operation = {
         operationId,
@@ -103,28 +150,32 @@ export function useAnnotationBoard({
         operationType,
         payload,
       };
-      merge(optimistic);
+      merge(page, optimistic);
 
       try {
-        const saved = await onlineClassesApi.appendAnnotation(
+        const saved = (await onlineClassesApi.appendAnnotation(
           classId,
           document.id,
           operationId,
           operationType,
           payload,
-        );
-        if (mounted.current) merge(saved as unknown as Operation);
+        )) as unknown as Operation;
+        if (mounted.current) {
+          merge(page, saved);
+          onSavedRef.current?.(saved, document.id);
+        }
       } catch {
         // The server rejected it (validation, or the class ended): drop the
         // optimistic shape rather than showing something nobody else has.
         if (mounted.current) {
-          setOperations((current) =>
-            current.filter((item) => item.operationId !== operationId),
-          );
+          update(page, (state) => ({
+            ...state,
+            operations: state.operations.filter((item) => item.operationId !== operationId),
+          }));
         }
       }
     },
-    [actorId, classId, document, merge],
+    [actorId, classId, document, merge, pageIndex, update],
   );
 
   const addShape = useCallback((shape: Shape) => submit('ADD', JSON.stringify(shape)), [submit]);
@@ -132,16 +183,41 @@ export function useAnnotationBoard({
   const undo = useCallback(() => {
     const last = undoable[undoable.length - 1];
     if (!last) return;
-    setRedoStack((current) => [...current, last.operationId]);
+    setRedoStack((stack) => [...stack, last.operationId]);
     return submit('UNDO', JSON.stringify({ targetOperationId: last.operationId }));
   }, [submit, undoable]);
 
   const redo = useCallback(() => {
     const target = redoStack[redoStack.length - 1];
     if (!target) return;
-    setRedoStack((current) => current.slice(0, -1));
+    setRedoStack((stack) => stack.slice(0, -1));
     return submit('REDO', JSON.stringify({ targetOperationId: target }));
   }, [redoStack, submit]);
+
+  /**
+   * Deletes a whole stroke/shape (the eraser's "stroke" mode). Reuses UNDO,
+   * which the fold already restricts to the author's own work, so it can never
+   * remove someone else's marks. Not pushed to the redo stack: it is a
+   * deliberate delete, not a step back.
+   */
+  const eraseShape = useCallback(
+    (operationId: string) => {
+      const own = shapes.find((entry) => entry.operationId === operationId);
+      if (!own || own.layerOwnerId !== actorId) return;
+      return submit('UNDO', JSON.stringify({ targetOperationId: operationId }));
+    },
+    [actorId, shapes, submit],
+  );
+
+  /** Replaces an own shape's geometry in place (selection tool drag). */
+  const moveShape = useCallback(
+    (operationId: string, shape: Shape) => {
+      const own = shapes.find((entry) => entry.operationId === operationId);
+      if (!own || own.layerOwnerId !== actorId) return;
+      return submit('UPDATE', JSON.stringify({ ...shape, targetOperationId: operationId }));
+    },
+    [actorId, shapes, submit],
+  );
 
   const clearMine = useCallback(() => {
     setRedoStack([]);
@@ -154,13 +230,42 @@ export function useAnnotationBoard({
     return submit('CLEAR_ALL', '{}');
   }, [isHost, submit]);
 
-  /** Applies an operation that arrived over the realtime channel. */
+  /**
+   * Applies an operation that arrived over the realtime channel. When the
+   * packet names a document that belongs to another page it is filed there.
+   */
   const ingest = useCallback(
-    (operation: Operation) => {
-      merge(operation);
+    (operation: Operation, documentId?: string) => {
+      let page = pageIndex;
+      if (documentId) {
+        const match = Object.entries(pagesRef.current).find(
+          ([, state]) => state.document?.id === documentId,
+        );
+        if (!match) return; // A page we have not opened: its replay will include this.
+        page = Number(match[0]);
+      }
+      merge(page, operation);
     },
-    [merge],
+    [merge, pageIndex],
   );
+
+  /** Fetches whatever this page is missing; heals gaps in realtime delivery. */
+  const refresh = useCallback(async () => {
+    if (!document) return;
+    const page = pageIndex;
+    try {
+      const known = lastSequence(pagesRef.current[page]?.operations ?? []);
+      const replayed = (await onlineClassesApi.replayAnnotations(
+        classId,
+        document.id,
+        known,
+      )) as unknown as Operation[];
+      if (!mounted.current) return;
+      for (const item of replayed) merge(page, item);
+    } catch {
+      // Next packet or heartbeat will retry.
+    }
+  }, [classId, document, merge, pageIndex]);
 
   return {
     document,
@@ -170,8 +275,11 @@ export function useAnnotationBoard({
     addShape,
     undo,
     redo,
+    eraseShape,
+    moveShape,
     clearMine,
     clearAll,
     ingest,
+    refresh,
   };
 }

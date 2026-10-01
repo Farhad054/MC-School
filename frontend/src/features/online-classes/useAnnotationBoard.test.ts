@@ -220,3 +220,159 @@ describe('useAnnotationBoard', () => {
     expect(result.current.shapes).toHaveLength(1);
   });
 });
+
+describe('useAnnotationBoard — pages, eraser and move', () => {
+  let sequence = 0;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sequence = 0;
+    api.openAnnotationDocument.mockImplementation(async (_c, _t, _id, pageIndex = 0) => ({
+      ...DOC,
+      id: `doc-${pageIndex}`,
+      pageIndex,
+    }));
+    api.replayAnnotations.mockResolvedValue([]);
+    api.appendAnnotation.mockImplementation(
+      async (_c, _d, operationId, operationType, payload) =>
+        ({
+          id: `row-${++sequence}`,
+          operationId,
+          sequence,
+          actorId: 'teacher-1',
+          layerOwnerId: 'teacher-1',
+          operationType,
+          payload,
+          createdAt: new Date().toISOString(),
+        }) as never,
+    );
+  });
+
+  function paged(initial = 0) {
+    return renderHook(
+      ({ page }: { page: number }) =>
+        useAnnotationBoard({
+          classId: 'class-1',
+          targetType: 'WHITEBOARD',
+          targetId: 'board-1',
+          pageIndex: page,
+          actorId: 'teacher-1',
+          isHost: true,
+        }),
+      { initialProps: { page: initial } },
+    );
+  }
+
+  it('keeps each page’s marks separate and shows them again on return', async () => {
+    const { result, rerender } = paged(0);
+    await waitFor(() => expect(result.current.document?.id).toBe('doc-0'));
+    await act(async () => {
+      await result.current.addShape(PEN);
+    });
+    expect(result.current.shapes).toHaveLength(1);
+
+    rerender({ page: 1 });
+    // Page 1 is empty and its document is not page 0's.
+    expect(result.current.shapes).toHaveLength(0);
+    await waitFor(() => expect(result.current.document?.id).toBe('doc-1'));
+    expect(result.current.shapes).toHaveLength(0);
+
+    rerender({ page: 0 });
+    // Back on page 0 the stroke is there immediately, without waiting on the network.
+    expect(result.current.shapes).toHaveLength(1);
+  });
+
+  it('never files a stroke under a page whose document has not loaded', async () => {
+    const { result, rerender } = paged(0);
+    await waitFor(() => expect(result.current.document?.id).toBe('doc-0'));
+    rerender({ page: 1 });
+    expect(result.current.document).toBeNull();
+    await act(async () => {
+      await result.current.addShape(PEN);
+    });
+    expect(api.appendAnnotation).not.toHaveBeenCalled();
+  });
+
+  it('files a realtime operation under the page its document belongs to', async () => {
+    const { result, rerender } = paged(0);
+    await waitFor(() => expect(result.current.document?.id).toBe('doc-0'));
+    rerender({ page: 1 });
+    await waitFor(() => expect(result.current.document?.id).toBe('doc-1'));
+
+    act(() => {
+      result.current.ingest(
+        {
+          operationId: 'op-r',
+          sequence: 3,
+          actorId: 's',
+          layerOwnerId: 's',
+          operationType: 'ADD',
+          payload: JSON.stringify(PEN),
+        },
+        'doc-0',
+      );
+    });
+    expect(result.current.shapes).toHaveLength(0);
+    rerender({ page: 0 });
+    expect(result.current.shapes).toHaveLength(1);
+  });
+
+  it('deletes a whole own stroke without touching the redo stack', async () => {
+    const { result } = paged(0);
+    await waitFor(() => expect(result.current.document).not.toBeNull());
+    await act(async () => {
+      await result.current.addShape(PEN);
+    });
+    const id = result.current.shapes[0].operationId;
+    await act(async () => {
+      await result.current.eraseShape(id);
+    });
+    expect(result.current.shapes).toHaveLength(0);
+    expect(result.current.canRedo).toBe(false);
+  });
+
+  it('will not delete or move someone else’s shape', async () => {
+    api.replayAnnotations.mockResolvedValue([
+      {
+        id: 'r', operationId: 'op-theirs', sequence: 1, actorId: 's', layerOwnerId: 's',
+        operationType: 'ADD', payload: JSON.stringify(PEN), createdAt: '',
+      },
+    ] as never);
+    const { result } = paged(0);
+    await waitFor(() => expect(result.current.shapes).toHaveLength(1));
+    await act(async () => {
+      await result.current.eraseShape('op-theirs');
+      await result.current.moveShape('op-theirs', PEN);
+    });
+    expect(api.appendAnnotation).not.toHaveBeenCalled();
+  });
+
+  it('moves an own shape in place with a targeted update', async () => {
+    const { result } = paged(0);
+    await waitFor(() => expect(result.current.document).not.toBeNull());
+    await act(async () => {
+      await result.current.addShape({ kind: 'rect', x: 0.1, y: 0.1, w: 0.2, h: 0.2 });
+    });
+    const id = result.current.shapes[0].operationId;
+    await act(async () => {
+      await result.current.moveShape(id, { kind: 'rect', x: 0.4, y: 0.4, w: 0.2, h: 0.2 });
+    });
+    expect(result.current.shapes).toHaveLength(1);
+    expect(result.current.shapes[0].shape.x).toBe(0.4);
+  });
+
+  it('reports saved operations so peers can be told', async () => {
+    const onSaved = vi.fn();
+    const { result } = renderHook(() =>
+      useAnnotationBoard({
+        classId: 'class-1', targetType: 'WHITEBOARD', targetId: 'board-1',
+        actorId: 'teacher-1', isHost: true, onSaved,
+      }),
+    );
+    await waitFor(() => expect(result.current.document).not.toBeNull());
+    await act(async () => {
+      await result.current.addShape(PEN);
+    });
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ operationType: 'ADD' }), 'doc-0');
+  });
+});
