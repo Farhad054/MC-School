@@ -417,3 +417,52 @@
     height: 40px;
   }
 }
+
+/* --- Page navigator ------------------------------------------------------- */
+
+.page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(15, 23, 32, 0.15);
+}
+
+.page-nav button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.page-nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.page-nav .page-nav__add {
+  background: var(--accent);
+  color: #fff;
+}
+
+.page-nav__label {
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+@media (pointer: coarse) {
+  .page-nav button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
