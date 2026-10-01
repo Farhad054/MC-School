@@ -16,7 +16,7 @@ vi.mock('./useClassEvents', () => ({
   },
 }));
 
-const board = { width: 1000, height: 500 };
+let board = { width: 1000, height: 500 };
 
 function mount(isHost: boolean, hostUserId: string | null = 'teacher', enabled = true) {
   return renderHook(
@@ -172,6 +172,24 @@ describe('useFollowTeacher — teacher', () => {
       vi.advanceTimersByTime(HEARTBEAT_MS * 2 + 50);
     });
     expect(publish.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('sends nothing for the view while the board is hidden', () => {
+    const { result } = mount(true);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    publish.mockClear();
+    board = { width: 0, height: 0 };
+    try {
+      act(() => result.current.setFollowEnabled(true));
+      act(() => {
+        vi.advanceTimersByTime(HEARTBEAT_MS * 2);
+      });
+      expect(publish).not.toHaveBeenCalled();
+    } finally {
+      board = { width: 1000, height: 500 };
+    }
   });
 
   it('is never reported as "following" itself', () => {

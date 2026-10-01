@@ -66,6 +66,9 @@ export function useFollowTeacher({
 
   const send = useCallback(() => {
     const { pages: current, followEnabled: follow } = latest.current;
+    // A hidden board (a screen share is showing) has no size, so a view sent now
+    // would be a bogus pan of zero. Students keep the last real one.
+    if (follow && getBoardSize().width <= 0) return;
     lastSentCount.current = current.count;
     lastSentFollow.current = follow;
     void publish(

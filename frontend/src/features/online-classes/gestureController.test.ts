@@ -134,3 +134,22 @@ describe('mouse navigation (middle button / space)', () => {
     expect(controller.move(1, { x: 300, y: 300 })).toEqual([]);
   });
 });
+
+describe('pen versus a moving finger', () => {
+  it('starts inking even while a finger is panning the canvas', () => {
+    const { controller } = setup('stylus');
+    controller.down(1, 'touch', { x: 100, y: 100 });
+    controller.move(1, { x: 120, y: 120 });
+    expect(types(controller.down(2, 'pen', { x: 50, y: 50 }))).toEqual(['stroke-start']);
+    // The finger no longer moves the canvas while the pen is writing.
+    expect(controller.move(1, { x: 160, y: 160 })).toEqual([]);
+    expect(types(controller.up(2))).toEqual(['stroke-end']);
+  });
+
+  it('also pre-empts a two-finger pinch', () => {
+    const { controller } = setup('stylus');
+    controller.down(1, 'touch', { x: 100, y: 100 });
+    controller.down(2, 'touch', { x: 300, y: 100 });
+    expect(types(controller.down(3, 'pen', { x: 50, y: 50 }))).toEqual(['stroke-start']);
+  });
+});

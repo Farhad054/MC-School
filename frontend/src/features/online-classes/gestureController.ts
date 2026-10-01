@@ -61,7 +61,16 @@ export class GestureController {
     if (kind === 'touch' && (palm || this.penDown !== null)) return [];
 
     const intents: Intent[] = [];
-    if (kind === 'pen') this.penDown = id;
+    if (kind === 'pen') {
+      this.penDown = id;
+      // The pen always wins over a finger that was moving the canvas: an idle
+      // pen that waits for fingers to lift looks like a dead stylus.
+      if (this.state === 'pan' || this.state === 'pinch') {
+        this.state = 'idle';
+        this.anchors = null;
+        this.panStart = null;
+      }
+    }
     if (kind === 'touch') this.touches.set(id, position);
     const count = this.touches.size;
 

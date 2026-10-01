@@ -59,6 +59,9 @@ export function applyHostView(
 ): BoardPages {
   const count = Math.max(pages.count, event.pageCount);
   const current = clampPage(event.page, count);
+  // A hidden board has no size to place a pan in; take the page and keep the
+  // view, rather than flattening the pan to zero.
+  if (board.width <= 0 || board.height <= 0) return { ...pages, count, current };
   const view = clampView(
     { zoom: event.zoom, panX: event.panX * board.width, panY: event.panY * board.height },
     board,

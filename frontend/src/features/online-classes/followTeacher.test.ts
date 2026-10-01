@@ -78,6 +78,19 @@ describe('view mapping', () => {
   });
 });
 
+describe('hidden board', () => {
+  it('keeps the existing view when the local board has no size', () => {
+    const start = withView(initialPages(3), { zoom: 2, panX: -50, panY: -20 });
+    const applied = applyHostView(
+      start,
+      { page: 0, pageCount: 3, zoom: 3, panX: -0.5, panY: -0.5 },
+      { width: 0, height: 0 },
+    );
+    expect(applied.current).toBe(0);
+    expect(viewOf(applied)).toEqual({ zoom: 2, panX: -50, panY: -20 });
+  });
+});
+
 describe('navigation lock', () => {
   it('locks only students who are following', () => {
     expect(navigationLocked(false, true)).toBe(true);
