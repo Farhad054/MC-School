@@ -23,6 +23,7 @@ import { TranscriptionControls } from './TranscriptionControls';
 import { ParticipantListPanel } from './ParticipantListPanel';
 import { WaitingRoomPanel } from './WaitingRoomPanel';
 import { useAnswersPanel } from './useAnswersPanel';
+import { useBoardDocument } from './useBoardDocument';
 import { useHostUserId } from './useHostUserId';
 import type { TranslationKey } from '../../i18n/translations';
 
@@ -118,6 +119,7 @@ function RoomBody({
   const wasSharing = useRef(false);
   const hostUserId = useHostUserId(classId);
   const answers = useAnswersPanel(eventId, connection.host);
+  const boardDocument = useBoardDocument(classId);
 
   // A new screen share takes the main area; the user can switch back to the
   // board at any time, and the board keeps its marks while it is not shown.
@@ -158,6 +160,7 @@ function RoomBody({
                 actorId={currentUserId}
                 isHost={connection.host}
                 canAnnotate={connection.host || studentAnnotationAllowed}
+                document={boardDocument}
                 hostActions={
                   connection.host ? (
                     <AnswersButton status={answers.status} open={answers.open} onToggle={answers.toggle} />
