@@ -316,7 +316,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     [],
   );
   const inputModeRef = useRef(inputMode);
-  inputModeRef.current = inputMode;
+  // A viewer who cannot draw has nothing for one finger to do but move the page.
+  inputModeRef.current = readOnly ? 'stylus' : inputMode;
   const lockedRef = useRef(navigationLocked);
   lockedRef.current = navigationLocked;
 
@@ -391,8 +392,13 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     if (selectedId && !shapes.some((entry) => entry.operationId === selectedId)) setSelectedId(null);
   }, [shapes, selectedId]);
 
+  // Enter commits and unmounts the box, and some browsers then fire blur on the
+  // removed input; the ref makes the second call see "nothing being edited".
+  const textEditRef = useRef(textEdit);
+  textEditRef.current = textEdit;
   const commitText = (value: string) => {
-    const edit = textEdit;
+    const edit = textEditRef.current;
+    textEditRef.current = null;
     setTextEdit(null);
     const text = value.trim();
     if (!edit || !text || readOnly) return;
