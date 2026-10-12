@@ -26,7 +26,7 @@ public class StoryTemplateMaster {
     @Column(name = "pptx_data", columnDefinition = "bytea")
     private byte[] pptxData;
 
-    @Column(name = "sha256", length = 64)
+    @Column(name = "sha256", length = 64, columnDefinition = "char(64)")
     private String sha256;
 
     @Version
