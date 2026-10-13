@@ -47,8 +47,13 @@
  * sit in a permanent column on the right, and everything else is compact chrome
  * at the edges. Fixed positioning takes the room out of the app shell's header
  * so the board gets almost the whole screen.
+ *
+ * <LiveKitRoom> also puts `.lk-room-container` (position: relative; height: 100%)
+ * on this same element, and its stylesheet loads later. The doubled selector
+ * outranks it so the room stays fixed and full-window.
  */
-.online-class-room {
+.online-class-room,
+.online-class-room.lk-room-container {
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -246,6 +251,9 @@
 }
 
 .whiteboard__notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
   font-size: 13px;
   color: var(--muted);
 }
@@ -811,4 +819,131 @@
   .board-switcher select {
     min-height: 44px;
   }
+}
+
+/*
+ * LiveKit's dark theme sets `color: var(--lk-fg)` (white) on the room element,
+ * and our panels and buttons sit on a light surface. Without an explicit colour
+ * they inherit white and vanish in browsers whose buttons default to a white
+ * background (Safari). The doubled selector outranks `[data-lk-theme]`.
+ */
+.online-class-room,
+.online-class-room.lk-room-container {
+  color: var(--text);
+  /* LiveKit's dark theme also sets `color-scheme: dark`, which turns every
+     native input and select black. Our panels are light. */
+  color-scheme: light;
+}
+
+/*
+ * Our own controls only. LiveKit's control-bar buttons (`.lk-button`) keep
+ * their own look and their own pressed state; restyling them here made the
+ * camera button dark-on-dark once it was switched on.
+ */
+.online-class-room__controls button:not([class*='lk-']),
+.online-class-room__drawer button,
+.whiteboard button,
+.board-switcher button {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.online-class-room__controls button:not([class*='lk-']):hover,
+.online-class-room__drawer button:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.online-class-room__controls button[aria-pressed='true']:not([class*='lk-']) {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent-dark);
+}
+
+.screen-share-toggle button[aria-pressed='true'] {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent-dark);
+}
+
+.screen-share-toggle button {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.screen-share-toggle__error {
+  margin-left: 8px;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.online-class-room__controls button.online-class-room__leave {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Chat: a light, readable composer instead of the browser's dark default. */
+.chat__composer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat__composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.chat__composer input::placeholder {
+  color: #7b8794;
+}
+
+.chat__composer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.whiteboard__error,
+.recording__unavailable,
+.transcription__unavailable {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/*
+ * A shared screen is the only thing in the main area, so it fills it. LiveKit's
+ * focus layout is a 1fr/5fr grid meant to pair a carousel with a focused tile;
+ * with no carousel the lone tile would be squeezed into the narrow column.
+ */
+.online-class-room__screen .lk-focus-layout {
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.online-class-room__screen .lk-focused-participant,
+.online-class-room__screen .lk-participant-tile {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.online-class-room__screen .lk-participant-media-video[data-lk-source='screen_share'] {
+  object-fit: contain;
 }
