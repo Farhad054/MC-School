@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n/I18nContext';
 import { api, setAccessToken } from '../api/client';
+import { useOnlineClassesAvailable } from '../features/online-classes/useOnlineClassesAvailable';
 import type { TranslationKey } from '../i18n/translations';
 
 const ADMIN_TOKEN_KEY = 'mindcrafti.impersonation.adminToken';
@@ -24,6 +25,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const impersonatedTeacherId = isTeacher ? sessionStorage.getItem(ADMIN_TEACHER_ID_KEY) : null;
   const impersonatedTeacherName = isTeacher ? sessionStorage.getItem(ADMIN_TEACHER_NAME_KEY) : null;
   const isImpersonatingTeacher = Boolean(isTeacher && adminToken);
+  // Only offered where the feature is switched on for this server and user.
+  const onlineClassesAvailable = useOnlineClassesAvailable(user?.id, Boolean(isTeacher || isStudent));
 
   async function returnToAdmin() {
     const savedAdminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
@@ -56,6 +59,7 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/parents', label: 'Родители' },
       { to: '/groups', label: 'Мои группы' },
       { to: '/teacher/lessons', label: 'Уроки' },
+      ...(onlineClassesAvailable ? [{ to: '/online-classes', label: t('nav.onlineClasses') }] : []),
       { to: '/teacher/settings', label: 'Настройки' },
       { to: '/students', label: 'Домашние задания', disabled: true },
       { to: '/students', label: 'Материалы', disabled: true },
@@ -179,6 +183,7 @@ export function Layout({ children }: { children: ReactNode }) {
     ? [
         { to: '/today', label: 'nav.today' },
         { to: '/my-cards', label: 'nav.myCards' },
+        ...(onlineClassesAvailable ? [{ to: '/online-classes', label: 'nav.onlineClasses' }] : []),
         { to: '/settings', label: 'nav.settings' },
       ]
     : isParent

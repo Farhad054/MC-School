@@ -32,6 +32,7 @@ const ru = {
   'nav.today': 'Сегодня',
   'nav.myCards': 'Мои карточки',
   'nav.settings': 'Настройки',
+  'nav.onlineClasses': 'Онлайн-уроки',
 
   'teachers.title': 'Учителя',
   'teachers.create': 'Добавить учителя',
@@ -369,6 +370,7 @@ const de: Record<keyof typeof ru, string> = {
   'nav.today': 'Heute',
   'nav.myCards': 'Meine Karten',
   'nav.settings': 'Einstellungen',
+  'nav.onlineClasses': 'Online-Unterricht',
 
   'teachers.title': 'Lehrer',
   'teachers.create': 'Lehrer hinzufügen',
