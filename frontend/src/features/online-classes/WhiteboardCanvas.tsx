@@ -81,12 +81,16 @@ interface Props {
   /** Rendered page content (PDF page) under the marks. */
   background?: CanvasImageSource | null;
   lasers?: RemoteLaser[];
+  /** Other people's strokes that are still being drawn (preview only). */
+  remoteDrafts?: { id: string; shape: Shape }[];
   /** Whose marks this viewer may delete or move. */
   actorId?: string;
   onCommit: (shape: Shape) => void;
   onEraseShape?: (operationId: string) => void;
   onMoveShape?: (operationId: string, shape: Shape) => void;
   onLaserMove?: (point: { x: number; y: number }) => void;
+  /** The stroke being drawn changed; `null` once the pen is up or it was cancelled. */
+  onDraftChange?: (shape: Shape | null) => void;
 }
 
 /**
@@ -113,11 +117,13 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     navigationLocked = false,
     background = null,
     lasers = [],
+    remoteDrafts = [],
     actorId,
     onCommit,
     onEraseShape,
     onMoveShape,
     onLaserMove,
+    onDraftChange,
   },
   ref,
 ) {
@@ -129,6 +135,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
   const [textEdit, setTextEdit] = useState<{ px: Point; nx: number; ny: number } | null>(null);
   const draftRef = useRef<Shape | null>(null);
+  const [ownLaser, setOwnLaser] = useState<{ x: number; y: number } | null>(null);
+  const ownLaserTimer = useRef<number | undefined>(undefined);
   const lastSample = useRef(0);
   const dragStart = useRef<{ point: { x: number; y: number }; id: string } | null>(null);
   const dragDeltaRef = useRef<{ dx: number; dy: number } | null>(null);
@@ -170,12 +178,21 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     return box.height > 0 ? box.width / box.height : 1;
   };
 
+  /** Points the laser: others see it via the callback, and so do you. */
+  const pointLaser = (point: { x: number; y: number }) => {
+    onLaserMove?.(point);
+    setOwnLaser(point);
+    window.clearTimeout(ownLaserTimer.current);
+    ownLaserTimer.current = window.setTimeout(() => setOwnLaser(null), 1200);
+  };
+  useEffect(() => () => window.clearTimeout(ownLaserTimer.current), []);
+
   const startStroke = (local: Point) => {
     const { tool: active, color: ink, strokeWidth: width, eraserMode: eraser } = live.current;
     const point = toPage(local);
 
     if (active === 'laser') {
-      onLaserMove?.(point);
+      pointLaser(point);
       return;
     }
     if (active === 'text') {
@@ -206,6 +223,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
           : { kind: active, color: ink, width, x: point.x, y: point.y, w: 0, h: 0 };
     draftRef.current = next;
     setDraft(next);
+    onDraftChange?.(next);
   };
 
   const eraseAt = (point: { x: number; y: number }) => {
@@ -225,7 +243,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     const point = toPage(local);
 
     if (active === 'laser') {
-      onLaserMove?.(point);
+      pointLaser(point);
       return;
     }
     if (active === 'select' && dragStart.current) {
@@ -251,6 +269,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     }
     draftRef.current = next;
     setDraft(next);
+    onDraftChange?.(next);
   };
 
   const endStroke = () => {
@@ -269,6 +288,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     const finished = draftRef.current;
     draftRef.current = null;
     setDraft(null);
+    onDraftChange?.(null);
     if (!finished) return;
     // Thinning keeps the stroke under the server's point cap without visibly
     // changing the line.
@@ -278,6 +298,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   const cancelStroke = () => {
     draftRef.current = null;
     setDraft(null);
+    onDraftChange?.(null);
     dragStart.current = null;
     dragDeltaRef.current = null;
     setDragDelta(null);
@@ -346,6 +367,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     applyIntents(controller.down(event.pointerId, kind, localPoint(event), palm, navigate));
   };
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    // A laser follows the pointer even with no button down, like a real one.
+    if (live.current.tool === 'laser' && event.buttons === 0) {
+      const now = performance.now();
+      if (now - lastSample.current >= SAMPLE_INTERVAL_MS) {
+        lastSample.current = now;
+        pointLaser(toPage(localPoint(event)));
+      }
+      return;
+    }
     applyIntents(controller.move(event.pointerId, localPoint(event)));
   };
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -404,6 +434,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     if (!edit || !text || readOnly) return;
     onCommit({ kind: 'text', x: edit.nx, y: edit.ny, text: text.slice(0, 500), size: 0.03, color });
   };
+
+  // The board takes focus back right after the pointer goes down, which would
+  // blur a box focused on mount and close it empty. Focusing a frame later wins.
+  const focusTextInput = useCallback((element: HTMLInputElement | null) => {
+    if (element) window.requestAnimationFrame(() => element.focus());
+  }, []);
 
   const flatten = (points: [number, number][]) =>
     points.flatMap(([x, y]) => {
@@ -554,6 +590,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
               : renderShape(entry.operationId, entry.shape),
           )}
           {draft && renderShape('draft', draft)}
+          {remoteDrafts.map((entry) => renderShape(`live-${entry.id}`, entry.shape))}
         </Layer>
         <Layer listening={false}>
           {selectionBounds && (
@@ -567,6 +604,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
               dash={[6 / view.zoom, 4 / view.zoom]}
             />
           )}
+          {ownLaser && (
+            <Circle
+              x={toPixels(ownLaser, viewport, sourceAspect).x}
+              y={toPixels(ownLaser, viewport, sourceAspect).y}
+              radius={7 / view.zoom}
+              fill="#d62828"
+              opacity={0.85}
+            />
+          )}
           {lasers.map((laser) => {
             const at = toPixels({ x: laser.x, y: laser.y }, viewport, sourceAspect);
             return <Circle key={laser.id} x={at.x} y={at.y} radius={7 / view.zoom} fill="#d62828" opacity={0.85} />;
@@ -576,7 +622,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
 
       {textEdit && (
         <input
-          autoFocus
+          ref={focusTextInput}
           className="whiteboard__text-input"
           style={{ left: textEdit.px.x, top: textEdit.px.y, color }}
           aria-label="Text"

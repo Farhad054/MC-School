@@ -14,6 +14,8 @@ export const ANNOTATION_TOPIC = 'mc.class.annotation.v1';
 export const CONTROL_TOPIC = 'mc.class.control.v1';
 /** Teacher's shared-board view (page, zoom, pan) for "follow the teacher". */
 export const VIEW_TOPIC = 'mc.class.view.v1';
+/** In-progress strokes, shown to others while the pen is still down. */
+export const STROKE_TOPIC = 'mc.class.stroke.v1';
 
 /** Hard cap per packet; annotation batches are chunked below this. */
 export const MAX_PACKET_BYTES = 8192;
@@ -82,6 +84,41 @@ export interface AnnotationEvent extends BaseEvent {
   layerOwnerId: string;
 }
 
+export const STROKE_KINDS = ['pen', 'highlighter', 'line', 'arrow', 'rect', 'ellipse'] as const;
+export type StrokeKind = (typeof STROKE_KINDS)[number];
+
+/** Most points a live preview may carry; the saved stroke is never capped by this. */
+export const MAX_LIVE_POINTS = 240;
+
+/** The geometry of a stroke being drawn. Purely visual, never stored. */
+export interface LiveShape {
+  kind: StrokeKind;
+  color: string;
+  width: number;
+  points?: [number, number][];
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+}
+
+/**
+ * A stroke that is still being drawn. Lossy and ephemeral: it only exists so
+ * others see the line grow, and the saved stroke (fetched from the server)
+ * replaces it. `active: false` means the pen came up, so the preview can go.
+ */
+export interface StrokeEvent extends BaseEvent {
+  type: 'stroke';
+  targetId: string;
+  page: number;
+  active: boolean;
+  shape?: LiveShape;
+}
+
 /** Server-authored. Clients render these but never send them. */
 export interface ControlEvent {
   v: 1;
@@ -97,7 +134,8 @@ export type ClassEvent =
   | ChatEvent
   | PointerEvent_
   | ViewEvent
-  | AnnotationEvent;
+  | AnnotationEvent
+  | StrokeEvent;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -173,9 +211,37 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
         isInt(parsed.sequence, 0, Number.MAX_SAFE_INTEGER)
         ? (parsed as unknown as AnnotationEvent)
         : null;
+    case 'stroke': {
+      if (typeof parsed.targetId !== 'string' || !isInt(parsed.page, 0, 10_000)) return null;
+      if (typeof parsed.active !== 'boolean') return null;
+      if (!parsed.active) return parsed as unknown as StrokeEvent;
+      return parseLiveShape(parsed.shape) ? (parsed as unknown as StrokeEvent) : null;
+    }
     default:
       return null;
   }
+}
+
+/** Fixed colour format, so arbitrary strings never reach the canvas style. */
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+function parseLiveShape(value: unknown): value is LiveShape {
+  if (!isRecord(value)) return false;
+  if (!STROKE_KINDS.includes(value.kind as StrokeKind)) return false;
+  if (typeof value.color !== 'string' || !HEX_COLOR.test(value.color)) return false;
+  if (!isFiniteIn(value.width, 0, 0.2)) return false;
+  for (const key of ['x', 'y', 'w', 'h', 'x1', 'y1', 'x2', 'y2']) {
+    const field = value[key];
+    if (field !== undefined && !isFiniteIn(field, -2, 2)) return false;
+  }
+  if (value.points !== undefined) {
+    if (!Array.isArray(value.points) || value.points.length > MAX_LIVE_POINTS) return false;
+    for (const point of value.points) {
+      if (!Array.isArray(point) || point.length !== 2) return false;
+      if (!isFiniteIn(point[0], -2, 2) || !isFiniteIn(point[1], -2, 2)) return false;
+    }
+  }
+  return true;
 }
 
 function isInt(value: unknown, min: number, max: number): boolean {
@@ -237,4 +303,14 @@ export function annotationEvent(
 
 export function pointerEvent(classId: string, targetId: string, x: number, y: number): PointerEvent_ {
   return { v: 1, type: 'pointer', classId, id: newId(), at: Date.now(), targetId, x, y };
+}
+
+export function strokeEvent(
+  classId: string,
+  targetId: string,
+  page: number,
+  active: boolean,
+  shape?: LiveShape,
+): StrokeEvent {
+  return { v: 1, type: 'stroke', classId, id: newId(), at: Date.now(), targetId, page, active, shape };
 }

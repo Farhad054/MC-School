@@ -4,10 +4,13 @@ import { forwardRef, useImperativeHandle } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { onlineClassesApi } from '../../api/onlineClasses';
 import { I18nProvider } from '../../i18n/I18nContext';
+import { ApiRequestError } from '../../api/client';
 import {
   ANNOTATION_TOPIC,
+  STROKE_TOPIC,
   VIEW_TOPIC,
   annotationEvent,
+  strokeEvent,
   viewEvent,
   type ClassEvent,
 } from './events';
@@ -38,6 +41,13 @@ vi.mock('./useClassEvents', () => ({
 }));
 
 vi.mock('./usePdf', () => ({ usePdfPage: () => null, usePdf: vi.fn() }));
+
+const exportBoardPdf = vi.fn();
+const downloadBlob = vi.fn();
+vi.mock('./boardExport', () => ({
+  exportBoardPdf: (...args: unknown[]) => exportBoardPdf(...args),
+  downloadBlob: (...args: unknown[]) => downloadBlob(...args),
+}));
 
 vi.mock('../../api/onlineClasses', async () => {
   const actual = await vi.importActual<typeof import('../../api/onlineClasses')>('../../api/onlineClasses');
@@ -148,6 +158,118 @@ describe('WhiteboardPanel', () => {
         expect.objectContaining({ type: 'annotation', documentId: 'doc-0', op: 'ADD', sequence: 1 }),
       ),
     );
+  });
+
+  describe('live strokes and feedback', () => {
+    const pen = { kind: 'pen', color: '#111111', width: 0.004, points: [[0.1, 0.1], [0.2, 0.2]] };
+
+    it('shows others a stroke while it is still being drawn, and says when the pen is up', async () => {
+      mount('host');
+      await screen.findByTestId('canvas');
+      act(() => canvasProps.onDraftChange(pen));
+      await waitFor(() =>
+        expect(publish).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'stroke', active: true, targetId: 'board-1', page: 0 }),
+          false,
+        ),
+      );
+      act(() => canvasProps.onDraftChange(null));
+      expect(publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'stroke', active: false }), true);
+    });
+
+    it('does not preview the eraser', async () => {
+      mount('host');
+      await screen.findByTestId('canvas');
+      act(() => canvasProps.onDraftChange({ ...pen, kind: 'erase' }));
+      expect(publish).not.toHaveBeenCalled();
+    });
+
+    it("draws someone else's in-progress stroke on the board, on the right page only", async () => {
+      mount('student');
+      await screen.findByTestId('canvas');
+      act(() =>
+        handlers[STROKE_TOPIC]({
+          event: strokeEvent('c1', 'board-1', 0, true, pen as never),
+          senderIdentity: 'teacher|1',
+        }),
+      );
+      await waitFor(() => expect(canvasProps.remoteDrafts).toHaveLength(1));
+      act(() =>
+        handlers[STROKE_TOPIC]({
+          event: strokeEvent('c1', 'board-1', 3, true, pen as never),
+          senderIdentity: 'other|1',
+        }),
+      );
+      expect(canvasProps.remoteDrafts).toHaveLength(1);
+    });
+
+    it('says why saving the board did nothing when the server has no file storage', async () => {
+      const user = userEvent.setup();
+      api.saveAnnotationSnapshot.mockRejectedValue(new ApiRequestError(409, 'CONFLICT', 'Artifact storage is not configured'));
+      mount('host');
+      await screen.findByTestId('canvas');
+      await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Сохранить как материал урока' }));
+      expect(await screen.findByText(/хранилище файлов/)).toBeInTheDocument();
+    });
+
+    it('confirms a successful save', async () => {
+      const user = userEvent.setup();
+      api.saveAnnotationSnapshot.mockResolvedValue({} as never);
+      mount('host');
+      await screen.findByTestId('canvas');
+      await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Сохранить как материал урока' }));
+      expect(await screen.findByText('Сохранено')).toBeInTheDocument();
+    });
+
+    it('gives everyone a PDF of the whole board, built from every page', async () => {
+      const user = userEvent.setup();
+      const pdf = new Blob(['%PDF'], { type: 'application/pdf' });
+      exportBoardPdf.mockResolvedValue(pdf);
+      mount('student');
+      await screen.findByTestId('canvas');
+      await user.click(screen.getByRole('button', { name: 'Скачать PDF' }));
+
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+      expect(exportBoardPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ classId: 'c1', targetId: 'board-1', targetType: 'WHITEBOARD', pageCount: 1 }),
+      );
+      expect(downloadBlob.mock.calls[0][0]).toBe(pdf);
+      expect(downloadBlob.mock.calls[0][1]).toMatch(/^class-board-\d{4}-\d{2}-\d{2}\.pdf$/);
+    });
+
+    it('names a personal board’s file differently', async () => {
+      const user = userEvent.setup();
+      exportBoardPdf.mockResolvedValue(new Blob(['%PDF']));
+      mount('student', { targetId: 'personal-student' });
+      await screen.findByTestId('canvas');
+      await user.click(screen.getByRole('button', { name: 'Скачать PDF' }));
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+      expect(downloadBlob.mock.calls[0][1]).toMatch(/^my-board-/);
+    });
+
+    it('says so when the PDF cannot be made, and can be tried again', async () => {
+      const user = userEvent.setup();
+      exportBoardPdf.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(new Blob(['%PDF']));
+      mount('host');
+      await screen.findByTestId('canvas');
+      await user.click(screen.getByRole('button', { name: 'Скачать PDF' }));
+      expect(await screen.findByText('Не удалось подготовить PDF')).toBeInTheDocument();
+      expect(downloadBlob).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Скачать PDF' }));
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText('Не удалось подготовить PDF')).not.toBeInTheDocument();
+    });
+
+    it('tells the teacher that students are following', async () => {
+      const user = userEvent.setup();
+      mount('host');
+      await screen.findByTestId('canvas');
+      await user.click(screen.getByRole('button', { name: 'Следовать за учителем' }));
+      expect(screen.getByText('Ученики следуют за вашим экраном')).toBeInTheDocument();
+    });
   });
 
   it('fetches from the server when told something was saved, and shows what it finds', async () => {

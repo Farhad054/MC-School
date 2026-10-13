@@ -27,6 +27,8 @@ interface Props {
   onClearMine: () => void;
   /** Host-only actions are passed in rather than inferred, so a student's bar cannot render them. */
   hostActions?: ReactNode;
+  /** Available to everyone with a board, such as downloading it as a PDF. */
+  sharedActions?: ReactNode;
 }
 
 /**
@@ -50,6 +52,7 @@ export function BoardToolbar({
   onRedo,
   onClearMine,
   hostActions,
+  sharedActions,
 }: Props) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -190,6 +193,7 @@ export function BoardToolbar({
           {t('onlineClass.whiteboard.clearMine')}
         </button>
         {hostActions}
+        {sharedActions}
       </div>
     </div>
   );

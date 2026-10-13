@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ApiRequestError } from '../../api/client';
 import { onlineClassesApi, type AnnotationTargetType } from '../../api/onlineClasses';
 import { useI18n } from '../../i18n/I18nContext';
 import { BoardToolbar } from './BoardToolbar';
+import { downloadBlob, exportBoardPdf } from './boardExport';
 import {
   DEFAULT_TOOL_SETTINGS,
   type ToolSettings,
@@ -29,6 +31,7 @@ import { useClassEvents } from './useClassEvents';
 import { useFollowTeacher } from './useFollowTeacher';
 import { useHostUserId } from './useHostUserId';
 import { useLaserPointers } from './useLaserPointers';
+import { toLiveShape, useLiveStrokes } from './useLiveStrokes';
 import { usePdfPage } from './usePdf';
 import {
   WhiteboardCanvas,
@@ -103,6 +106,9 @@ export function WhiteboardPanel({
   const [inputMode, setInputModeState] = useState<InputMode>(loadInputMode);
   const [pages, setPages] = useState<BoardPages>(() => initialPages(1));
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<'unavailable' | 'failed' | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportFailed, setExportFailed] = useState(false);
   const [stageWidth, setStageWidth] = useState(0);
   const canvasRef = useRef<WhiteboardCanvasHandle | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -146,12 +152,24 @@ export function WhiteboardPanel({
     }, REFRESH_COOLDOWN_MS);
   };
 
+  // Others watch a stroke grow while it is drawn. Preview only: the saved stroke
+  // still comes from the server, and a personal board broadcasts nothing.
+  const live = useLiveStrokes({
+    classId,
+    targetId,
+    page: pages.current,
+    enabled: !personal,
+  });
+
   // A packet only says "something was saved". Any participant can publish on
   // the data channel, so its contents are never applied: the server's replay is
   // the one source of truth, and a forged packet can at most trigger a harmless
   // re-fetch.
   const { publish: publishAnnotation } = useClassEvents(classId, ANNOTATION_TOPIC, ({ event }) => {
-    if (event.type === 'annotation' && !personal) requestRefresh.current();
+    if (event.type === 'annotation' && !personal) {
+      requestRefresh.current();
+      live.settle(event.layerOwnerId);
+    }
   });
 
   const board = useAnnotationBoard({
@@ -241,13 +259,43 @@ export function WhiteboardPanel({
   };
 
   const saveSnapshot = async () => {
+    setSaved(false);
+    setSaveError(null);
     const image = canvasRef.current?.toDataURL();
-    if (!image || !board.document) return;
+    if (!image || !board.document) {
+      setSaveError('failed');
+      return;
+    }
     try {
       await onlineClassesApi.saveAnnotationSnapshot(classId, board.document.id, image);
       setSaved(true);
+    } catch (error) {
+      // 409 means the server has nowhere to put files; say so rather than
+      // leaving the teacher to wonder whether the click registered.
+      setSaveError(error instanceof ApiRequestError && error.status === 409 ? 'unavailable' : 'failed');
+    }
+  };
+
+  // Every page of this board as one PDF, built in the browser from what the
+  // server holds, so it is complete whichever page happens to be on screen.
+  const exportPdf = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportFailed(false);
+    try {
+      const blob = await exportBoardPdf({
+        classId,
+        targetType,
+        targetId,
+        pageCount: pages.count,
+        pdfDocument,
+      });
+      const day = new Date().toISOString().slice(0, 10);
+      downloadBlob(blob, `${personal ? 'my-board' : 'class-board'}-${day}.pdf`);
     } catch {
-      setSaved(false);
+      setExportFailed(true);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -308,11 +356,24 @@ export function WhiteboardPanel({
           onRedo={() => void board.redo()}
           onClearMine={() => void board.clearMine()}
           hostActions={hostButtons}
+          sharedActions={
+            <button type="button" onClick={() => void exportPdf()} disabled={exporting}>
+              {exporting ? t('onlineClass.whiteboard.exporting') : t('onlineClass.whiteboard.exportPdf')}
+            </button>
+          }
         />
       )}
 
       <div role="status" aria-live="polite" className="whiteboard__notice">
         {saved && <span>{t('onlineClass.whiteboard.saved')}</span>}
+        {saveError === 'unavailable' && (
+          <span className="whiteboard__error">{t('onlineClass.whiteboard.saveUnavailable')}</span>
+        )}
+        {saveError === 'failed' && (
+          <span className="whiteboard__error">{t('onlineClass.whiteboard.saveFailed')}</span>
+        )}
+        {exportFailed && <span className="whiteboard__error">{t('onlineClass.whiteboard.exportFailed')}</span>}
+        {isHost && follow.followEnabled && <span>{t('onlineClass.board.follow.hostOn')}</span>}
         {locked && <span>{t('onlineClass.board.follow.student')}</span>}
       </div>
 
@@ -332,6 +393,8 @@ export function WhiteboardPanel({
           navigationLocked={locked}
           background={renderedPage?.canvas ?? null}
           lasers={lasers}
+          remoteDrafts={live.drafts}
+          onDraftChange={(shape) => live.sendDraft(shape ? toLiveShape(shape) : null)}
           actorId={actorId}
           onCommit={(shape) => void board.addShape(shape)}
           onEraseShape={(id) => void board.eraseShape(id)}
