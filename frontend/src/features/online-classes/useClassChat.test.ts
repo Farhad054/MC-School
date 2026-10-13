@@ -41,6 +41,47 @@ describe('useClassChat', () => {
     api.messageHistory.mockResolvedValue({ messages: [], nextCursor: null, hasMore: false });
   });
 
+  it('keeps working when a sent message comes back without a timestamp', async () => {
+    api.messageHistory.mockResolvedValue({
+      messages: [message({ id: 'a', clientMessageId: 'c-a', body: 'first' })],
+      nextCursor: null,
+      hasMore: false,
+    });
+    api.sendMessage.mockResolvedValue(
+      message({ id: 'b', clientMessageId: 'c-b', body: 'second', createdAt: null as unknown as string }),
+    );
+    const { result } = renderHook(() => useClassChat('class-1'));
+    await waitFor(() => expect(result.current.messages).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.send('second');
+    });
+
+    expect(result.current.messages.map((m) => m.body)).toEqual(['first', 'second']);
+  });
+
+  it("shows other people's messages without a reload", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { result } = renderHook(() => useClassChat('class-1'));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.messages).toHaveLength(0);
+
+      api.messageHistory.mockResolvedValue({
+        messages: [message({ id: 'x', clientMessageId: 'c-x', body: 'from the other side' })],
+        nextCursor: null,
+        hasMore: false,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+
+      expect(result.current.messages.map((m) => m.body)).toEqual(['from the other side']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('loads history on mount', async () => {
     api.messageHistory.mockResolvedValue({
       messages: [message({ id: 'a', body: 'first' })],

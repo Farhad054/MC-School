@@ -23,6 +23,9 @@ export interface ClassChat {
   ingest: (message: ChatMessage) => void;
 }
 
+/** How often the chat looks for messages from other participants. */
+const CHAT_POLL_MS = 2000;
+
 function newId(): string {
   return typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -54,7 +57,12 @@ export function useClassChat(classId: string | undefined): ClassChat {
   }, []);
 
   /** Inserts or replaces by id, keeping the list chronological. */
-  const mergeOne = useCallback((incoming: ChatMessage) => {
+  const mergeOne = useCallback((message: ChatMessage) => {
+    // Never let a missing timestamp reach the sort below: it would throw and
+    // blank the whole page. The persisted copy replaces this one on refresh.
+    const incoming = message.createdAt
+      ? message
+      : { ...message, createdAt: new Date().toISOString() };
     setMessages((current) => {
       const existing = current.findIndex((message) => message.id === incoming.id);
       if (existing >= 0) {
@@ -99,6 +107,27 @@ export function useClassChat(classId: string | undefined): ClassChat {
       active = false;
     };
   }, [classId]);
+
+  // Live delivery: other people's messages are not pushed to this client, so
+  // look for them periodically. The server stays the source of truth; each
+  // message is merged by id, so edits and deletions arrive the same way.
+  useEffect(() => {
+    if (!classId) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
+      onlineClassesApi
+        .messageHistory(classId)
+        .then((page) => {
+          if (active) page.messages.forEach(mergeOne);
+        })
+        .catch(() => undefined);
+    }, CHAT_POLL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [classId, mergeOne]);
 
   const deliver = useCallback(
     async (clientMessageId: string, body: string) => {

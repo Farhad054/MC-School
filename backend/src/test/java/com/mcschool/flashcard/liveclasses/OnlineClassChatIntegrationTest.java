@@ -68,6 +68,14 @@ class OnlineClassChatIntegrationTest extends AbstractIntegrationTest {
     // --- Idempotency and ordering --------------------------------------------
 
     @Test
+    void aSentMessageComesBackWithItsCreationTimestamp() {
+        ChatMessageResponse sent = send(studentPrincipal, "hello");
+
+        // Clients sort by this value; a null here blanked the student's page.
+        assertThat(sent.createdAt()).isNotNull();
+    }
+
+    @Test
     void aRetriedSendReturnsTheOriginalMessage() {
         UUID clientMessageId = UUID.randomUUID();
 

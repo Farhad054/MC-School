@@ -82,7 +82,9 @@ public class OnlineClassChatService {
         User sender = accessService.requireActiveUser(caller.id());
         OnlineClassMessage message = OnlineClassMessage.fromUser(
                 onlineClass, sender, clientMessageId, sanitized);
-        return ChatMessageResponse.from(messageRepository.save(message));
+        // Flush so the database-generated creation timestamp is populated before
+        // the response is built; clients sort by it.
+        return ChatMessageResponse.from(messageRepository.saveAndFlush(message));
     }
 
     /**
