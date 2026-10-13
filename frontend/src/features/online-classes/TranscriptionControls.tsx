@@ -14,22 +14,27 @@ export function TranscriptionControls({
   classId,
   isHost,
   transcriptionState,
+  available = true,
   onChanged,
 }: {
   classId: string;
   isHost: boolean;
   transcriptionState: ClassFeatureState;
+  /** False when the server cannot do it at all: the button is then not offered. */
+  available?: boolean;
   onChanged?: () => void;
 }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [errored, setErrored] = useState(false);
 
   const active = transcriptionState === 'ACTIVE' || transcriptionState === 'STARTING';
 
   const toggle = async () => {
     if (busy) return;
     setBusy(true);
+    setErrored(false);
     try {
       if (active) {
         await onlineClassesApi.stopTranscription(classId);
@@ -40,6 +45,9 @@ export function TranscriptionControls({
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 409) {
         setUnavailable(true);
+      } else {
+        // Never fail silently: a click with no visible result looks broken.
+        setErrored(true);
       }
     } finally {
       setBusy(false);
@@ -56,7 +64,14 @@ export function TranscriptionControls({
         )}
       </div>
 
+      {errored && (
+        <p role="alert" className="transcription__unavailable">
+          {t('onlineClass.transcription.failed')}
+        </p>
+      )}
+
       {isHost &&
+        (available || active) &&
         (unavailable ? (
           <p className="transcription__unavailable">
             {t('onlineClass.transcription.unavailable')}

@@ -83,6 +83,17 @@ describe('TranscriptionControls', () => {
     expect(await screen.findByText(/nicht konfiguriert|не настроена/i)).toBeInTheDocument();
   });
 
+  it('shows an error instead of failing silently when the request itself fails', async () => {
+    api.startTranscription.mockRejectedValue(new Error('network down'));
+    renderControls(true, 'INACTIVE');
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /Transkription starten|Включить расшифровку/i }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/fehlgeschlagen|не удалась/i);
+  });
+
   it('is independent of recording state', async () => {
     // Recording and transcription are separate toggles; starting one must not
     // touch the other.
@@ -94,5 +105,23 @@ describe('TranscriptionControls', () => {
 
     await waitFor(() => expect(api.startTranscription).toHaveBeenCalled());
     expect(api.stopTranscription).not.toHaveBeenCalled();
+  });
+
+  it('does not offer the button when the server cannot do it at all', () => {
+    render(
+      <I18nProvider>
+        <TranscriptionControls classId="class-1" isHost transcriptionState="INACTIVE" available={false} />
+      </I18nProvider>,
+    );
+    expect(screen.queryByRole('button', { name: /Transkription starten|Включить расшифровку/i })).not.toBeInTheDocument();
+  });
+
+  it('still lets the teacher stop one that is already running, even if availability is unknown', () => {
+    render(
+      <I18nProvider>
+        <TranscriptionControls classId="class-1" isHost transcriptionState="ACTIVE" available={false} />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole('button')).toBeInTheDocument();
   });
 });

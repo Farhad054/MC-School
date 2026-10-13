@@ -29,10 +29,15 @@ public record OnlineClassResponse(
         Instant actualStartAt,
         Instant actualEndAt,
         boolean viewerIsHost,
-        boolean joinWindowOpen
+        boolean joinWindowOpen,
+        /** Whether this server can record at all (provider and storage configured). */
+        boolean recordingAvailable,
+        /** Whether this server can transcribe at all. */
+        boolean transcriptionAvailable
 ) {
 
-    public static OnlineClassResponse from(OnlineClass source, boolean viewerIsHost, boolean joinWindowOpen) {
+    public static OnlineClassResponse from(OnlineClass source, boolean viewerIsHost, boolean joinWindowOpen,
+                                           boolean recordingAvailable, boolean transcriptionAvailable) {
         return new OnlineClassResponse(
                 source.getId(),
                 source.getEventId(),
@@ -50,6 +55,8 @@ public record OnlineClassResponse(
                 source.getActualStartAt(),
                 source.getActualEndAt(),
                 viewerIsHost,
-                joinWindowOpen);
+                joinWindowOpen,
+                recordingAvailable,
+                transcriptionAvailable);
     }
 }

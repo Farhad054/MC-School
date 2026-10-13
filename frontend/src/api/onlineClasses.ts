@@ -27,6 +27,9 @@ export interface OnlineClass {
   actualEndAt: string | null;
   viewerIsHost: boolean;
   joinWindowOpen: boolean;
+  /** Whether this server can record / transcribe at all; hides the buttons when not. */
+  recordingAvailable: boolean;
+  transcriptionAvailable: boolean;
 }
 
 /**

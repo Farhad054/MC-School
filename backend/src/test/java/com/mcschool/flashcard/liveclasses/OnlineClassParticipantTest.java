@@ -38,7 +38,10 @@ class OnlineClassParticipantTest {
         OnlineClassParticipant participant = OnlineClassParticipant.student(onlineClass, student);
 
         assertThat(participant.getAdmissionState()).isEqualTo(AdmissionState.PENDING);
-        assertThat(participant.isScreenShareEnabled()).isFalse();
+        // The student's own permission starts allowed; what keeps screen sharing
+        // off by default is the class-level switch, which starts disabled.
+        assertThat(participant.isScreenShareEnabled()).isTrue();
+        assertThat(onlineClass.isStudentScreenShareEnabled()).isFalse();
     }
 
     @Test

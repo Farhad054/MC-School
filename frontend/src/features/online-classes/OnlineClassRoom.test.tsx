@@ -20,7 +20,13 @@ vi.mock('@livekit/components-react', () => ({
 vi.mock('./CameraColumn', () => ({ CameraColumn: () => <ul aria-label="cameras" /> }));
 vi.mock('./ChatPanel', () => ({ ChatPanel: () => null }));
 vi.mock('./CaptionsPanel', () => ({ CaptionsPanel: () => null }));
-vi.mock('./RecordingControls', () => ({ RecordingControls: () => null }));
+const recordingProps: Record<string, any>[] = [];
+vi.mock('./RecordingControls', () => ({
+  RecordingControls: (props: Record<string, any>) => {
+    recordingProps.push(props);
+    return null;
+  },
+}));
 vi.mock('./TranscriptionControls', () => ({ TranscriptionControls: () => null }));
 vi.mock('./ParticipantListPanel', () => ({ ParticipantListPanel: () => null }));
 vi.mock('./WaitingRoomPanel', () => ({ WaitingRoomPanel: () => null }));
@@ -54,7 +60,7 @@ const connection = (host: boolean): OnlineClassConnection => ({
   recordingActive: false, transcriptionActive: false,
 });
 
-function mount(host: boolean) {
+function mount(host: boolean, extra: Partial<React.ComponentProps<typeof OnlineClassRoom>> = {}) {
   return render(
     <I18nProvider>
       <OnlineClassRoom
@@ -65,6 +71,7 @@ function mount(host: boolean) {
         recordingState="INACTIVE"
         transcriptionState="INACTIVE"
         onLeave={vi.fn()}
+        {...extra}
       />
     </I18nProvider>,
   );
@@ -74,6 +81,7 @@ describe('OnlineClassRoom', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     boardProps.length = 0;
+    recordingProps.length = 0;
     screenShares = [];
     vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([
       { userId: 'u1', displayName: 'Alice', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
@@ -138,5 +146,27 @@ describe('OnlineClassRoom', () => {
     expect(drawer).toHaveAttribute('hidden');
     await userEvent.click(screen.getByRole('button', { name: /Чат и участники/ }));
     expect(drawer).not.toHaveAttribute('hidden');
+  });
+
+  it('lets a student draw on the shared board, not only on their own', async () => {
+    mount(false);
+    await screen.findByTestId('board-board-1');
+    expect(boardProps.some((p) => p.targetId === 'board-1' && p.canAnnotate)).toBe(true);
+  });
+
+  it('gives only the teacher the switch for student screen sharing', async () => {
+    const student = mount(false);
+    await screen.findByTestId('board-board-1');
+    expect(screen.queryByRole('button', { name: /показывать экран/i })).not.toBeInTheDocument();
+    student.unmount();
+
+    mount(true);
+    expect(await screen.findByRole('button', { name: /показывать экран/i })).toBeInTheDocument();
+  });
+
+  it('tells the recording button what the server can do, so it is not offered when it cannot work', async () => {
+    mount(true, { recordingAvailable: false });
+    await screen.findByTestId('board-board-1');
+    expect(recordingProps.at(-1)).toMatchObject({ available: false });
   });
 });

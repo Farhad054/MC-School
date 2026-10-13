@@ -100,8 +100,10 @@ public class OnlineClassParticipant {
         this.admissionState = admissionState;
         this.cameraEnabled = true;
         this.microphoneEnabled = true;
-        // The host may always share; students follow the class-level setting.
-        this.screenShareEnabled = classRole == ClassRole.HOST;
+        // Everyone starts allowed. For students the class-level switch is what
+        // actually opens sharing; the teacher can still revoke one student.
+        // (Starting at false here made the class switch useless: both must be on.)
+        this.screenShareEnabled = true;
         this.totalConnectedSeconds = 0L;
     }
 

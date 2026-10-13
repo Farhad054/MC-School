@@ -24,6 +24,7 @@ import { CaptionsPanel } from './CaptionsPanel';
 import { RecordingControls } from './RecordingControls';
 import { TranscriptionControls } from './TranscriptionControls';
 import { ParticipantListPanel } from './ParticipantListPanel';
+import { StudentScreenShareToggle } from './StudentScreenShareToggle';
 import { WaitingRoomPanel } from './WaitingRoomPanel';
 import { useAnswersPanel } from './useAnswersPanel';
 import { useBoardDocument } from './useBoardDocument';
@@ -98,7 +99,9 @@ function RoomBody({
   connection,
   recordingState,
   transcriptionState,
-  studentAnnotationAllowed,
+  studentScreenShareEnabled,
+  recordingAvailable,
+  transcriptionAvailable,
   onLeave,
   onEndForAll,
   onStateChanged,
@@ -109,7 +112,9 @@ function RoomBody({
   connection: OnlineClassConnection;
   recordingState: ClassFeatureState;
   transcriptionState: ClassFeatureState;
-  studentAnnotationAllowed: boolean;
+  studentScreenShareEnabled: boolean;
+  recordingAvailable: boolean;
+  transcriptionAvailable: boolean;
   onLeave: () => void;
   onEndForAll?: () => void;
   onStateChanged?: () => void;
@@ -149,14 +154,19 @@ function RoomBody({
           classId={classId}
           isHost={connection.host}
           recordingState={recordingState}
+          available={recordingAvailable}
           onChanged={onStateChanged}
         />
         <TranscriptionControls
           classId={classId}
           isHost={connection.host}
           transcriptionState={transcriptionState}
+          available={transcriptionAvailable}
           onChanged={onStateChanged}
         />
+        {connection.host && (
+          <StudentScreenShareToggle classId={classId} initiallyEnabled={studentScreenShareEnabled} />
+        )}
         <BoardSwitcher
           isHost={connection.host}
           currentUserId={currentUserId}
@@ -172,7 +182,6 @@ function RoomBody({
               returns to the same page, zoom, tool and marks. */}
           {boardsToShow.map((boardId) => {
             const visible = boardId === activeBoard && !showScreen;
-            const personal = isPersonalBoard(boardId);
             return (
               <div key={boardId} className="online-class-room__board" hidden={!visible}>
                 <Suspense fallback={null}>
@@ -181,8 +190,8 @@ function RoomBody({
                     actorId={currentUserId}
                     isHost={connection.host}
                     targetId={boardId}
-                    // Everyone may draw on a personal board; the shared one follows the class setting.
-                    canAnnotate={personal || connection.host || studentAnnotationAllowed}
+                    // Everyone in the class may draw, on the shared board and on their own.
+                    canAnnotate
                     document={boardDocument}
                     active={visible}
                     // Answers belong to whichever board the teacher is looking at.
@@ -286,7 +295,9 @@ export function OnlineClassRoom({
   connection,
   recordingState,
   transcriptionState,
-  studentAnnotationAllowed = false,
+  studentScreenShareEnabled = false,
+  recordingAvailable = false,
+  transcriptionAvailable = false,
   onLeave,
   onEndForAll,
   onStateChanged,
@@ -298,8 +309,11 @@ export function OnlineClassRoom({
   connection: OnlineClassConnection;
   recordingState: ClassFeatureState;
   transcriptionState: ClassFeatureState;
-  /** Teacher-governed: students annotate only when the class allows it. */
-  studentAnnotationAllowed?: boolean;
+  /** Whether students may currently share their screen (teacher-controlled). */
+  studentScreenShareEnabled?: boolean;
+  /** What this server can do; the teacher is not offered buttons that cannot work. */
+  recordingAvailable?: boolean;
+  transcriptionAvailable?: boolean;
   onLeave: () => void;
   onEndForAll?: () => void;
   onStateChanged?: () => void;
@@ -325,7 +339,9 @@ export function OnlineClassRoom({
         connection={connection}
         recordingState={recordingState}
         transcriptionState={transcriptionState}
-        studentAnnotationAllowed={studentAnnotationAllowed}
+        studentScreenShareEnabled={studentScreenShareEnabled}
+        recordingAvailable={recordingAvailable}
+        transcriptionAvailable={transcriptionAvailable}
         onLeave={onLeave}
         onEndForAll={onEndForAll}
         onStateChanged={onStateChanged}

@@ -39,7 +39,9 @@ export function OnlineClassPage() {
         connection={session.connection}
         recordingState={session.onlineClass?.recordingState ?? 'INACTIVE'}
         transcriptionState={session.onlineClass?.transcriptionState ?? 'INACTIVE'}
-        studentAnnotationAllowed={session.onlineClass?.studentScreenShareEnabled ?? false}
+        studentScreenShareEnabled={session.onlineClass?.studentScreenShareEnabled ?? false}
+        recordingAvailable={session.onlineClass?.recordingAvailable ?? false}
+        transcriptionAvailable={session.onlineClass?.transcriptionAvailable ?? false}
         onStateChanged={() => void session.reload()}
         onLeave={() => {
           session.release();

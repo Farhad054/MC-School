@@ -9,6 +9,8 @@ import com.mcschool.flashcard.lessons.GoogleCalendarLessonService;
 import com.mcschool.flashcard.lessons.dto.GroupLessonResponse;
 import com.mcschool.flashcard.liveclasses.dto.OnlineClassConnectionResponse;
 import com.mcschool.flashcard.liveclasses.dto.OnlineClassResponse;
+import com.mcschool.flashcard.liveclasses.provider.ClassRecordingProvider;
+import com.mcschool.flashcard.liveclasses.provider.ClassTranscriptionProvider;
 import com.mcschool.flashcard.liveclasses.provider.LiveClassMediaProvider;
 import com.mcschool.flashcard.liveclasses.provider.MediaGrant;
 import com.mcschool.flashcard.liveclasses.provider.MediaProviderException;
@@ -42,6 +44,8 @@ public class OnlineClassService {
     private final GoogleCalendarLessonService lessonService;
     private final StudentGroupRepository groupRepository;
     private final LiveClassMediaProvider mediaProvider;
+    private final ClassRecordingProvider recordingProvider;
+    private final ClassTranscriptionProvider transcriptionProvider;
     private final OnlineClassProperties properties;
     private final OnlineClassMetrics metrics;
     private final Clock clock;
@@ -52,6 +56,8 @@ public class OnlineClassService {
                               GoogleCalendarLessonService lessonService,
                               StudentGroupRepository groupRepository,
                               LiveClassMediaProvider mediaProvider,
+                              ClassRecordingProvider recordingProvider,
+                              ClassTranscriptionProvider transcriptionProvider,
                               OnlineClassProperties properties,
                               OnlineClassMetrics metrics,
                               Clock clock) {
@@ -61,6 +67,8 @@ public class OnlineClassService {
         this.lessonService = lessonService;
         this.groupRepository = groupRepository;
         this.mediaProvider = mediaProvider;
+        this.recordingProvider = recordingProvider;
+        this.transcriptionProvider = transcriptionProvider;
         this.properties = properties;
         this.metrics = metrics;
         this.clock = clock;
@@ -395,7 +403,9 @@ public class OnlineClassService {
     private OnlineClassResponse toResponse(OnlineClass onlineClass, AuthenticatedUser caller) {
         return OnlineClassResponse.from(onlineClass,
                 accessService.isHost(caller, onlineClass),
-                isWithinJoinWindow(onlineClass));
+                isWithinJoinWindow(onlineClass),
+                recordingProvider.isConfigured(),
+                transcriptionProvider.isConfigured());
     }
 
     private Instant now() {

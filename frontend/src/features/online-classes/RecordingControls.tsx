@@ -14,16 +14,20 @@ export function RecordingControls({
   classId,
   isHost,
   recordingState,
+  available = true,
   onChanged,
 }: {
   classId: string;
   isHost: boolean;
   recordingState: ClassFeatureState;
+  /** False when the server cannot do it at all: the button is then not offered. */
+  available?: boolean;
   onChanged?: () => void;
 }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [errored, setErrored] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
 
   const active = recordingState === 'ACTIVE' || recordingState === 'STARTING';
@@ -42,6 +46,7 @@ export function RecordingControls({
   const toggle = async () => {
     if (busy) return;
     setBusy(true);
+    setErrored(false);
     try {
       if (active) {
         await onlineClassesApi.stopRecording(classId);
@@ -52,6 +57,9 @@ export function RecordingControls({
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 409) {
         setUnavailable(true);
+      } else {
+        // Never fail silently: a click with no visible result looks broken.
+        setErrored(true);
       }
     } finally {
       setBusy(false);
@@ -81,7 +89,14 @@ export function RecordingControls({
         </div>
       )}
 
+      {errored && (
+        <p role="alert" className="recording__unavailable">
+          {t('onlineClass.recording.failed')}
+        </p>
+      )}
+
       {isHost &&
+        (available || active) &&
         (unavailable ? (
           <p className="recording__unavailable">{t('onlineClass.recording.unavailable')}</p>
         ) : (

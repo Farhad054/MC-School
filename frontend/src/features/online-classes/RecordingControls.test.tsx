@@ -106,4 +106,31 @@ describe('RecordingControls', () => {
       await screen.findByText(/nicht konfiguriert|не настроена/i),
     ).toBeInTheDocument();
   });
+
+  it('shows an error instead of failing silently when the request itself fails', async () => {
+    api.startRecording.mockRejectedValue(new Error('network down'));
+    renderControls(true, 'INACTIVE');
+
+    await userEvent.click(screen.getByRole('button', { name: /Aufnahme starten|Начать запись/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/fehlgeschlagen|не удалась/i);
+  });
+
+  it('does not offer the button when the server cannot do it at all', () => {
+    render(
+      <I18nProvider>
+        <RecordingControls classId="class-1" isHost recordingState="INACTIVE" available={false} />
+      </I18nProvider>,
+    );
+    expect(screen.queryByRole('button', { name: /Aufnahme starten|Начать запись/i })).not.toBeInTheDocument();
+  });
+
+  it('still lets the teacher stop one that is already running, even if availability is unknown', () => {
+    render(
+      <I18nProvider>
+        <RecordingControls classId="class-1" isHost recordingState="ACTIVE" available={false} />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole('button', { name: /Aufnahme beenden|Остановить запись/i })).toBeInTheDocument();
+  });
 });
