@@ -35,10 +35,14 @@ async function parse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
-async function pdfUrl(eventId: string, kind: 'workbook' | 'answers') {
+async function pdfBytes(eventId: string, kind: 'workbook' | 'answers') {
   const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/${kind}`, { headers: authHeaders() });
   if (!response.ok) throw new ApiRequestError(response.status, kind.toUpperCase(), response.statusText);
-  return URL.createObjectURL(await response.blob());
+  return response.arrayBuffer();
+}
+
+async function pdfUrl(eventId: string, kind: 'workbook' | 'answers') {
+  return URL.createObjectURL(new Blob([await pdfBytes(eventId, kind)], { type: 'application/pdf' }));
 }
 
 function uploadPdf(eventId: string, kind: 'workbook' | 'answers', file: File) {
@@ -82,6 +86,10 @@ export const lessonPreparationApi = {
   },
   workbookUrl(eventId: string) {
     return pdfUrl(eventId, 'workbook');
+  },
+  /** Raw bytes, for renderers that need them (no object URL to revoke). */
+  answersBytes(eventId: string) {
+    return pdfBytes(eventId, 'answers');
   },
   answersUrl(eventId: string) {
     return pdfUrl(eventId, 'answers');
