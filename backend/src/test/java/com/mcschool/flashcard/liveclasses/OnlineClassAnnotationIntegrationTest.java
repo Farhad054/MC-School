@@ -20,6 +20,10 @@ import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,10 +45,10 @@ class OnlineClassAnnotationIntegrationTest extends AbstractIntegrationTest {
     private OnlineClassRepository classRepository;
 
     @Autowired
-    private OnlineClassAnnotationEventRepository eventRepository;
+    private OnlineClassParticipantRepository participantRepository;
 
     @Autowired
-    private OnlineClassParticipantRepository participantRepository;
+    private OnlineClassAnnotationEventRepository eventRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -295,5 +299,33 @@ class OnlineClassAnnotationIntegrationTest extends AbstractIntegrationTest {
                 teacherPrincipal, onlineClass.getId(), board.id(), png))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("storage");
+    }
+
+    @Test
+    void openingTheSamePageAtTheSameTimeNeverFailsAndCreatesOneDocument() throws Exception {
+        int openers = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(openers);
+        CountDownLatch go = new CountDownLatch(1);
+        try {
+            List<Future<AnnotationDocumentResponse>> results = new java.util.ArrayList<>();
+            for (int i = 0; i < openers; i++) {
+                AuthenticatedUser caller = i % 2 == 0 ? teacherPrincipal : studentPrincipal;
+                results.add(pool.submit(() -> {
+                    go.await();
+                    return annotationService.openDocument(caller, onlineClass.getId(),
+                            AnnotationTargetType.WHITEBOARD, "board-1", 7, null, null);
+                }));
+            }
+            go.countDown();
+
+            // Before the fix the losers of the race got a unique-key violation (a 500).
+            java.util.Set<UUID> ids = new java.util.HashSet<>();
+            for (Future<AnnotationDocumentResponse> result : results) {
+                ids.add(result.get().id());
+            }
+            assertThat(ids).hasSize(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 }

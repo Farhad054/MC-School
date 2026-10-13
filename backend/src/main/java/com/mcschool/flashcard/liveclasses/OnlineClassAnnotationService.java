@@ -69,8 +69,17 @@ public class OnlineClassAnnotationService {
         OnlineClassAnnotationDocument document = documentRepository
                 .findByOnlineClassIdAndTargetTypeAndTargetIdAndPageIndex(
                         classId, targetType, targetId, pageIndex)
-                .orElseGet(() -> documentRepository.save(OnlineClassAnnotationDocument.create(
-                        onlineClass, targetType, targetId, pageIndex)));
+                .orElseGet(() -> {
+                    // Safe under concurrency: a simultaneous opener's row wins
+                    // and is read back here, rather than failing this request.
+                    documentRepository.insertIfAbsent(
+                            UUID.randomUUID(), classId, targetType.name(), targetId, pageIndex);
+                    return documentRepository
+                            .findByOnlineClassIdAndTargetTypeAndTargetIdAndPageIndex(
+                                    classId, targetType, targetId, pageIndex)
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "Annotation document missing after insert"));
+                });
 
         if (sourceWidth != null && sourceHeight != null && document.getSourceWidth() == null) {
             // Recorded once, from whoever opened the surface first: it describes

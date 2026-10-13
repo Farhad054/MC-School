@@ -11,6 +11,10 @@ import {
   undoableOperations,
 } from './annotations';
 
+/** A board that fails to open is retried this many times, with a growing pause. */
+const OPEN_RETRIES = 3;
+const OPEN_RETRY_DELAY_MS = 500;
+
 function newId(): string {
   return typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -109,9 +113,16 @@ export function useAnnotationBoard({
     // Marks from another page must never be drawn on this one, and a stroke
     // must never be filed under the wrong page's document.
     setRedoStack([]);
-    onlineClassesApi
-      .openAnnotationDocument(classId, targetType, targetId, pageIndex, sourceWidth, sourceHeight)
-      .then(async (opened) => {
+    const open = async (attempt: number): Promise<void> => {
+      try {
+        const opened = await onlineClassesApi.openAnnotationDocument(
+          classId,
+          targetType,
+          targetId,
+          pageIndex,
+          sourceWidth,
+          sourceHeight,
+        );
         if (!active) return;
         update(pageIndex, (state) => ({ ...state, document: opened }));
         const known = lastSequence(pagesRef.current[pageIndex]?.operations ?? []);
@@ -127,8 +138,15 @@ export function useAnnotationBoard({
           for (const item of replayed) byId.set(item.operationId, item);
           return { ...state, operations: [...byId.values()] };
         });
-      })
-      .catch(() => undefined);
+      } catch {
+        // Without a document every stroke would be dropped silently, so a
+        // failed open (a hiccup, a busy server) is retried a few times.
+        if (!active || attempt >= OPEN_RETRIES) return;
+        await new Promise((resolve) => window.setTimeout(resolve, OPEN_RETRY_DELAY_MS * (attempt + 1)));
+        if (active) await open(attempt + 1);
+      }
+    };
+    void open(0);
     return () => {
       active = false;
     };

@@ -67,6 +67,32 @@ describe('useAnnotationBoard', () => {
     );
   });
 
+  it('retries opening the board after a failure instead of silently dropping strokes', async () => {
+    api.openAnnotationDocument
+      .mockRejectedValueOnce(new Error('500'))
+      .mockRejectedValueOnce(new Error('500'))
+      .mockResolvedValue(DOC);
+    const { result } = board(true);
+
+    // Two failures, then success: the board ends up with its document.
+    await waitFor(() => expect(result.current.document?.id).toBe('doc-1'), { timeout: 4000 });
+    expect(api.openAnnotationDocument).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      await result.current.addShape(PEN);
+    });
+    expect(api.appendAnnotation).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after a few attempts rather than hammering the server', async () => {
+    api.openAnnotationDocument.mockRejectedValue(new Error('500'));
+    const { result } = board(true);
+    await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalledTimes(4), { timeout: 6000 });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(api.openAnnotationDocument).toHaveBeenCalledTimes(4);
+    expect(result.current.document).toBeNull();
+  });
+
   it('opens the document and replays existing operations', async () => {
     api.replayAnnotations.mockResolvedValue([
       {
