@@ -293,6 +293,7 @@ export function OnlineClassRoom({
   currentUserId,
   eventId,
   connection,
+  initialMedia,
   recordingState,
   transcriptionState,
   studentScreenShareEnabled = false,
@@ -307,6 +308,7 @@ export function OnlineClassRoom({
   /** Calendar event of the lesson; used to find the teacher's bound answers file. */
   eventId?: string;
   connection: OnlineClassConnection;
+  initialMedia?: import('./PrejoinPanel').PrejoinChoice;
   recordingState: ClassFeatureState;
   transcriptionState: ClassFeatureState;
   /** Whether students may currently share their screen (teacher-controlled). */
@@ -323,8 +325,12 @@ export function OnlineClassRoom({
       serverUrl={connection.serverUrl}
       token={connection.token}
       connect
-      video={false}
-      audio={false}
+      video={initialMedia?.cameraEnabled
+        ? { deviceId: initialMedia.videoDeviceId ?? undefined }
+        : false}
+      audio={initialMedia?.microphoneEnabled
+        ? { deviceId: initialMedia.audioDeviceId ?? undefined }
+        : false}
       // Adaptive streaming and dynacast keep classroom video stable on weak
       // school networks instead of chasing maximum resolution.
       options={{ adaptiveStream: true, dynacast: true }}
