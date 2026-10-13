@@ -61,8 +61,11 @@ public class OnlineClassAnnotationService {
                                                    AnnotationTargetType targetType, String targetId,
                                                    int pageIndex, Integer sourceWidth,
                                                    Integer sourceHeight) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
         requireBoardAccess(caller, onlineClass, targetId);
+        if (pageIndex < 0) {
+            throw new IllegalArgumentException("Page index must not be negative");
+        }
         OnlineClassAnnotationDocument document = documentRepository
                 .findByOnlineClassIdAndTargetTypeAndTargetIdAndPageIndex(
                         classId, targetType, targetId, pageIndex)
@@ -86,7 +89,7 @@ public class OnlineClassAnnotationService {
     @Transactional
     public AnnotationOperationResponse append(AuthenticatedUser caller, UUID classId,
                                               UUID documentId, AnnotationOperationRequest request) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
         OnlineClassAnnotationDocument document = requireDocument(classId, documentId);
         requireBoardAccess(caller, onlineClass, document.getTargetId());
         User actor = accessService.requireActiveUser(caller.id());
@@ -126,7 +129,7 @@ public class OnlineClassAnnotationService {
     @Transactional(readOnly = true)
     public List<AnnotationOperationResponse> replay(AuthenticatedUser caller, UUID classId,
                                                     UUID documentId, long afterSequence) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
         OnlineClassAnnotationDocument document = requireDocument(classId, documentId);
         requireBoardAccess(caller, onlineClass, document.getTargetId());
 
@@ -140,7 +143,7 @@ public class OnlineClassAnnotationService {
 
     @Transactional(readOnly = true)
     public List<AnnotationDocumentResponse> listDocuments(AuthenticatedUser caller, UUID classId) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
         return documentRepository.findAllByOnlineClassIdOrderByPageIndexAsc(classId).stream()
                 // Someone else's private board is not merely unreadable: it is not listed.
                 .filter(document -> canAccessBoard(caller, onlineClass, document.getTargetId()))

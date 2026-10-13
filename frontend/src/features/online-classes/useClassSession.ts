@@ -27,6 +27,9 @@ export interface ClassSession {
   reload: () => Promise<void>;
 }
 
+/** How often a waiting student re-checks whether the teacher let them in. */
+const WAIT_POLL_MS = 2000;
+
 /**
  * Maps a backend failure onto a phase the UI can explain.
  *
@@ -46,6 +49,8 @@ function phaseForError(error: unknown): { phase: SessionPhase; message: string |
   }
   if (error.status === 409) {
     const message = error.message ?? '';
+    // A declined student must not wait forever for an answer that has been given.
+    if (/declined/i.test(message)) return { phase: 'denied', message };
     if (/admit/i.test(message)) return { phase: 'waiting', message };
     if (/not available|not configured/i.test(message)) return { phase: 'unavailable', message };
     return { phase: 'notOpen', message };
@@ -69,11 +74,18 @@ export function useClassSession(classId: string | undefined): ClassSession {
   // join button) and against setting state after unmount.
   const requestInFlight = useRef(false);
   const mounted = useRef(true);
+  const waitTimer = useRef<number | undefined>(undefined);
+
+  const stopWaiting = useCallback(() => {
+    window.clearTimeout(waitTimer.current);
+    waitTimer.current = undefined;
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      window.clearTimeout(waitTimer.current);
     };
   }, []);
 
@@ -96,27 +108,54 @@ export function useClassSession(classId: string | undefined): ClassSession {
     void reload();
   }, [reload]);
 
+  /**
+   * One attempt to get a token. A student who is not admitted yet knocks once,
+   * so the teacher's waiting room lists them, then keeps asking until the
+   * teacher lets them in (or the page goes away).
+   */
+  const attempt = useCallback(
+    async (firstTry: boolean): Promise<void> => {
+      if (!classId) return;
+      try {
+        const issued = await onlineClassesApi.connect(classId);
+        if (!mounted.current) return;
+        stopWaiting();
+        setConnection(issued);
+        setPhase('connected');
+      } catch (error) {
+        if (!mounted.current) return;
+        const mapped = phaseForError(error);
+        setPhase(mapped.phase);
+        setErrorMessage(mapped.message);
+        if (mapped.phase === 'waiting') {
+          // Idempotent on the server; a failed knock is retried by the next
+          // attempt's connect, which answers "waiting" again.
+          if (firstTry) void onlineClassesApi.knock(classId).catch(() => undefined);
+          stopWaiting();
+          waitTimer.current = window.setTimeout(() => void attempt(false), WAIT_POLL_MS);
+        } else {
+          stopWaiting();
+        }
+      }
+    },
+    [classId, stopWaiting],
+  );
+
   const requestConnection = useCallback(async () => {
     if (!classId || requestInFlight.current) return;
     requestInFlight.current = true;
+    stopWaiting();
     setPhase('requesting');
     setErrorMessage(null);
     try {
-      const issued = await onlineClassesApi.connect(classId);
-      if (!mounted.current) return;
-      setConnection(issued);
-      setPhase('connected');
-    } catch (error) {
-      if (!mounted.current) return;
-      const mapped = phaseForError(error);
-      setPhase(mapped.phase);
-      setErrorMessage(mapped.message);
+      await attempt(true);
     } finally {
       requestInFlight.current = false;
     }
-  }, [classId]);
+  }, [attempt, classId, stopWaiting]);
 
   const release = useCallback(() => {
+    stopWaiting();
     setConnection(null);
     setPhase('ready');
     if (classId) {
@@ -124,7 +163,7 @@ export function useClassSession(classId: string | undefined): ClassSession {
       // events, so a failed leave call is not fatal.
       void onlineClassesApi.leave(classId).catch(() => undefined);
     }
-  }, [classId]);
+  }, [classId, stopWaiting]);
 
   return { phase, onlineClass, connection, errorMessage, requestConnection, release, reload };
 }

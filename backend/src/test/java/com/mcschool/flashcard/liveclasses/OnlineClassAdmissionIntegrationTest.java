@@ -277,7 +277,7 @@ class OnlineClassAdmissionIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void studentsMaySeeTheRosterButNotAttendanceTimings() {
-        admissionService.knock(studentPrincipal, onlineClass.getId());
+        ClassTestSupport.admit(participantRepository, onlineClass, student);
 
         List<ClassParticipantResponse> roster =
                 hostControlService.listParticipants(studentPrincipal, onlineClass.getId());

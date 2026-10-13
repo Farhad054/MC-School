@@ -364,7 +364,7 @@ class OnlineClassRecordingIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void participantsAcknowledgeTheRecordingNotice() {
-        participantRepository.save(OnlineClassParticipant.student(onlineClass, student));
+        ClassTestSupport.admit(participantRepository, onlineClass, student);
 
         recordingService.acknowledgeRecording(studentPrincipal, onlineClass.getId());
 

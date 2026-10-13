@@ -51,8 +51,8 @@ public class OnlineClassHostControlService {
 
     @Transactional(readOnly = true)
     public List<ClassParticipantResponse> listParticipants(AuthenticatedUser caller, UUID classId) {
-        // Students may see the roster too; only moderation is host-only.
-        accessService.requireParticipant(caller, classId);
+        // Students may see the roster too, once admitted; only moderation is host-only.
+        accessService.requireAdmitted(caller, classId);
         return participantRepository.findAllByOnlineClassIdOrderByCreatedAtAsc(classId).stream()
                 .map(ClassParticipantResponse::from)
                 .toList();

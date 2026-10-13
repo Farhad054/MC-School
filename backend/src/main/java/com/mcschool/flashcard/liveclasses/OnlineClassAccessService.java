@@ -26,13 +26,16 @@ public class OnlineClassAccessService {
     private final OnlineClassRepository classRepository;
     private final StudentGroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
+    private final OnlineClassParticipantRepository participantRepository;
 
     public OnlineClassAccessService(OnlineClassRepository classRepository,
                                     StudentGroupMemberRepository groupMemberRepository,
-                                    UserRepository userRepository) {
+                                    UserRepository userRepository,
+                                    OnlineClassParticipantRepository participantRepository) {
         this.classRepository = classRepository;
         this.groupMemberRepository = groupMemberRepository;
         this.userRepository = userRepository;
+        this.participantRepository = participantRepository;
     }
 
     /** The class if the caller is its owning teacher, otherwise not-found. */
@@ -53,6 +56,30 @@ public class OnlineClassAccessService {
     public OnlineClass requireParticipant(AuthenticatedUser caller, UUID classId) {
         OnlineClass onlineClass = require(classId);
         if (!canParticipate(caller, onlineClass)) {
+            throw new ResourceNotFoundException("Online class not found");
+        }
+        return onlineClass;
+    }
+
+    /**
+     * The class if the caller is its teacher, or a student the teacher has let in.
+     *
+     * <p>Being bound to a class is not the same as being in it: a student who is
+     * still in the waiting room, was declined, or was removed must not read the
+     * chat or the board, or post to them, just because they hold a valid login.
+     * Reported as not-found, like every other refusal here.
+     */
+    @Transactional(readOnly = true)
+    public OnlineClass requireAdmitted(AuthenticatedUser caller, UUID classId) {
+        OnlineClass onlineClass = requireParticipant(caller, classId);
+        if (isHost(caller, onlineClass)) {
+            return onlineClass;
+        }
+        boolean admitted = participantRepository
+                .findByOnlineClassIdAndUserId(classId, caller.id())
+                .map(OnlineClassParticipant::isAdmitted)
+                .orElse(false);
+        if (!admitted) {
             throw new ResourceNotFoundException("Online class not found");
         }
         return onlineClass;

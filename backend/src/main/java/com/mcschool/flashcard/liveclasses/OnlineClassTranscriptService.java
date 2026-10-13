@@ -166,7 +166,7 @@ public class OnlineClassTranscriptService {
 
     @Transactional(readOnly = true)
     public List<TranscriptSegmentResponse> segments(AuthenticatedUser caller, UUID classId) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
         if (!accessService.isHost(caller, onlineClass)) {
             // Default-closed, like recordings: transcript visibility is
             // teacher-controlled rather than automatically shared.

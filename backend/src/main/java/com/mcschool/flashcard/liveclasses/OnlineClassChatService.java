@@ -60,7 +60,7 @@ public class OnlineClassChatService {
     @Transactional
     public ChatMessageResponse send(AuthenticatedUser caller, UUID classId,
                                     UUID clientMessageId, String body) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
 
         // Idempotency is checked before the rate limit so a client retrying
         // after a timeout is not punished for the original attempt.
@@ -93,7 +93,7 @@ public class OnlineClassChatService {
      */
     @Transactional(readOnly = true)
     public ChatPageResponse history(AuthenticatedUser caller, UUID classId, UUID before, Integer size) {
-        accessService.requireParticipant(caller, classId);
+        accessService.requireAdmitted(caller, classId);
 
         int pageSize = size == null ? DEFAULT_PAGE_SIZE : Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         // Fetch one extra to discover whether an older page exists.
@@ -115,7 +115,7 @@ public class OnlineClassChatService {
     /** Only the author may edit, and only their own non-deleted user message. */
     @Transactional
     public ChatMessageResponse edit(AuthenticatedUser caller, UUID classId, UUID messageId, String body) {
-        accessService.requireParticipant(caller, classId);
+        accessService.requireAdmitted(caller, classId);
         OnlineClassMessage message = requireMessage(classId, messageId);
 
         if (!message.getSender().getId().equals(caller.id())) {
@@ -134,7 +134,7 @@ public class OnlineClassChatService {
     /** The author may delete their own message; the host may delete any. */
     @Transactional
     public ChatMessageResponse delete(AuthenticatedUser caller, UUID classId, UUID messageId) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
         OnlineClassMessage message = requireMessage(classId, messageId);
 
         boolean isAuthor = message.getSender().getId().equals(caller.id());

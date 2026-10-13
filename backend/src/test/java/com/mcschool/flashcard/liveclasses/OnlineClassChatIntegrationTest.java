@@ -33,6 +33,9 @@ class OnlineClassChatIntegrationTest extends AbstractIntegrationTest {
     private OnlineClassRepository classRepository;
 
     @Autowired
+    private OnlineClassParticipantRepository participantRepository;
+
+    @Autowired
     private OnlineClassMessageRepository messageRepository;
 
     @Autowired
@@ -59,6 +62,7 @@ class OnlineClassChatIntegrationTest extends AbstractIntegrationTest {
                 "Maths", START, END, student);
         created.start(START);
         onlineClass = classRepository.save(created);
+        ClassTestSupport.admit(participantRepository, onlineClass, student);
     }
 
     private ChatMessageResponse send(AuthenticatedUser caller, String body) {

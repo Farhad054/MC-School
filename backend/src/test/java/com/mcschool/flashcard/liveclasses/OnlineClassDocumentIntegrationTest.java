@@ -33,6 +33,9 @@ class OnlineClassDocumentIntegrationTest extends AbstractIntegrationTest {
     private OnlineClassRepository classRepository;
 
     @Autowired
+    private OnlineClassParticipantRepository participantRepository;
+
+    @Autowired
     private LessonPreparationRepository preparations;
 
     @Autowired
@@ -59,6 +62,7 @@ class OnlineClassDocumentIntegrationTest extends AbstractIntegrationTest {
                 "Maths", START, END, student);
         created.start(START);
         onlineClass = classRepository.save(created);
+        ClassTestSupport.admit(participantRepository, onlineClass, student);
     }
 
     private void preparation(boolean workbook, boolean answers) {

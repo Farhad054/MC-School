@@ -275,6 +275,23 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void aDeclinedStudentIsToldSoInsteadOfWaitingForever() {
+        OnlineClass onlineClass = materialize();
+        service.start(teacherPrincipal, onlineClass.getId());
+        OnlineClassParticipant participant = participantRepository.save(
+                OnlineClassParticipant.student(onlineClass, student));
+        participant.reject();
+        participantRepository.save(participant);
+
+        // The client keeps polling while it hears "admit"; a distinct answer is
+        // what lets it stop.
+        assertThatThrownBy(() -> service.connect(studentPrincipal, onlineClass.getId(), "tab-1"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("declined")
+                .hasMessageNotContaining("admit");
+    }
+
+    @Test
     void aRemovedStudentIsNeverGivenANewToken() {
         OnlineClass onlineClass = materialize();
         service.start(teacherPrincipal, onlineClass.getId());

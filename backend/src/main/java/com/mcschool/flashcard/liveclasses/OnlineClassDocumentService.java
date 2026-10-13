@@ -36,7 +36,7 @@ public class OnlineClassDocumentService {
      */
     @Transactional(readOnly = true)
     public Optional<byte[]> workbook(AuthenticatedUser caller, UUID classId) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
         return preparations
                 .findByTeacherIdAndEventId(onlineClass.getTeacher().getId(), onlineClass.getEventId())
                 .filter(LessonPreparation::hasWorkbook)

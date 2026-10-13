@@ -38,6 +38,9 @@ class PersonalBoardAccessIntegrationTest extends AbstractIntegrationTest {
     private OnlineClassAnnotationService service;
     @Autowired
     private OnlineClassRepository classRepository;
+
+    @Autowired
+    private OnlineClassParticipantRepository participantRepository;
     @Autowired
     private UserRepository userRepository;
     @Autowired
@@ -66,7 +69,10 @@ class PersonalBoardAccessIntegrationTest extends AbstractIntegrationTest {
 
         OnlineClass created = OnlineClass.forGroup(teacherUser, "event-pb", "binding-pb", "Maths", START, END, group);
         created.start(START);
-        classId = classRepository.save(created).getId();
+        OnlineClass savedClass = classRepository.save(created);
+        classId = savedClass.getId();
+        ClassTestSupport.admit(participantRepository, savedClass, aliceUser);
+        ClassTestSupport.admit(participantRepository, savedClass, bobUser);
 
         teacher = principal(teacherUser);
         alice = principal(aliceUser);

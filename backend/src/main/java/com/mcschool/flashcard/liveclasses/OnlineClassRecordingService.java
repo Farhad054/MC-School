@@ -123,7 +123,7 @@ public class OnlineClassRecordingService {
      */
     @Transactional(readOnly = true)
     public List<RecordingResponse> list(AuthenticatedUser caller, UUID classId) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
         boolean host = accessService.isHost(caller, onlineClass);
         if (!host) {
             // Default-closed: students do not receive recordings in this release.
@@ -137,7 +137,7 @@ public class OnlineClassRecordingService {
     /** Records that a participant saw the recording notice before publishing. */
     @Transactional
     public void acknowledgeRecording(AuthenticatedUser caller, UUID classId) {
-        accessService.requireParticipant(caller, classId);
+        accessService.requireAdmitted(caller, classId);
         participantRepository.findByOnlineClassIdAndUserId(classId, caller.id())
                 .ifPresent(participant -> participant.acknowledgeRecording(now()));
     }

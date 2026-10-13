@@ -317,6 +317,9 @@ public class OnlineClassService {
         if (participant.getAdmissionState() == AdmissionState.REMOVED) {
             throw new ConflictException("You have been removed from this class");
         }
+        if (participant.getAdmissionState() == AdmissionState.REJECTED) {
+            throw new ConflictException("The teacher declined your request to join");
+        }
         if (!participant.isAdmitted()) {
             throw new ConflictException("Waiting for the teacher to admit you");
         }

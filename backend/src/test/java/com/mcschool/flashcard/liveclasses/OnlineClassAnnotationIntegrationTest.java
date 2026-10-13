@@ -44,6 +44,9 @@ class OnlineClassAnnotationIntegrationTest extends AbstractIntegrationTest {
     private OnlineClassAnnotationEventRepository eventRepository;
 
     @Autowired
+    private OnlineClassParticipantRepository participantRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
     @MockitoBean
@@ -71,6 +74,7 @@ class OnlineClassAnnotationIntegrationTest extends AbstractIntegrationTest {
                 "Maths", START, END, student);
         created.start(START);
         onlineClass = classRepository.save(created);
+        ClassTestSupport.admit(participantRepository, onlineClass, student);
 
         board = annotationService.openDocument(teacherPrincipal, onlineClass.getId(),
                 AnnotationTargetType.WHITEBOARD, "board-1", 0, 1920, 1080);
