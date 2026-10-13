@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError } from '../api/client';
@@ -22,6 +22,11 @@ vi.mock('../api/onlineClasses', async () => {
 
 const api = vi.mocked(onlineClassesApi);
 
+// The teacher sidebar starts collapsed; open it the way a teacher would.
+function openTeacherMenu() {
+  fireEvent.click(screen.getByRole('button', { name: 'Показать меню' }));
+}
+
 function mount() {
   return render(
     <I18nProvider>
@@ -44,6 +49,7 @@ describe('Layout: the online classes menu entry', () => {
   it('gives a teacher a link to their online classes when the feature is on', async () => {
     api.listUpcoming.mockResolvedValue([]);
     mount();
+    openTeacherMenu();
     const link = await screen.findByRole('link', { name: 'Онлайн-уроки' });
     expect(link).toHaveAttribute('href', '/online-classes');
   });
@@ -74,6 +80,7 @@ describe('Layout: the online classes menu entry', () => {
   it('keeps the greyed-out placeholders as they were', async () => {
     api.listUpcoming.mockResolvedValue([]);
     mount();
+    openTeacherMenu();
     await screen.findByRole('link', { name: 'Онлайн-уроки' });
     expect(screen.getByText('Домашние задания').closest('a')).toBeNull();
   });

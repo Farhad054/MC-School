@@ -46,6 +46,15 @@ public class LessonPreparation {
     @Column(name = "lesson_plan", columnDefinition = "text")
     private String lessonPlan;
 
+    @Column(name = "transcript_text", columnDefinition = "text")
+    private String transcriptText;
+
+    @Column(name = "transcript_pdf", columnDefinition = "bytea")
+    private byte[] transcriptPdf;
+
+    @Column(name = "transcript_filename", length = 255)
+    private String transcriptFilename;
+
     @Column(name = "workbook_pdf", columnDefinition = "bytea")
     private byte[] workbookPdf;
 
@@ -82,10 +91,13 @@ public class LessonPreparation {
         return new LessonPreparation(teacher, eventId);
     }
 
-    public void updateNotes(String homeworkNotes, String difficulties, String lessonPlan) {
+    public void updateNotes(String homeworkNotes, String difficulties, String lessonPlan, String transcriptText) {
         this.homeworkNotes = normalize(homeworkNotes);
         this.difficulties = normalize(difficulties);
         this.lessonPlan = normalize(lessonPlan);
+        if (!hasTranscriptPdf()) {
+            this.transcriptText = normalize(transcriptText);
+        }
     }
 
     public void attachWorkbook(String filename, byte[] pdf) {
@@ -98,6 +110,12 @@ public class LessonPreparation {
         this.answersPdf = pdf;
     }
 
+    public void attachTranscriptPdf(String filename, byte[] pdf) {
+        this.transcriptFilename = filename;
+        this.transcriptPdf = pdf;
+        this.transcriptText = null;
+    }
+
     public void markSiteOpened(Instant openedAt) {
         this.siteOpenedAt = openedAt;
     }
@@ -108,6 +126,14 @@ public class LessonPreparation {
 
     public boolean hasAnswers() {
         return answersPdf != null && answersPdf.length > 0;
+    }
+
+    public boolean hasTranscriptPdf() {
+        return transcriptPdf != null && transcriptPdf.length > 0;
+    }
+
+    public boolean hasTranscript() {
+        return hasTranscriptPdf() || (transcriptText != null && !transcriptText.isBlank());
     }
 
     private String normalize(String value) {

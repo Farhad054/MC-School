@@ -1,7 +1,7 @@
 // TypeScript mirrors of the backend DTOs. Keep these in sync with the Java records.
 
 export type Role = 'ADMIN' | 'TEACHER' | 'STUDENT' | 'PARENT';
-export type UserStatus = 'INVITED' | 'ACTIVE';
+export type UserStatus = 'INVITED' | 'ACTIVE' | 'INACTIVE';
 export type Language = 'DE' | 'RU';
 export type CardStatus = 'ACTIVE' | 'LEARNED';
 export type HomeworkStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED';
@@ -10,10 +10,14 @@ export type SessionStatus = 'IN_PROGRESS' | 'COMPLETED';
 export type DailyReviewStatus = 'COMPLETED' | 'PARTIAL' | 'MISSED';
 
 export interface User { id: string; fullName: string; email: string | null; username: string | null; role: Role; status: UserStatus; preferredLanguage: Language; googleDriveTrialTranscriptFolderId: string | null; }
-export interface StudentListItem extends User { invitationToken: string | null; googleDriveFolderUrl: string | null; googleDriveHomeworkFolderId: string | null; googleDriveTranscriptFolderId: string | null; chatGptProjectUrl: string | null; parentId: string | null; parentFullName: string | null; parentEmail: string | null; parentStatus: UserStatus | null; parentInvitationToken: string | null; }
+export type SchoolType = 'GYMNASIUM' | 'REALSCHULE' | 'MITTELSCHULE' | 'WIRTSCHAFTSSCHULE' | 'FACHOBERSCHULE' | 'GESAMTSCHULE' | 'WERKREALSCHULE' | 'OTHER';
+export type LearningPace = 'SLOW' | 'NORMAL' | 'FAST';
+export interface StudentListItem extends User { invitationToken: string | null; googleDriveFolderUrl: string | null; googleDriveHomeworkFolderId: string | null; googleDriveTranscriptFolderId: string | null; chatGptProjectUrl: string | null; grade: number | null; schoolType: SchoolType | null; learningPace: LearningPace | null; learningStrengths: string | null; learningDifficulties: string | null; explanationStyle: string | null; learningNotes: string | null; parentId: string | null; parentFullName: string | null; parentEmail: string | null; parentStatus: UserStatus | null; parentInvitationToken: string | null; }
+export interface StudentLearningProfileUpdate { grade: number | null; schoolType: SchoolType | null; learningPace: LearningPace | null; learningStrengths: string; learningDifficulties: string; explanationStyle: string; learningNotes: string; }
 export interface StudentGroup { id: string; name: string; googleDriveTranscriptFolderId: string | null; students: User[]; }
-export interface GroupLesson { eventId: string; bindingKey: string; groupId: string | null; groupName: string | null; studentId: string | null; studentName: string | null; title: string; startsAt: string; endsAt: string; meetUrl: string | null; calendarUrl: string | null; }
-export interface LessonPreparation { eventId: string; homeworkNotes: string | null; difficulties: string | null; lessonPlan: string | null; hasWorkbook: boolean; workbookFilename: string | null; hasAnswers: boolean; answersFilename: string | null; answersUploadHint?: string | null; }
+export interface GroupLesson { eventId: string; bindingKey: string; groupId: string | null; groupName: string | null; studentId: string | null; studentName: string | null; participantStudentIds: string[]; title: string; startsAt: string; endsAt: string; meetUrl: string | null; calendarUrl: string | null; }
+export interface StudentLesson { eventId: string; title: string; groupName: string | null; startsAt: string; endsAt: string; meetUrl: string | null; hasSharedDocument: boolean; sharedDocumentFilename: string | null; }
+export interface LessonPreparation { eventId: string; homeworkNotes: string | null; difficulties: string | null; lessonPlan: string | null; transcriptText: string | null; hasTranscript: boolean; transcriptFilename: string | null; hasWorkbook: boolean; workbookFilename: string | null; hasAnswers: boolean; answersFilename: string | null; answersUploadHint?: string | null; siteOpenedAt?: string | null; }
 export interface GoogleCalendarConnection { connected: boolean; authorizationUrl: string | null; }
 export interface GoogleMeetEventStatus { configured: boolean; subscribed: boolean; lastLeftAt: string | null; }
 export interface AuthResponse { accessToken: string; tokenType: string; expiresAt: string; user: User; }
@@ -41,3 +45,16 @@ export interface Question { cardId: string; question: string; options: string[];
 export interface AnswerResult { correct: boolean; correctAnswer: string; sessionCompleted: boolean; remaining: number; }
 export interface SessionReviewItem { cardId: string; question: string; selectedAnswer: string | null; correctAnswer: string; correct: boolean; }
 export interface SessionResult { type: SessionType; totalCards: number; correctFirstTry: number; nextReviewDate: string | null; review: SessionReviewItem[]; }
+
+
+export interface MonthlyPlanResponse {
+  id: string | null;
+  targetType: 'STUDENT' | 'GROUP';
+  targetId: string;
+  month: string;
+  planJson: string;
+  hasDocument: boolean;
+  documentFilename: string | null;
+  version: number;
+  updatedAt: string | null;
+}

@@ -16,6 +16,7 @@ const STATUS_LABELS: Record<TrialLeadStatus, string> = {
   BOOKED: 'Забронирован',
   CONTACTED: 'Связались',
   CONTRACT: 'Контракт',
+  NO_RESPONSE: 'Не ответили',
   DECLINED: 'Отказ',
 };
 
@@ -69,9 +70,11 @@ export function TrialLeadsPage() {
 
   const summary = useMemo(() => ({
     total: leads.length,
-    newCount: leads.filter((lead) => !['CALENDAR_OPENED', 'BOOKED', 'CONTACTED', 'CONTRACT', 'DECLINED'].includes(lead.status)).length,
+    inProgress: leads.filter((lead) => !['NO_RESPONSE', 'CONTRACT', 'DECLINED'].includes(lead.status)).length,
+    noResponse: leads.filter((lead) => lead.status === 'NO_RESPONSE').length,
     calendar: leads.filter((lead) => lead.status === 'CALENDAR_OPENED').length,
     booked: leads.filter((lead) => lead.status === 'BOOKED').length,
+    contracts: leads.filter((lead) => lead.status === 'CONTRACT').length,
   }), [leads]);
 
   async function changeStatus(lead: TrialLead, status: TrialLeadStatus) {
@@ -110,19 +113,22 @@ export function TrialLeadsPage() {
         <div>
           <p className="trial-leads-eyebrow">Продажи</p>
           <h1>Заявки на пробный урок</h1>
-          <p>Телефон сохраняется до анкеты. Статус показывает последний этап, до которого человек дошёл. Список обновляется автоматически каждые 10 секунд.</p>
+          <p>Здесь только люди, которые уже оставили номер. Анонимные заходы вынесены в отдельную вкладку «Попытки посетителей».</p>
         </div>
         <div className="trial-lead-actions">
+          <Link className="btn btn--secondary" to="/admin/site-visits">Попытки посетителей</Link>
           <Link className="btn btn--secondary" to="/admin/settings">Уведомления</Link>
           <button type="button" className="btn" onClick={() => void load({ silent: true })} disabled={loading || refreshing}>{refreshing ? 'Обновляем…' : 'Обновить'}</button>
         </div>
       </div>
 
       <div className="trial-leads-summary">
-        <div><span>Всего</span><strong>{summary.total}</strong></div>
-        <div><span>В процессе</span><strong>{summary.newCount}</strong></div>
+        <div><span>Всего заявок</span><strong>{summary.total}</strong></div>
+        <div><span>В процессе</span><strong>{summary.inProgress}</strong></div>
+        <div><span>Не ответили</span><strong>{summary.noResponse}</strong></div>
         <div><span>Открыли календарь</span><strong>{summary.calendar}</strong></div>
         <div><span>Забронировано</span><strong>{summary.booked}</strong></div>
+        <div><span>Контракты</span><strong>{summary.contracts}</strong></div>
       </div>
 
       {error && <div className="trial-leads-error">{error}</div>}
@@ -149,7 +155,7 @@ export function TrialLeadsPage() {
               <Detail label="Преподаватель" value={lead.teacherName} />
               <Detail label="Главная задача" value={lead.goal} wide />
               <Detail label="Что важно" value={lead.priority} wide />
-              <Detail label="Источник" value={lead.source || 'Прямой переход'} wide />
+              <Detail label="Источник" value={lead.source || 'Источник не передан'} wide />
             </div>
 
             <div className="trial-lead-actions">

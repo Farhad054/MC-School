@@ -4,8 +4,8 @@ import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.cards.Card;
 import com.mcschool.flashcard.cards.CardRepository;
 import com.mcschool.flashcard.cards.CardStatus;
-import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.drive.GoogleDriveStructureService;
 import com.mcschool.flashcard.notifications.NotificationService;
 import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryService;
 import com.mcschool.flashcard.students.dto.CreateStudentRequest;
@@ -18,6 +18,7 @@ import com.mcschool.flashcard.students.dto.TestReviewReminderResponse;
 import com.mcschool.flashcard.students.dto.UpdateStudentDriveFolderRequest;
 import com.mcschool.flashcard.students.dto.UpdateStudentHomeworkDriveFolderRequest;
 import com.mcschool.flashcard.students.dto.UpdateStudentNameRequest;
+import com.mcschool.flashcard.students.dto.UpdateStudentLearningProfileRequest;
 import com.mcschool.flashcard.students.dto.UpdateStudentTranscriptDriveFolderRequest;
 import com.mcschool.flashcard.users.Invitations;
 import com.mcschool.flashcard.users.Role;
@@ -33,8 +34,7 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -43,7 +43,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class StudentService {
 
-    private static final Logger log = LoggerFactory.getLogger(StudentService.class);
     private static final SecureRandom USERNAME_RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
@@ -51,44 +50,44 @@ public class StudentService {
     private final NotificationService notificationService;
     private final DailyReviewHistoryService historyService;
     private final PasswordEncoder passwordEncoder;
+    private final GoogleDriveStructureService googleDriveStructureService;
     private final ZoneId reviewReminderZone;
 
     public StudentService(UserRepository userRepository, CardRepository cardRepository,
                           NotificationService notificationService,
                           DailyReviewHistoryService historyService,
                           PasswordEncoder passwordEncoder,
+                          String reviewReminderZone) {
+        this(userRepository, cardRepository, notificationService, historyService,
+                passwordEncoder, null, reviewReminderZone);
+    }
+
+    @Autowired
+    public StudentService(UserRepository userRepository, CardRepository cardRepository,
+                          NotificationService notificationService,
+                          DailyReviewHistoryService historyService,
+                          PasswordEncoder passwordEncoder,
+                          GoogleDriveStructureService googleDriveStructureService,
                           @Value("${app.notifications.review-reminders.zone}") String reviewReminderZone) {
         this.userRepository = userRepository;
         this.cardRepository = cardRepository;
         this.notificationService = notificationService;
         this.historyService = historyService;
         this.passwordEncoder = passwordEncoder;
+        this.googleDriveStructureService = googleDriveStructureService;
         this.reviewReminderZone = ZoneId.of(reviewReminderZone);
     }
 
     @Transactional
     public StudentInvitationResponse createStudent(AuthenticatedUser teacher, CreateStudentRequest request) {
-        String email = normalizeOptionalEmail(request.email());
         User teacherEntity = userRepository.findById(teacher.id())
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher account no longer exists"));
-        String token = Invitations.newToken();
-        Instant expiresAt = Invitations.expiry(Instant.now());
-        String fullName = request.fullName().trim();
-
-        User student;
-        if (email == null) {
-            student = userRepository.save(User.invitedStudent(fullName, null, teacherEntity, token, expiresAt));
-        } else {
-            student = userRepository.findByEmail(email)
-                    .map(existing -> restoreDeletedStudent(existing, teacherEntity, fullName, token, expiresAt))
-                    .orElseGet(() -> userRepository.save(
-                            User.invitedStudent(fullName, email, teacherEntity, token, expiresAt)));
-
-            notificationService.sendInvitation(student, token);
-        }
-
+        User student = userRepository.save(User.managedStudent(request.fullName().trim(), teacherEntity));
         ensureUsername(student);
-        return new StudentInvitationResponse(UserResponse.from(student), token, expiresAt);
+        if (googleDriveStructureService != null) {
+            googleDriveStructureService.provisionIndividualStudent(teacherEntity, student);
+        }
+        return new StudentInvitationResponse(UserResponse.from(student), null, null);
     }
 
     @Transactional
@@ -110,7 +109,7 @@ public class StudentService {
             notificationService.sendInvitation(parent, token);
         } else {
             if (parent.getRole() != Role.PARENT || parent.isArchived()) {
-                throw new ConflictException("An account with this email already exists and is not a parent account");
+                throw new IllegalArgumentException("An account with this email already exists and is not a parent account");
             }
             if (parent.getStatus() == UserStatus.INVITED) {
                 token = parent.getInvitationToken();
@@ -122,20 +121,10 @@ public class StudentService {
         return new ParentInvitationResponse(UserResponse.from(parent), token, expiresAt);
     }
 
-    private User restoreDeletedStudent(User existing, User teacher, String fullName,
-                                       String token, Instant expiresAt) {
-        if (existing.getRole() != Role.STUDENT || !existing.isArchived()
-                || existing.getTeacher() == null || !existing.getTeacher().getId().equals(teacher.getId())) {
-            throw new ConflictException("An account with this email already exists");
-        }
-        existing.restoreAsInvitedStudent(fullName, teacher, token, expiresAt);
-        return existing;
-    }
-
     @Transactional
     public List<StudentListResponse> listStudents(AuthenticatedUser teacher) {
         return userRepository.findAllByTeacherIdAndRoleAndArchivedFalseOrderByFullNameAsc(teacher.id(), Role.STUDENT).stream()
-                .peek(this::ensureUsername)
+                .peek(this::prepareManagedStudent)
                 .map(StudentListResponse::from)
                 .toList();
     }
@@ -143,7 +132,7 @@ public class StudentService {
     @Transactional
     public StudentListResponse getStudent(AuthenticatedUser teacher, UUID studentId) {
         User student = requireOwnedStudent(teacher.id(), studentId);
-        ensureUsername(student);
+        prepareManagedStudent(student);
         return StudentListResponse.from(student);
     }
 
@@ -156,8 +145,26 @@ public class StudentService {
     }
 
     @Transactional
+    public StudentListResponse updateLearningProfile(AuthenticatedUser teacher, UUID studentId,
+                                                     UpdateStudentLearningProfileRequest request) {
+        User student = requireOwnedStudent(teacher.id(), studentId);
+        String schoolType = normalizeSchoolType(request.schoolType());
+        String learningPace = normalizeLearningPace(request.learningPace());
+        student.changeLearningProfile(
+                request.grade(),
+                schoolType,
+                learningPace,
+                request.learningStrengths(),
+                request.learningDifficulties(),
+                request.explanationStyle(),
+                request.learningNotes());
+        return StudentListResponse.from(student);
+    }
+
+    @Transactional
     public void resetStudentPassword(AuthenticatedUser teacher, UUID studentId, ChangePasswordRequest request) {
-        User student = requireOwnedActiveStudent(teacher.id(), studentId);
+        User student = requireOwnedStudent(teacher.id(), studentId);
+        prepareManagedStudent(student);
         student.changePasswordHash(passwordEncoder.encode(request.password()));
     }
 
@@ -187,7 +194,8 @@ public class StudentService {
 
     @Transactional
     public TestReviewReminderResponse sendTestReviewReminder(AuthenticatedUser teacher, UUID studentId) {
-        User student = requireOwnedActiveStudent(teacher.id(), studentId);
+        User student = requireOwnedStudent(teacher.id(), studentId);
+        prepareManagedStudent(student);
         LocalDate today = reviewToday();
         long dueCount = cardRepository.countDueCards(studentId, today);
         if (dueCount > 0) {
@@ -200,7 +208,8 @@ public class StudentService {
 
     @Transactional
     public PilotDueCardResponse makeOneCardDueToday(AuthenticatedUser teacher, UUID studentId) {
-        requireOwnedActiveStudent(teacher.id(), studentId);
+        User student = requireOwnedStudent(teacher.id(), studentId);
+        prepareManagedStudent(student);
         Card card = cardRepository.findFirstByStudentIdAndStatusAndArchivedFalseOrderByCreatedAtAsc(
                         studentId, CardStatus.ACTIVE)
                 .orElseThrow(() -> new ResourceNotFoundException("No active card found for student"));
@@ -223,13 +232,11 @@ public class StudentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
     }
 
-    private User requireOwnedActiveStudent(UUID teacherId, UUID studentId) {
-        return userRepository.findById(studentId)
-                .filter(u -> u.getRole() == Role.STUDENT)
-                .filter(u -> u.getStatus() == UserStatus.ACTIVE)
-                .filter(u -> !u.isArchived())
-                .filter(u -> u.getTeacher() != null && u.getTeacher().getId().equals(teacherId))
-                .orElseThrow(() -> new ResourceNotFoundException("Active student not found"));
+    private void prepareManagedStudent(User student) {
+        if (student.getStatus() == UserStatus.INVITED) {
+            student.enableManagedStudent();
+        }
+        ensureUsername(student);
     }
 
     private void ensureUsername(User student) {
@@ -261,6 +268,25 @@ public class StudentService {
 
     private LocalDate reviewToday() {
         return LocalDate.now(reviewReminderZone);
+    }
+
+    private static String normalizeSchoolType(String schoolType) {
+        if (schoolType == null || schoolType.isBlank()) return null;
+        String value = schoolType.trim().toUpperCase(Locale.ROOT);
+        return switch (value) {
+            case "GYMNASIUM", "REALSCHULE", "MITTELSCHULE", "WIRTSCHAFTSSCHULE",
+                 "FACHOBERSCHULE", "GESAMTSCHULE", "WERKREALSCHULE", "OTHER" -> value;
+            default -> throw new IllegalArgumentException("Unsupported school type");
+        };
+    }
+
+    private static String normalizeLearningPace(String learningPace) {
+        if (learningPace == null || learningPace.isBlank()) return null;
+        String value = learningPace.trim().toUpperCase(Locale.ROOT);
+        return switch (value) {
+            case "SLOW", "NORMAL", "FAST" -> value;
+            default -> throw new IllegalArgumentException("Unsupported learning pace");
+        };
     }
 
     private static String normalizeOptionalEmail(String email) {

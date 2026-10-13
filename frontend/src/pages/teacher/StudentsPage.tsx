@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { CardSummary, DailyReviewHistoryItem, Homework, StudentInvitation, StudentListItem } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
-import { InvitationNotice } from '../../components/InvitationNotice';
 
 type TodayCompletion = {
   cards: 'done' | 'pending' | 'none';
@@ -13,14 +12,14 @@ type TodayCompletion = {
 
 export function StudentsPage() {
   const { language, t } = useI18n();
+  const navigate = useNavigate();
   const [students, setStudents] = useState<StudentListItem[]>([]);
   const [summaries, setSummaries] = useState<Record<string, CardSummary>>({});
   const [todayCompletion, setTodayCompletion] = useState<Record<string, TodayCompletion>>({});
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [invitation, setInvitation] = useState<StudentInvitation | null>(null);
-  const [copiedStudentId, setCopiedStudentId] = useState<string | null>(null);
+  const [createdStudent, setCreatedStudent] = useState<StudentInvitation | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -28,8 +27,9 @@ export function StudentsPage() {
     const list = await api.students.list();
     setStudents(list);
     const today = localDateString(new Date());
+    const activeStudents = list.filter((student) => student.status !== 'INACTIVE');
     const details = await Promise.all(
-      list.map(async (student) => {
+      activeStudents.map(async (student) => {
         const [summary, homeworks, reviewHistory] = await Promise.all([
           api.cards.summaryForStudent(student.id),
           api.homeworks.listForStudent(student.id),
@@ -56,10 +56,9 @@ export function StudentsPage() {
     event.preventDefault();
     setError(null);
     try {
-      const created = await api.students.create(fullName.trim(), email.trim());
-      setInvitation(created);
+      const created = await api.students.create(fullName.trim(), '');
+      setCreatedStudent(created);
       setFullName('');
-      setEmail('');
       await reload();
     } catch (e) {
       setError(toErrorMessage(e, t));
@@ -68,14 +67,6 @@ export function StudentsPage() {
 
   function activeCount(summary?: CardSummary): number {
     return summary ? summary.dueNow + summary.awaitingRepetition : 0;
-  }
-
-  async function copyInvitationLink(student: StudentListItem) {
-    if (!student.invitationToken) return;
-    await copyActivationToken(student.invitationToken);
-    setCopiedStudentId(student.id);
-    setOpenMenuId(null);
-    window.setTimeout(() => setCopiedStudentId((current) => (current === student.id ? null : current)), 2000);
   }
 
   async function renameStudent(student: StudentListItem) {
@@ -111,8 +102,37 @@ export function StudentsPage() {
       await api.students.resetPassword(student.id, password);
       setOpenMenuId(null);
       window.alert(language === 'DE'
-        ? `Passwort geändert. Login: ${student.username ?? student.email ?? '—'}`
-        : `Пароль изменён. Логин: ${student.username ?? student.email ?? '—'}`);
+        ? `Passwort geändert. Login: ${student.username ?? '—'}`
+        : `Пароль изменён. Логин: ${student.username ?? '—'}`);
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    }
+  }
+
+  async function deactivateStudent(student: StudentListItem) {
+    const confirmed = window.confirm(
+      language === 'DE'
+        ? `${student.fullName} deaktivieren? Der Schüler kann sich nicht mehr anmelden und erhält keine neuen Gruppenaufgaben oder Erinnerungen. Alle bisherigen Daten bleiben erhalten.`
+        : `Сделать ${student.fullName} неактивным? Ученик больше не сможет войти и не будет получать новые групповые задания и напоминания. Вся история сохранится.`,
+    );
+    if (!confirmed) return;
+    setError(null);
+    try {
+      await api.students.deactivate(student.id);
+      setOpenMenuId(null);
+      await reload();
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    }
+  }
+
+  async function reactivateStudent(student: StudentListItem) {
+    setError(null);
+    try {
+      await api.students.reactivate(student.id);
+      setOpenMenuId(null);
+      setShowInactive(false);
+      await reload();
     } catch (e) {
       setError(toErrorMessage(e, t));
     }
@@ -130,16 +150,31 @@ export function StudentsPage() {
     }
   }
 
-  async function copyActivationToken(token: string) {
-    const link = `${window.location.origin}/activate?token=${encodeURIComponent(token)}`;
-    await navigator.clipboard.writeText(link);
-  }
+  const activeStudents = students.filter((student) => student.status !== 'INACTIVE');
+  const inactiveStudents = students.filter((student) => student.status === 'INACTIVE');
+  const visibleStudents = showInactive ? inactiveStudents : activeStudents;
 
   return (
     <div className="teacher-students-page" onClick={() => openMenuId && setOpenMenuId(null)}>
       <div className="teacher-page-heading">
         <h1>{language === 'DE' ? 'Meine Schüler' : 'Мои ученики'}</h1>
         <p>{language === 'DE' ? 'Verwalte Schüler und ihren Zugriff auf Materialien' : 'Управляйте своими учениками и их доступом к материалам'}</p>
+        <div className="row" style={{ marginTop: 14, gap: 8 }}>
+          <button
+            type="button"
+            className={showInactive ? 'btn btn--ghost' : 'btn'}
+            onClick={() => setShowInactive(false)}
+          >
+            {language === 'DE' ? `Aktiv (${activeStudents.length})` : `Активные (${activeStudents.length})`}
+          </button>
+          <button
+            type="button"
+            className={showInactive ? 'btn' : 'btn btn--ghost'}
+            onClick={() => setShowInactive(true)}
+          >
+            {language === 'DE' ? `Inaktiv (${inactiveStudents.length})` : `Неактивные (${inactiveStudents.length})`}
+          </button>
+        </div>
       </div>
 
       {error && <div className="banner banner--error">{error}</div>}
@@ -152,37 +187,46 @@ export function StudentsPage() {
               <span className="field__label">{language === 'DE' ? 'Name des Schülers' : 'Имя ученика'}</span>
               <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={language === 'DE' ? 'Name eingeben' : 'Введите имя ученика'} required />
             </label>
-            <label className="field">
-              <span className="field__label">{language === 'DE' ? 'E-Mail (optional)' : 'Эл. почта (необязательно)'}</span>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@email.com" />
-            </label>
           </div>
-          <p className="teacher-form-hint"><span>ⓘ</span>{language === 'DE' ? 'Für jeden Schüler wird automatisch ein eigener Schul-Login erstellt.' : 'Для каждого ученика автоматически создаётся отдельный школьный логин.'}</p>
+          <p className="teacher-form-hint"><span>ⓘ</span>{language === 'DE' ? 'Der Schüler ist sofort vollständig im System verfügbar. Login und Passwort können später weitergegeben werden.' : 'Ученик сразу полностью доступен в системе. Логин и пароль можно передать ему позже.'}</p>
           <button className="btn teacher-primary-btn" type="submit">{language === 'DE' ? 'Schüler hinzufügen' : 'Добавить ученика'}</button>
         </form>
-        {invitation && (
-          <div className="stack">
-            <div className="banner banner--success">
-              {language === 'DE' ? 'Schüler-Login' : 'Логин ученика'}: <strong>{invitation.student.username}</strong>
-            </div>
-            <InvitationNotice message={t('students.inviteCreated')} token={invitation.invitationToken} />
+        {createdStudent && (
+          <div className="banner banner--success" style={{ marginTop: 16 }}>
+            {language === 'DE' ? 'Schüler erstellt. Login' : 'Ученик создан. Логин'}: <strong>{createdStudent.student.username}</strong>.{' '}
+            {language === 'DE' ? 'Das Passwort kann über das Menü festgelegt werden.' : 'Пароль можно задать через меню ученика.'}
           </div>
         )}
       </section>
 
-      {loading ? <p className="muted">{t('common.loading')}</p> : students.length === 0 ? (
-        <div className="teacher-empty-state">{t('students.empty')}</div>
+      {loading ? <p className="muted">{t('common.loading')}</p> : visibleStudents.length === 0 ? (
+        <div className="teacher-empty-state">
+          {showInactive
+            ? (language === 'DE' ? 'Keine inaktiven Schüler.' : 'Неактивных учеников нет.')
+            : t('students.empty')}
+        </div>
       ) : (
         <div className="teacher-student-list">
-          {students.map((student, index) => {
+          {visibleStudents.map((student, index) => {
             const completion = todayCompletion[student.id] ?? { cards: 'none', homework: 'none' };
             return (
-              <article key={student.id} className="teacher-student-card">
+              <article key={student.id} className="teacher-student-card" style={{ cursor: 'pointer' }} onClick={() => navigate(`/students/${student.id}`)}>
                 <div className={`teacher-student-avatar teacher-student-avatar--${index % 4}`}>{studentInitial(student.fullName)}</div>
                 <div className="teacher-student-main">
-                  <div className="teacher-student-name">{student.fullName}</div>
+                  <div className="teacher-student-name">
+                    <Link to={`/students/${student.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>{student.fullName}</Link>
+                    {student.status === 'INACTIVE' && (
+                      <span className="pill pill--pending" style={{ marginLeft: 10, verticalAlign: 'middle' }}>
+                        {language === 'DE' ? 'Inaktiv' : 'Неактивен'}
+                      </span>
+                    )}
+                  </div>
                   <div className="teacher-student-email">{language === 'DE' ? 'Login' : 'Логин'}: <strong>{student.username ?? '—'}</strong></div>
-                  <div className="teacher-student-email">{student.email ?? (language === 'DE' ? 'E-Mail nicht erforderlich' : 'Email не требуется')}</div>
+                  <div className="teacher-student-meta">
+                    {language === 'DE' ? 'Klasse' : 'Класс'}: <strong>{student.grade ?? '—'}</strong>
+                    <span aria-hidden="true"> · </span>
+                    {language === 'DE' ? 'Schultyp' : 'Тип школы'}: <strong>{schoolTypeLabel(student.schoolType, language)}</strong>
+                  </div>
                   <div className="teacher-student-meta">
                     {student.parentFullName
                       ? `${language === 'DE' ? 'Elternteil' : 'Родитель'}: ${student.parentFullName}`
@@ -191,29 +235,43 @@ export function StudentsPage() {
                 </div>
 
                 <div className="teacher-student-stats">
-                  <div>{activeCount(summaries[student.id])} {language === 'DE' ? 'aktive Karten' : 'активных карточек'}</div>
-                  <div className="teacher-today-statuses">
-                    <TodayStatusBadge label={language === 'DE' ? 'Karten heute' : 'Карточки сегодня'} status={completion.cards} language={language} />
-                    <TodayStatusBadge label={language === 'DE' ? 'Hausaufgabe heute' : 'Домашка сегодня'} status={completion.homework} language={language} />
-                  </div>
+                  {student.status === 'INACTIVE' ? (
+                    <div className="muted">
+                      {language === 'DE'
+                        ? 'Historie bleibt erhalten. Keine neuen Aufgaben oder Erinnerungen.'
+                        : 'История сохранена. Новые задания и напоминания не отправляются.'}
+                    </div>
+                  ) : (
+                    <>
+                      <div>{activeCount(summaries[student.id])} {language === 'DE' ? 'aktive Karten' : 'активных карточек'}</div>
+                      <div className="teacher-today-statuses">
+                        <TodayStatusBadge label={language === 'DE' ? 'Karten heute' : 'Карточки сегодня'} status={completion.cards} language={language} />
+                        <TodayStatusBadge label={language === 'DE' ? 'Hausaufgabe heute' : 'Домашка сегодня'} status={completion.homework} language={language} />
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="teacher-student-actions">
                   <div className="teacher-student-actions__top">
-                    <Link to={`/students/${student.id}`} className="teacher-action-chip">{language === 'DE' ? 'Karten' : 'Карточки'}</Link>
-                    <Link to={`/students/${student.id}/homeworks`} className="teacher-action-chip">{language === 'DE' ? 'Hausaufgabe' : 'Домашка'}</Link>
-                    <Link to={`/students/${student.id}/drive`} className="teacher-action-chip">Google Drive</Link>
+                    <Link to={`/students/${student.id}`} className="teacher-action-chip">{language === 'DE' ? 'Profil öffnen' : 'Открыть ученика'}</Link>
                     <div className="teacher-student-menu-wrap" onClick={(event) => event.stopPropagation()}>
                       <button type="button" className="teacher-more-btn" aria-label="Дополнительные действия" aria-expanded={openMenuId === student.id} onClick={() => setOpenMenuId((current) => current === student.id ? null : student.id)}>⋮</button>
                       {openMenuId === student.id && (
                         <div className="teacher-student-menu">
-                          <button type="button" disabled={!student.invitationToken} onClick={() => void copyInvitationLink(student)}>
-                            <span>⌁</span>{copiedStudentId === student.id ? (language === 'DE' ? 'Link kopiert' : 'Ссылка скопирована') : (language === 'DE' ? 'Schüler-Link' : 'Ссылка ученика')}
-                          </button>
                           <button type="button" onClick={() => void resetStudentPassword(student)}>
-                            <span>⌘</span>{language === 'DE' ? 'Passwort ändern' : 'Сбросить пароль'}
+                            <span>⌘</span>{language === 'DE' ? 'Passwort festlegen/ändern' : 'Задать/изменить пароль'}
                           </button>
                           <button type="button" onClick={() => void renameStudent(student)}><span>✎</span>{language === 'DE' ? 'Name ändern' : 'Изменить имя'}</button>
+                          {student.status === 'INACTIVE' ? (
+                            <button type="button" onClick={() => void reactivateStudent(student)}>
+                              <span>✓</span>{language === 'DE' ? 'Aktivieren' : 'Сделать активным'}
+                            </button>
+                          ) : (
+                            <button type="button" onClick={() => void deactivateStudent(student)}>
+                              <span>◌</span>{language === 'DE' ? 'Deaktivieren' : 'Сделать неактивным'}
+                            </button>
+                          )}
                           <button type="button" className="is-danger" onClick={() => void deleteStudent(student)}><span>♧</span>{language === 'DE' ? 'Löschen' : 'Удалить'}</button>
                         </div>
                       )}
@@ -252,6 +310,21 @@ function localDateString(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function schoolTypeLabel(schoolType: StudentListItem['schoolType'], language: 'DE' | 'RU') {
+  if (!schoolType) return '—';
+  const labels: Record<NonNullable<StudentListItem['schoolType']>, string> = {
+    GYMNASIUM: 'Gymnasium',
+    REALSCHULE: 'Realschule',
+    MITTELSCHULE: 'Mittelschule',
+    WIRTSCHAFTSSCHULE: 'Wirtschaftsschule',
+    FACHOBERSCHULE: 'Fachoberschule (FOS)',
+    GESAMTSCHULE: 'Gesamtschule',
+    WERKREALSCHULE: 'Werkrealschule',
+    OTHER: language === 'DE' ? 'Andere' : 'Другой',
+  };
+  return labels[schoolType];
 }
 
 function studentInitial(name: string) {

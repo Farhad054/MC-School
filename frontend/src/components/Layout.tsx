@@ -2,44 +2,49 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useState, type ReactNode } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n/I18nContext';
-import { api, setAccessToken } from '../api/client';
+import { api, setAccessToken, setSessionAccessToken } from '../api/client';
 import { useOnlineClassesAvailable } from '../features/online-classes/useOnlineClassesAvailable';
 import type { TranslationKey } from '../i18n/translations';
-
-const ADMIN_TOKEN_KEY = 'mindcrafti.impersonation.adminToken';
-const ADMIN_TEACHER_ID_KEY = 'mindcrafti.impersonation.teacherId';
-const ADMIN_TEACHER_NAME_KEY = 'mindcrafti.impersonation.teacherName';
+import { clearAdminImpersonation, readAdminImpersonation } from '../auth/adminImpersonation';
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user, logout, setUser } = useAuth();
   const { language, t } = useI18n();
   const navigate = useNavigate();
-  const [teacherMenuOpen, setTeacherMenuOpen] = useState(true);
+  const [teacherMenuOpen, setTeacherMenuOpen] = useState(false);
   const [returningToAdmin, setReturningToAdmin] = useState(false);
 
   const isStudent = user?.role === 'STUDENT';
   const isTeacher = user?.role === 'TEACHER';
   const isParent = user?.role === 'PARENT';
   const isAdmin = user?.role === 'ADMIN';
-  const adminToken = isTeacher ? sessionStorage.getItem(ADMIN_TOKEN_KEY) : null;
-  const impersonatedTeacherId = isTeacher ? sessionStorage.getItem(ADMIN_TEACHER_ID_KEY) : null;
-  const impersonatedTeacherName = isTeacher ? sessionStorage.getItem(ADMIN_TEACHER_NAME_KEY) : null;
-  const isImpersonatingTeacher = Boolean(isTeacher && adminToken);
+  const impersonation = !isAdmin ? readAdminImpersonation() : null;
+  const isImpersonating = Boolean(user && impersonation?.adminToken);
   // Only offered where the feature is switched on for this server and user.
   const onlineClassesAvailable = useOnlineClassesAvailable(user?.id, Boolean(isTeacher || isStudent));
 
   async function returnToAdmin() {
-    const savedAdminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
-    if (!savedAdminToken || returningToAdmin) return;
+    if (!impersonation || returningToAdmin) return;
+    const returnTo = impersonation.returnTo || '/teachers';
     setReturningToAdmin(true);
     try {
-      setAccessToken(savedAdminToken);
-      const admin = await api.auth.me();
+      // Normal path: drop the tab-local impersonation token and reveal the
+      // persistent admin token that never left localStorage.
+      setSessionAccessToken(null);
+      let admin = await api.auth.me();
+
+      // Backward-compatible recovery for tabs that were opened before this fix.
+      if (admin.role !== 'ADMIN' && impersonation.adminToken) {
+        setAccessToken(impersonation.adminToken);
+        admin = await api.auth.me();
+      }
+      if (admin.role !== 'ADMIN') throw new Error('Admin session is unavailable');
+
       setUser(admin);
-      clearImpersonation();
-      navigate(impersonatedTeacherId ? `/admin/lessons?teacherId=${impersonatedTeacherId}` : '/teachers');
+      clearAdminImpersonation();
+      navigate(returnTo);
     } catch {
-      clearImpersonation();
+      clearAdminImpersonation();
       logout();
       navigate('/login');
     } finally {
@@ -48,7 +53,7 @@ export function Layout({ children }: { children: ReactNode }) {
   }
 
   function fullLogout() {
-    clearImpersonation();
+    clearAdminImpersonation();
     logout();
     navigate('/login');
   }
@@ -60,6 +65,7 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/groups', label: 'Мои группы' },
       { to: '/teacher/lessons', label: 'Уроки' },
       ...(onlineClassesAvailable ? [{ to: '/online-classes', label: t('nav.onlineClasses') }] : []),
+      { to: '/skills', label: 'Навыки' },
       { to: '/teacher/settings', label: 'Настройки' },
       { to: '/students', label: 'Домашние задания', disabled: true },
       { to: '/students', label: 'Материалы', disabled: true },
@@ -78,24 +84,20 @@ export function Layout({ children }: { children: ReactNode }) {
         {teacherMenuOpen && (
           <aside className="teacher-sidebar">
             <div className="teacher-brand">
-              <div className="teacher-brand__mark">M</div>
-              <div className="teacher-brand__text"><span>MindCrafti</span> School</div>
+              <img
+                className="teacher-brand__logo"
+                src="/brand/Mindcrafti_Logo_M_OFFICIAL.webp"
+                alt="Mindcrafti School"
+              />
+              <div className="teacher-brand__text"><span>Mindcrafti</span> School</div>
               <button
                 type="button"
+                className="teacher-brand__close"
                 aria-label="Скрыть меню"
+                title="Скрыть меню"
                 onClick={() => setTeacherMenuOpen(false)}
-                style={{
-                  marginLeft: 'auto',
-                  border: 0,
-                  background: 'transparent',
-                  color: '#59657d',
-                  fontSize: 14,
-                  fontWeight: 650,
-                  cursor: 'pointer',
-                  padding: '8px 4px',
-                }}
               >
-                Скрыть
+                ×
               </button>
             </div>
 
@@ -105,7 +107,13 @@ export function Layout({ children }: { children: ReactNode }) {
                   <span>{link.label}</span>
                 </div>
               ) : (
-                <NavLink key={link.to} to={link.to} end={link.end} className="teacher-nav-item">
+                <NavLink
+                  key={link.to}
+                  to={link.to}
+                  end={link.end}
+                  className="teacher-nav-item"
+                  onClick={() => setTeacherMenuOpen(false)}
+                >
                   <span>{link.label}</span>
                 </NavLink>
               ))}
@@ -124,10 +132,10 @@ export function Layout({ children }: { children: ReactNode }) {
           className="teacher-workspace"
           style={{ borderRadius: teacherMenuOpen ? undefined : 28 }}
         >
-          {isImpersonatingTeacher && (
+          {isImpersonating && (
             <div style={{ background: '#fff3ec', borderBottom: '1px solid #ffd5bd', padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ fontWeight: 750, color: '#9a3e00' }}>
-                Режим администратора: вы смотрите школу как {impersonatedTeacherName || user.fullName}.
+                Режим администратора: вы смотрите школу как {impersonation?.userName || user.fullName}.
               </div>
               <button className="btn" type="button" disabled={returningToAdmin} onClick={() => void returnToAdmin()}>
                 {returningToAdmin ? 'Возвращаемся…' : 'Вернуться в админку'}
@@ -160,7 +168,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 <div className="teacher-profile__avatar">{initials(user.fullName)}</div>
                 <div className="teacher-profile__text">
                   <strong>{user.fullName}</strong>
-                  <span>{isImpersonatingTeacher ? 'Преподаватель · просмотр администратором' : 'Преподаватель'}</span>
+                  <span>{isImpersonating ? 'Преподаватель · просмотр администратором' : 'Преподаватель'}</span>
                 </div>
                 <button
                   type="button"
@@ -184,6 +192,7 @@ export function Layout({ children }: { children: ReactNode }) {
         { to: '/today', label: 'nav.today' },
         { to: '/my-cards', label: 'nav.myCards' },
         ...(onlineClassesAvailable ? [{ to: '/online-classes', label: 'nav.onlineClasses' }] : []),
+        { to: '/student/lessons', label: language === 'DE' ? 'Mein Unterricht' : 'Мои уроки' },
         { to: '/settings', label: 'nav.settings' },
       ]
     : isParent
@@ -194,13 +203,29 @@ export function Layout({ children }: { children: ReactNode }) {
       : isAdmin
         ? [
             { to: '/teachers', label: language === 'DE' ? 'Lehrer' : 'Учителя' },
+            { to: '/admin/accounts', label: language === 'DE' ? 'Konten' : 'Ученики и родители' },
             { to: '/admin/lessons', label: language === 'DE' ? 'Unterricht' : 'Уроки школы' },
+            { to: '/admin/trial-lessons', label: language === 'DE' ? 'Probestunden' : 'Пробные уроки' },
             { to: '/admin/leads', label: language === 'DE' ? 'Anfragen' : 'Заявки' },
+            { to: '/admin/site-visits', label: language === 'DE' ? 'Besuche' : 'Попытки посетителей' },
+            { to: '/admin/stories', label: 'Шаблоны Stories' },
+            { to: '/admin/prompts', label: language === 'DE' ? 'Prompts' : 'Промты школы' },
+            { to: '/skills', label: language === 'DE' ? 'Kompetenzen' : 'Навыки' },
           ]
         : [{ to: '/teachers', label: 'nav.teachers' }];
 
   return (
     <div className="app" data-variant={isStudent ? 'student' : 'staff'}>
+      {isImpersonating && (
+        <div style={{ background: '#fff3ec', borderBottom: '1px solid #ffd5bd', padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 750, color: '#9a3e00' }}>
+            Режим администратора: вы вошли как {impersonation?.userName || user?.fullName}.
+          </div>
+          <button className="btn" type="button" disabled={returningToAdmin} onClick={() => void returnToAdmin()}>
+            {returningToAdmin ? 'Возвращаемся…' : 'Вернуться в админку'}
+          </button>
+        </div>
+      )}
       <header className="topbar">
         <div className="topbar__brand">{t('app.name')}</div>
         <nav className="topbar__nav">
@@ -227,12 +252,6 @@ export function Layout({ children }: { children: ReactNode }) {
       <main className="content">{children}</main>
     </div>
   );
-}
-
-function clearImpersonation() {
-  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-  sessionStorage.removeItem(ADMIN_TEACHER_ID_KEY);
-  sessionStorage.removeItem(ADMIN_TEACHER_NAME_KEY);
 }
 
 function initials(name: string) {

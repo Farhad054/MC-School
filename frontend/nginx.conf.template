@@ -54,6 +54,19 @@ server {
     # MUST be served over HTTPS or getUserMedia will not be offered at all.
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
+    # Only the skills document may be framed, and only by this same origin.
+    # Defining add_header here replaces inheritance: retain every other header.
+    location ^~ /skills-board/ {
+        try_files $uri =404;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Permissions-Policy "geolocation=(), camera=(self), microphone=(self), display-capture=(self), payment=(), usb=(), serial=(), bluetooth=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=()" always;
+        add_header X-XSS-Protection "0" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+
     # Forward API calls to the Railway backend while keeping the browser same-origin.
     location /api/ {
         proxy_pass https://mindcrafti-school-production.up.railway.app;

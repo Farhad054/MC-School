@@ -5,6 +5,7 @@ import java.security.Security;
 import nl.martijndwars.webpush.Notification;
 import nl.martijndwars.webpush.PushService;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.apache.http.util.EntityUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -56,10 +57,24 @@ public class WebPushService {
                     payload.getBytes(StandardCharsets.UTF_8));
             var response = pushService.send(notification);
             int status = response.getStatusLine().getStatusCode();
-            if (status == 404 || status == 410) {
+            String responseBody = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity());
+            if (status == 404 || status == 410
+                    || (status == 400 && responseBody.contains("VapidPkHashMismatch"))) {
                 subscriptionRepository.delete(subscription);
+                if (status == 400) {
+                    throw new IllegalStateException("Push subscription used an old VAPID key and was removed");
+                }
             } else if (status >= 400) {
-                throw new IllegalStateException("Push provider returned HTTP " + status);
+                String endpointHost;
+                try {
+                    endpointHost = java.net.URI.create(subscription.getEndpoint()).getHost();
+                } catch (RuntimeException ignored) {
+                    endpointHost = "unknown";
+                }
+                throw new IllegalStateException(
+                        "Push provider returned HTTP " + status
+                                + " from " + endpointHost
+                                + (responseBody.isBlank() ? "" : ": " + responseBody));
             }
         } catch (Exception e) {
             throw new IllegalStateException("Failed to send web push", e);

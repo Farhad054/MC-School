@@ -4,8 +4,8 @@ import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.cards.Card;
 import com.mcschool.flashcard.cards.CardRepository;
 import com.mcschool.flashcard.cards.dto.ParsedCard;
-import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.drive.GoogleDriveStructureService;
 import com.mcschool.flashcard.groups.dto.AddGroupMembersRequest;
 import com.mcschool.flashcard.groups.dto.CreateGroupCardRequest;
 import com.mcschool.flashcard.groups.dto.CreateStudentGroupRequest;
@@ -17,16 +17,14 @@ import com.mcschool.flashcard.homeworks.HomeworkPdfService;
 import com.mcschool.flashcard.homeworks.HomeworkRepository;
 import com.mcschool.flashcard.notifications.CardPushNotificationService;
 import com.mcschool.flashcard.notifications.NotificationService;
-import com.mcschool.flashcard.users.Invitations;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import com.mcschool.flashcard.users.UserResponse;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -42,7 +40,9 @@ public class StudentGroupService {
     private final NotificationService notificationService;
     private final CardPushNotificationService cardPushNotificationService;
     private final HomeworkPdfService homeworkPdfService;
+    private final GoogleDriveStructureService googleDriveStructureService;
 
+    // Kept for unit tests and older construction sites. Spring uses the annotated constructor below.
     public StudentGroupService(StudentGroupRepository groupRepository,
                                StudentGroupMemberRepository memberRepository,
                                UserRepository userRepository,
@@ -51,6 +51,20 @@ public class StudentGroupService {
                                NotificationService notificationService,
                                CardPushNotificationService cardPushNotificationService,
                                HomeworkPdfService homeworkPdfService) {
+        this(groupRepository, memberRepository, userRepository, homeworkRepository, cardRepository,
+                notificationService, cardPushNotificationService, homeworkPdfService, null);
+    }
+
+    @Autowired
+    public StudentGroupService(StudentGroupRepository groupRepository,
+                               StudentGroupMemberRepository memberRepository,
+                               UserRepository userRepository,
+                               HomeworkRepository homeworkRepository,
+                               CardRepository cardRepository,
+                               NotificationService notificationService,
+                               CardPushNotificationService cardPushNotificationService,
+                               HomeworkPdfService homeworkPdfService,
+                               GoogleDriveStructureService googleDriveStructureService) {
         this.groupRepository = groupRepository;
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
@@ -59,6 +73,7 @@ public class StudentGroupService {
         this.notificationService = notificationService;
         this.cardPushNotificationService = cardPushNotificationService;
         this.homeworkPdfService = homeworkPdfService;
+        this.googleDriveStructureService = googleDriveStructureService;
     }
 
     @Transactional
@@ -66,11 +81,13 @@ public class StudentGroupService {
         User teacherEntity = userRepository.findById(teacher.id())
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher account no longer exists"));
         StudentGroup group = groupRepository.save(StudentGroup.create(teacherEntity, request.name()));
+        if (googleDriveStructureService != null) {
+            googleDriveStructureService.provisionGroup(teacherEntity, group);
+        }
 
-        request.emails().stream()
-                .map(email -> email.trim().toLowerCase(Locale.ROOT))
+        request.studentIds().stream()
                 .distinct()
-                .forEach(email -> addStudentByEmail(group, teacherEntity, email));
+                .forEach(studentId -> addStudentById(group, teacherEntity, studentId));
         return response(group);
     }
 
@@ -78,10 +95,9 @@ public class StudentGroupService {
     public StudentGroupResponse addMembers(AuthenticatedUser teacher, UUID groupId, AddGroupMembersRequest request) {
         StudentGroup group = requireOwnedGroup(teacher.id(), groupId);
         User teacherEntity = group.getTeacher();
-        request.emails().stream()
-                .map(email -> email.trim().toLowerCase(Locale.ROOT))
+        request.studentIds().stream()
                 .distinct()
-                .forEach(email -> addStudentByEmail(group, teacherEntity, email));
+                .forEach(studentId -> addStudentById(group, teacherEntity, studentId));
         return response(group);
     }
 
@@ -154,28 +170,18 @@ public class StudentGroupService {
         return members.size();
     }
 
-    private void addStudentByEmail(StudentGroup group, User teacher, String email) {
-        User student = userRepository.findByEmail(email).orElseGet(() -> createInvitedStudent(teacher, email));
-        if (student.getRole() != Role.STUDENT || student.isArchived()
-                || student.getTeacher() == null || !student.getTeacher().getId().equals(teacher.getId())) {
-            throw new ConflictException("Email belongs to an account that cannot be added to this group");
-        }
+    private void addStudentById(StudentGroup group, User teacher, UUID studentId) {
+        User student = userRepository.findById(studentId)
+                .filter(user -> user.getRole() == Role.STUDENT)
+                .filter(user -> !user.isArchived())
+                .filter(user -> user.getTeacher() != null && user.getTeacher().getId().equals(teacher.getId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
         if (!memberRepository.existsByGroupIdAndStudentId(group.getId(), student.getId())) {
             memberRepository.save(StudentGroupMember.create(group, student));
         }
-    }
-
-    private User createInvitedStudent(User teacher, String email) {
-        String token = Invitations.newToken();
-        Instant expiresAt = Invitations.expiry(Instant.now());
-        String localPart = email.substring(0, email.indexOf('@'));
-        String generatedName = localPart.replace('.', ' ').replace('_', ' ').replace('-', ' ').strip();
-        if (generatedName.isBlank()) {
-            generatedName = email;
+        if (googleDriveStructureService != null) {
+            googleDriveStructureService.provisionGroupMember(teacher, group, student);
         }
-        User student = userRepository.save(User.invitedStudent(generatedName, email, teacher, token, expiresAt));
-        notificationService.sendInvitation(student, token);
-        return student;
     }
 
     private Homework homeworkForCards(User student, java.time.LocalDate startDate) {

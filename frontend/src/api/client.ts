@@ -11,6 +11,7 @@ import type {
   HomeworkPageOverlay,
   ImportPreview,
   Language,
+  MonthlyPlanResponse,
   PilotDueCardResult,
   ParsedCard,
   Question,
@@ -19,9 +20,10 @@ import type {
   SessionType,
   StudentGroup,
   StudentListItem,
+  StudentLearningProfileUpdate,
   StudentInvitation,
+  StudentLesson,
   TestReviewReminderResult,
-  TeacherInvitation,
   Today,
   User,
 } from './types';
@@ -35,9 +37,46 @@ export class ApiRequestError extends Error {
   }
 }
 
-let accessToken: string | null = localStorage.getItem('accessToken');
-export function setAccessToken(token: string | null): void { accessToken = token; if (token) localStorage.setItem('accessToken', token); else localStorage.removeItem('accessToken'); }
+const ACCESS_TOKEN_KEY = 'accessToken';
+const SESSION_ACCESS_TOKEN_KEY = 'mindcrafti.impersonation.accessToken';
+const LEGACY_ADMIN_TOKEN_KEY = 'mindcrafti.impersonation.adminToken';
+
+// Migration from the old impersonation flow:
+// previously the impersonated token replaced accessToken in localStorage while
+// the real admin token lived only in sessionStorage. Repair that state once so
+// the admin token becomes persistent and the impersonated token becomes tab-local.
+const legacyAdminToken = sessionStorage.getItem(LEGACY_ADMIN_TOKEN_KEY);
+const legacyCurrentToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+if (!sessionStorage.getItem(SESSION_ACCESS_TOKEN_KEY)
+    && legacyAdminToken
+    && legacyCurrentToken
+    && legacyAdminToken !== legacyCurrentToken) {
+  localStorage.setItem(ACCESS_TOKEN_KEY, legacyAdminToken);
+  sessionStorage.setItem(SESSION_ACCESS_TOKEN_KEY, legacyCurrentToken);
+  localStorage.removeItem('authUser');
+}
+
+let accessToken: string | null =
+  sessionStorage.getItem(SESSION_ACCESS_TOKEN_KEY) ?? localStorage.getItem(ACCESS_TOKEN_KEY);
+
+/** Set the real account token. This is the only token persisted across tabs. */
+export function setAccessToken(token: string | null): void {
+  sessionStorage.removeItem(SESSION_ACCESS_TOKEN_KEY);
+  accessToken = token;
+  if (token) localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  else localStorage.removeItem(ACCESS_TOKEN_KEY);
+}
+
+/** Set a temporary impersonation token for this browser tab only. */
+export function setSessionAccessToken(token: string | null): void {
+  if (token) sessionStorage.setItem(SESSION_ACCESS_TOKEN_KEY, token);
+  else sessionStorage.removeItem(SESSION_ACCESS_TOKEN_KEY);
+  accessToken = token ?? localStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
 export function getAccessToken(): string | null { return accessToken; }
+export function getPersistentAccessToken(): string | null { return localStorage.getItem(ACCESS_TOKEN_KEY); }
+export function hasSessionAccessToken(): boolean { return Boolean(sessionStorage.getItem(SESSION_ACCESS_TOKEN_KEY)); }
 function authHeaders(): Record<string, string> { return accessToken ? { Authorization: `Bearer ${accessToken}` } : {}; }
 
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -64,15 +103,34 @@ export const api = {
     activate: (invitationToken: string, email: string, password: string) => request<AuthResponse>('POST', '/auth/activate', { invitationToken, email: email.trim() || null, password }),
     me: () => request<User>('GET', '/auth/me'),
     impersonateTeacher: (teacherId: string) => request<AuthResponse>('POST', `/auth/impersonate/teacher/${teacherId}`),
+    impersonateStudent: (studentId: string) => request<AuthResponse>('POST', `/auth/impersonate/student/${studentId}`),
+    impersonateParent: (parentId: string) => request<AuthResponse>('POST', `/auth/impersonate/parent/${parentId}`),
   },
   users: { updateLanguage: (preferredLanguage: Language) => request<User>('PUT', '/users/me/settings', { preferredLanguage }), changePassword: (password: string) => request<void>('PUT', '/users/me/password', { password }) },
   push: { config: () => request<{ enabled: boolean; publicKey: string }>('GET', '/push/config'), subscribe: (subscription: { endpoint: string; p256dh: string; auth: string }) => request<void>('POST', '/push/subscriptions', subscription), unsubscribe: (subscription: { endpoint: string; p256dh: string; auth: string }) => request<void>('DELETE', '/push/subscriptions', subscription), test: () => request<void>('POST', '/push/test') },
-  teachers: { list: () => request<User[]>('GET', '/teachers'), create: (fullName: string, email: string) => request<TeacherInvitation>('POST', '/teachers', { fullName, email }) },
+  teachers: {
+    list: () => request<User[]>('GET', '/teachers'),
+    create: (fullName: string, email: string, username: string, password: string) =>
+      request<User>('POST', '/teachers', { fullName, email, username, password }),
+    remove: (teacherId: string) => request<void>('DELETE', '/teachers/' + teacherId),
+  },
+  adminAccounts: { list: (role: 'STUDENT' | 'PARENT') => request<User[]>('GET', `/admin/accounts?role=${role}`) },
   students: {
-    list: () => request<StudentListItem[]>('GET', '/students'), get: (studentId: string) => request<StudentListItem>('GET', `/students/${studentId}`), create: (fullName: string, email: string) => request<StudentInvitation>('POST', '/students', { fullName, email: email.trim() || null }), rename: (studentId: string, fullName: string) => request<StudentListItem>('PUT', `/students/${studentId}/name`, { fullName }), resetPassword: (studentId: string, password: string) => request<void>('PUT', `/students/${studentId}/password`, { password }), updateDriveFolder: (studentId: string, googleDriveFolderUrl: string) => request<StudentListItem>('PUT', `/students/${studentId}/drive-folder`, { googleDriveFolderUrl }), updateHomeworkDriveFolder: (studentId: string, googleDriveHomeworkFolderId: string) => request<StudentListItem>('PUT', `/students/${studentId}/homework-drive-folder`, { googleDriveHomeworkFolderId }), updateTranscriptDriveFolder: (studentId: string, googleDriveTranscriptFolderId: string) => request<StudentListItem>('PUT', `/students/${studentId}/transcript-drive-folder`, { googleDriveTranscriptFolderId }), updateChatGptProjectUrl: (studentId: string, chatGptProjectUrl: string) => request<StudentListItem>('PUT', `/students/${studentId}/chatgpt-project`, { chatGptProjectUrl }), testDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/drive-folder/test`), testHomeworkDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/homework-drive-folder/test`), testTranscriptDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/transcript-drive-folder/test`), testAutomaticExport: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/drive-folder/test-export`), reviewHistory: (studentId: string) => request<DailyReviewHistoryItem[]>('GET', `/students/${studentId}/review-history`), testReviewReminder: (studentId: string) => request<TestReviewReminderResult>('POST', `/students/${studentId}/test-review-reminder`), makeOneCardDueToday: (studentId: string) => request<PilotDueCardResult>('POST', `/students/${studentId}/make-one-card-due-today`), remove: (studentId: string) => request<void>('DELETE', `/students/${studentId}`),
+    list: () => request<StudentListItem[]>('GET', '/students'), get: (studentId: string) => request<StudentListItem>('GET', `/students/${studentId}`), create: (fullName: string, email: string) => request<StudentInvitation>('POST', '/students', { fullName, email: email.trim() || null }), rename: (studentId: string, fullName: string) => request<StudentListItem>('PUT', `/students/${studentId}/name`, { fullName }), updateLearningProfile: (studentId: string, profile: StudentLearningProfileUpdate) => request<StudentListItem>('PUT', `/students/${studentId}/learning-profile`, profile), resetPassword: (studentId: string, password: string) => request<void>('PUT', `/students/${studentId}/password`, { password }), updateDriveFolder: (studentId: string, googleDriveFolderUrl: string) => request<StudentListItem>('PUT', `/students/${studentId}/drive-folder`, { googleDriveFolderUrl }), updateHomeworkDriveFolder: (studentId: string, googleDriveHomeworkFolderId: string) => request<StudentListItem>('PUT', `/students/${studentId}/homework-drive-folder`, { googleDriveHomeworkFolderId }), updateTranscriptDriveFolder: (studentId: string, googleDriveTranscriptFolderId: string) => request<StudentListItem>('PUT', `/students/${studentId}/transcript-drive-folder`, { googleDriveTranscriptFolderId }), updateChatGptProjectUrl: (studentId: string, chatGptProjectUrl: string) => request<StudentListItem>('PUT', `/students/${studentId}/chatgpt-project`, { chatGptProjectUrl }), testDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/drive-folder/test`), testHomeworkDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/homework-drive-folder/test`), testTranscriptDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/transcript-drive-folder/test`), testAutomaticExport: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/drive-folder/test-export`), reviewHistory: (studentId: string) => request<DailyReviewHistoryItem[]>('GET', `/students/${studentId}/review-history`), testReviewReminder: (studentId: string) => request<TestReviewReminderResult>('POST', `/students/${studentId}/test-review-reminder`), makeOneCardDueToday: (studentId: string) => request<PilotDueCardResult>('POST', `/students/${studentId}/make-one-card-due-today`), deactivate: (studentId: string) => request<StudentListItem>('PUT', `/students/${studentId}/deactivate`), reactivate: (studentId: string) => request<StudentListItem>('PUT', `/students/${studentId}/reactivate`), remove: (studentId: string) => request<void>('DELETE', `/students/${studentId}`),
   },
   groups: { list: () => request<StudentGroup[]>('GET', '/groups'), get: (groupId: string) => request<StudentGroup>('GET', `/groups/${groupId}`), create: (name: string, emails: string[]) => request<StudentGroup>('POST', '/groups', { name, emails }), addMembers: (groupId: string, emails: string[]) => request<StudentGroup>('POST', `/groups/${groupId}/members`, { emails }), updateTranscriptFolder: (groupId: string, folderId: string) => request<StudentGroup>('PUT', `/groups/${groupId}/transcript-drive-folder`, { folderId }), createCard: (groupId: string, startDate: string, question: string, correctAnswer: string) => request<number>('POST', `/groups/${groupId}/cards`, { startDate, question, correctAnswer }), importCards: (groupId: string, startDate: string, cards: ParsedCard[]) => request<number>('POST', `/groups/${groupId}/cards/import`, { startDate, cards }), createPdfHomework: (groupId: string, startDate: string, file: File) => uploadDatedFile<number>(`/groups/${groupId}/homeworks/pdf`, startDate, file) },
-  lessons: { groupLessons: () => request<GroupLesson[]>('GET', '/lessons/groups'), bindStudent: (eventId: string, studentId: string) => request<GroupLesson>('PUT', `/lessons/${encodeURIComponent(eventId)}/student`, { studentId }), googleCalendarConnection: () => request<GoogleCalendarConnection>('GET', '/google-calendar/connection'), disconnectGoogleCalendar: () => request<void>('DELETE', '/google-calendar/connection'), ensureGoogleMeetEvents: () => request<GoogleMeetEventStatus>('POST', '/google-meet/subscription'), googleMeetEventStatus: () => request<GoogleMeetEventStatus>('GET', '/google-meet/status') },
+  monthlyPlans: {
+    get: (targetType: 'STUDENT' | 'GROUP', targetId: string, month: string) =>
+      request<MonthlyPlanResponse>('GET', `/monthly-plans/${targetType.toLowerCase()}/${targetId}?month=${encodeURIComponent(month)}`),
+    save: (targetType: 'STUDENT' | 'GROUP', targetId: string, month: string, planJson: string) =>
+      request<MonthlyPlanResponse>('PUT', `/monthly-plans/${targetType.toLowerCase()}/${targetId}?month=${encodeURIComponent(month)}`, { planJson }),
+    uploadDocument: (targetType: 'STUDENT' | 'GROUP', targetId: string, month: string, file: File) =>
+      uploadFile(`/monthly-plans/${targetType.toLowerCase()}/${targetId}/document?month=${encodeURIComponent(month)}`, file),
+    document: (targetType: 'STUDENT' | 'GROUP', targetId: string, month: string) =>
+      requestBlob(`/monthly-plans/${targetType.toLowerCase()}/${targetId}/document?month=${encodeURIComponent(month)}`),
+  },
+  lessons: { groupLessons: () => request<GroupLesson[]>('GET', '/lessons/groups'), bindStudent: (eventId: string, studentId: string) => request<void>('PUT', `/lessons/${encodeURIComponent(eventId)}/student`, { studentId }), bindGroup: (eventId: string, groupId: string) => request<void>('PUT', `/lessons/${encodeURIComponent(eventId)}/group`, { groupId }), googleCalendarConnection: () => request<GoogleCalendarConnection>('GET', '/google-calendar/connection'), disconnectGoogleCalendar: () => request<void>('DELETE', '/google-calendar/connection'), ensureGoogleMeetEvents: () => request<GoogleMeetEventStatus>('POST', '/google-meet/subscription'), googleMeetEventStatus: () => request<GoogleMeetEventStatus>('GET', '/google-meet/status') },
+  studentLessons: { list: () => request<StudentLesson[]>('GET', '/student/lessons'), sharedDocument: (eventId: string) => requestBlob(`/student/lessons/${encodeURIComponent(eventId)}/shared-document`) },
   cards: { listForStudent: (studentId: string) => request<Card[]>('GET', `/students/${studentId}/cards`), summaryForStudent: (studentId: string) => request<CardSummary>('GET', `/students/${studentId}/cards/summary`), update: (cardId: string, question: string, correctAnswer: string, timeLimitSeconds: number | null) => request<Card>('PUT', `/cards/${cardId}`, { question, correctAnswer, timeLimitSeconds }), remove: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`), importPreview: (rawText: string, questionAnswerSeparator: string, cardSeparator: string) => request<ImportPreview>('POST', '/cards/import/preview', { rawText, questionAnswerSeparator, cardSeparator }), listForHomework: (homeworkId: string) => request<Card[]>('GET', `/homeworks/${homeworkId}/cards`), createInHomework: (homeworkId: string, question: string, correctAnswer: string, timeLimitSeconds: number | null) => request<Card>('POST', `/homeworks/${homeworkId}/cards`, { question, correctAnswer, timeLimitSeconds }), importConfirmInHomework: (homeworkId: string, cards: ParsedCard[]) => request<Card[]>('POST', `/homeworks/${homeworkId}/cards/import`, { cards }) },
   homeworks: { listForStudent: (studentId: string) => request<Homework[]>('GET', `/students/${studentId}/homeworks`), create: (studentId: string, startDate: string) => request<Homework>('POST', `/students/${studentId}/homeworks`, { startDate }), createPdf: (studentId: string, startDate: string, file: File) => createPdfHomework(studentId, startDate, file), remove: (homeworkId: string) => request<void>('DELETE', `/homeworks/${homeworkId}`), uploadWorksheet: (homeworkId: string, file: File) => uploadFile(`/homeworks/${homeworkId}/worksheet`, file), worksheet: (homeworkId: string) => requestBlob(`/homeworks/${homeworkId}/worksheet`), worksheetPage: (homeworkId: string, pageIndex: number) => requestBlob(`/homeworks/${homeworkId}/worksheet/pages/${pageIndex}`), submission: (homeworkId: string) => requestBlob(`/homeworks/${homeworkId}/submission`) },
   study: { today: () => request<Today>('GET', '/study/today'), homeworks: () => request<Homework[]>('GET', '/study/homeworks'), homeworkCards: (homeworkId: string) => request<Card[]>('GET', `/study/homeworks/${homeworkId}/cards`), worksheetPage: (homeworkId: string, pageIndex: number) => requestBlob(`/study/homeworks/${homeworkId}/worksheet/pages/${pageIndex}`), worksheetPageDataUrl: (homeworkId: string, pageIndex: number) => requestText(`/study/homeworks/${homeworkId}/worksheet/pages/${pageIndex}/data-url`), submitPdfHomework: (homeworkId: string, overlays: HomeworkPageOverlay[]) => request<void>('POST', `/study/homeworks/${homeworkId}/submit-pdf`, { overlays }), submitHomeworkFile: (homeworkId: string, file: File) => uploadFile(`/study/homeworks/${homeworkId}/submit-file`, file), submitHomeworkFiles: (homeworkId: string, files: File[]) => uploadFiles(`/study/homeworks/${homeworkId}/submit-files`, files), myCards: () => request<Card[]>('GET', '/study/cards'), startSession: (type: SessionType, homeworkId?: string) => request<Session>('POST', '/study/sessions', homeworkId ? { type, homeworkId } : { type }), getSession: (sessionId: string) => request<Session>('GET', `/study/sessions/${sessionId}`), currentQuestion: (sessionId: string) => request<Question>('GET', `/study/sessions/${sessionId}/current-question`), answer: (sessionId: string, cardId: string, selectedAnswer: string, timedOut = false) => request<AnswerResult>('POST', `/study/sessions/${sessionId}/answer`, { cardId, selectedAnswer, timedOut }), result: (sessionId: string) => request<SessionResult>('GET', `/study/sessions/${sessionId}/result`) },

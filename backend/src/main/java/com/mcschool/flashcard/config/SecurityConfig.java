@@ -1,6 +1,7 @@
 package com.mcschool.flashcard.config;
 
 import com.mcschool.flashcard.auth.JwtAuthenticationFilter;
+import com.mcschool.flashcard.auth.OnlineClassPilotAuthorizationManager;
 import com.mcschool.flashcard.common.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Arrays;
@@ -32,10 +33,13 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ObjectMapper objectMapper;
+    private final OnlineClassPilotAuthorizationManager onlineClassPilotAuthorizationManager;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, ObjectMapper objectMapper) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, ObjectMapper objectMapper,
+                          OnlineClassPilotAuthorizationManager onlineClassPilotAuthorizationManager) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.objectMapper = objectMapper;
+        this.onlineClassPilotAuthorizationManager = onlineClassPilotAuthorizationManager;
     }
 
     @Bean
@@ -49,9 +53,17 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/activate").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/public/trial-leads").permitAll()
-                        .requestMatchers(HttpMethod.PATCH, "/api/v1/public/trial-leads/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/public/trial-leads", "/api/v1/public/site-visits").permitAll()
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/public/trial-leads/**", "/api/v1/public/site-visits/**").permitAll()
+                        // These two read-only routes validate expiry, file kind, revision and HMAC themselves.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/public/homework-files/*/submission.pdf",
+                                "/api/v1/public/homework-files/*/worksheet.pdf").permitAll()
+                        .requestMatchers(HttpMethod.HEAD,
+                                "/api/v1/public/homework-files/*/submission.pdf",
+                                "/api/v1/public/homework-files/*/worksheet.pdf").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/push/config").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/story-template/download").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/google-calendar/oauth/callback").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/google-meet/events").permitAll()
                         // LiveKit webhook. Exempt from JWT because the provider
@@ -80,6 +92,11 @@ public class SecurityConfig {
                                 "/api/v1/mcp/.well-known/openid-configuration").permitAll()
                         .requestMatchers("/api/v1/integrations/**").permitAll()
                         .requestMatchers("/api/v1/mcp/**").permitAll()
+                        // The online classroom API is governed by app.online-classes.enabled and
+                        // per-class membership checks in the service. Only the separate
+                        // teacher-only lesson whiteboard stays behind the pilot gate.
+                        .requestMatchers("/api/v1/lesson-board/**")
+                                .access(onlineClassPilotAuthorizationManager)
                         .requestMatchers("/actuator/health/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
@@ -136,6 +153,8 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/v1/public/trial-leads", publicTrialLeadConfiguration);
         source.registerCorsConfiguration("/api/v1/public/trial-leads/**", publicTrialLeadConfiguration);
+        source.registerCorsConfiguration("/api/v1/public/site-visits", publicTrialLeadConfiguration);
+        source.registerCorsConfiguration("/api/v1/public/site-visits/**", publicTrialLeadConfiguration);
         source.registerCorsConfiguration("/api/**", configuration);
         source.registerCorsConfiguration("/.well-known/**", configuration);
 

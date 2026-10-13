@@ -80,6 +80,33 @@ public class User {
     @Column(name = "chatgpt_project_url", length = 2000)
     private String chatGptProjectUrl;
 
+    @Column
+    private Integer grade;
+
+    @Column(name = "school_type", length = 40)
+    private String schoolType;
+
+    @Column(name = "learning_pace", length = 20)
+    private String learningPace;
+
+    @Column(name = "learning_strengths", columnDefinition = "text")
+    private String learningStrengths;
+
+    @Column(name = "learning_difficulties", columnDefinition = "text")
+    private String learningDifficulties;
+
+    @Column(name = "explanation_style", columnDefinition = "text")
+    private String explanationStyle;
+
+    @Column(name = "learning_notes", columnDefinition = "text")
+    private String learningNotes;
+
+    @Column(name = "ai_lesson_pilot_enabled", nullable = false)
+    private boolean aiLessonPilotEnabled;
+
+    @Column(name = "ai_preparation_time", nullable = false, length = 5)
+    private String aiPreparationTime = "10:00";
+
     @Column(name = "google_calendar_refresh_token", columnDefinition = "text")
     private String googleCalendarRefreshToken;
 
@@ -132,6 +159,35 @@ public class User {
         this.passwordHash = passwordHash;
     }
 
+    /**
+     * Students are managed by the school from the moment they are created.
+     * ACTIVE here means the teacher can fully work with the account. A null password
+     * simply means the student cannot log in yet.
+     */
+    public void enableManagedStudent() {
+        if (this.role != Role.STUDENT) throw new IllegalStateException("Only students can be managed this way");
+        if (this.archived) throw new IllegalStateException("Archived accounts cannot be enabled");
+        this.status = UserStatus.ACTIVE;
+        this.invitationToken = null;
+        this.invitationExpiresAt = null;
+    }
+
+    public void deactivateManagedStudent() {
+        if (this.role != Role.STUDENT) throw new IllegalStateException("Only students can be made inactive");
+        if (this.archived) throw new IllegalStateException("Archived accounts cannot be made inactive");
+        this.status = UserStatus.INACTIVE;
+        this.invitationToken = null;
+        this.invitationExpiresAt = null;
+    }
+
+    public void reactivateManagedStudent() {
+        if (this.role != Role.STUDENT) throw new IllegalStateException("Only students can be reactivated");
+        if (this.archived) throw new IllegalStateException("Archived accounts cannot be reactivated");
+        this.status = UserStatus.ACTIVE;
+        this.invitationToken = null;
+        this.invitationExpiresAt = null;
+    }
+
     public void assignParentOwner(User teacher) {
         if (this.role != Role.PARENT) throw new IllegalStateException("Only parent accounts can have a managing teacher");
         if (teacher == null || teacher.getRole() != Role.TEACHER) throw new IllegalArgumentException("Teacher account is required");
@@ -163,12 +219,31 @@ public class User {
     public void changeGoogleDriveTranscriptFolderId(String folderId) { this.googleDriveTranscriptFolderId = normalizeOptionalValue(folderId); }
     public void changeGoogleDriveTrialTranscriptFolderId(String folderId) { this.googleDriveTrialTranscriptFolderId = normalizeOptionalValue(folderId); }
 
+    public void configureAiLessonPilot(boolean enabled, String preparationTime) {
+        this.aiLessonPilotEnabled = enabled;
+        this.aiPreparationTime = preparationTime == null || preparationTime.isBlank() ? "10:00" : preparationTime.trim();
+    }
+
     public void changeChatGptProjectUrl(String projectUrl) {
         String normalized = normalizeOptionalValue(projectUrl);
         if (normalized != null && !(normalized.startsWith("https://chatgpt.com/") || normalized.startsWith("https://www.chatgpt.com/"))) {
             throw new IllegalArgumentException("ChatGPT project URL must be a chatgpt.com link");
         }
         this.chatGptProjectUrl = normalized;
+    }
+
+    public void changeLearningProfile(Integer grade, String schoolType, String learningPace,
+                                      String learningStrengths, String learningDifficulties,
+                                      String explanationStyle, String learningNotes) {
+        if (this.role != Role.STUDENT) throw new IllegalStateException("Only students can have a learning profile");
+        if (grade != null && (grade < 1 || grade > 13)) throw new IllegalArgumentException("Grade must be between 1 and 13");
+        this.grade = grade;
+        this.schoolType = normalizeOptionalValue(schoolType);
+        this.learningPace = normalizeOptionalValue(learningPace);
+        this.learningStrengths = normalizeOptionalValue(learningStrengths);
+        this.learningDifficulties = normalizeOptionalValue(learningDifficulties);
+        this.explanationStyle = normalizeOptionalValue(explanationStyle);
+        this.learningNotes = normalizeOptionalValue(learningNotes);
     }
 
     public void beginGoogleCalendarOauth(String state, Instant expiresAt) {
@@ -218,6 +293,24 @@ public class User {
         return user;
     }
 
+    public static User activeTeacher(String fullName, String email, String username, String passwordHash) {
+        User user = new User(fullName, email, Role.TEACHER);
+        user.username = username;
+        user.passwordHash = passwordHash;
+        user.status = UserStatus.ACTIVE;
+        user.invitationToken = null;
+        user.invitationExpiresAt = null;
+        return user;
+    }
+
+    public static User managedStudent(String fullName, User teacher) {
+        User user = new User(fullName, null, Role.STUDENT);
+        user.status = UserStatus.ACTIVE;
+        user.teacher = teacher;
+        return user;
+    }
+
+    /** Legacy factory kept for compatibility with old data/tests. New student creation uses managedStudent. */
     public static User invitedStudent(String fullName, String email, User teacher, String invitationToken, Instant invitationExpiresAt) {
         User user = new User(fullName, email, Role.STUDENT);
         user.status = UserStatus.INVITED;
@@ -272,6 +365,14 @@ public class User {
         this.googleCalendarRefreshToken = null;
         this.googleCalendarOauthState = null;
         this.googleCalendarOauthStateExpiresAt = null;
+    }
+
+    public void releaseTeacherLoginIdentity() {
+        if (this.role != Role.TEACHER) {
+            throw new IllegalStateException("Only teacher accounts can release teacher login identity");
+        }
+        this.email = null;
+        this.username = null;
     }
 
     public boolean isInvitationExpired(Instant now) { return invitationExpiresAt != null && now.isAfter(invitationExpiresAt); }

@@ -32,7 +32,6 @@ const ru = {
   'nav.today': 'Сегодня',
   'nav.myCards': 'Мои карточки',
   'nav.settings': 'Настройки',
-  'nav.onlineClasses': 'Онлайн-уроки',
 
   'teachers.title': 'Учителя',
   'teachers.create': 'Добавить учителя',
@@ -158,6 +157,12 @@ const ru = {
   'lang.DE': 'Немецкий',
   'lang.RU': 'Русский',
 
+  'error.generic': 'Что-то пошло не так',
+  'error.NOT_ENOUGH_CARDS': 'Нужно минимум 4 карточки',
+  'error.NO_CARDS_DUE': 'На сегодня карточек нет',
+  'error.SESSION_IN_PROGRESS': 'Сначала завершите текущую сессию',
+  'error.CONFLICT': 'Такая запись уже существует',
+  'nav.onlineClasses': 'Онлайн-уроки',
   'onlineClass.title': 'Онлайн-урок',
   'onlineClass.start': 'Начать онлайн-урок',
   'onlineClass.join': 'Войти в урок',
@@ -188,9 +193,22 @@ const ru = {
   'onlineClass.prejoin.unsupported': 'Этот браузер не поддерживает видеозвонки',
   'onlineClass.prejoin.retry': 'Повторить',
   'onlineClass.prejoin.cameraOff': 'Камера выключена',
+  'onlineClass.prejoin.hint': 'Проверьте устройства перед занятием. Можно войти без камеры и микрофона.',
+  'onlineClass.prejoin.checking': 'Проверяем устройства…',
+  'onlineClass.prejoin.permissionHelp': 'Нажмите значок настроек сайта слева от адреса браузера, разрешите камеру и микрофон и повторите проверку.',
+  'onlineClass.prejoin.deviceError': 'Не удалось включить устройства. Возможно, камера или микрофон используются другой программой.',
+  'onlineClass.prejoin.previewHint': 'Предварительный просмотр · другие участники вас пока не видят',
+  'onlineClass.prejoin.audioOnly': 'Только микрофон',
+  'onlineClass.prejoin.joinWithoutDevices': 'Войти без камеры и микрофона',
+  'onlineClass.prejoin.joinNote': 'Камеру и микрофон можно включить позже в комнате.',
+  'onlineClass.disconnect.title': 'Связь с онлайн-уроком прервалась',
+  'onlineClass.disconnect.hint': 'Это не завершает занятие. Можно переподключиться к той же комнате или попробовать без камеры и микрофона.',
+  'onlineClass.disconnect.code': 'Код отключения',
+  'onlineClass.disconnect.retry': 'Переподключиться',
+  'onlineClass.disconnect.retryWithoutMedia': 'Переподключиться без камеры',
+  'onlineClass.disconnect.back': 'Вернуться к урокам',
   'onlineClass.recording.active': 'Идёт запись',
   'onlineClass.transcription.active': 'Идёт расшифровка',
-
   'onlineClass.waitingRoom': 'Комната ожидания',
   'onlineClass.waitingRoom.empty': 'Никто не ожидает',
   'onlineClass.admit': 'Впустить',
@@ -210,7 +228,6 @@ const ru = {
   'onlineClass.unmuteRequested': 'Учитель просит включить микрофон',
   'onlineClass.studentScreenShare': 'Разрешить демонстрацию экрана ученикам',
   'onlineClass.attendance': 'Посещаемость',
-
   'onlineClass.chat': 'Чат',
   'onlineClass.chat.placeholder': 'Написать сообщение…',
   'onlineClass.chat.send': 'Отправить',
@@ -223,7 +240,6 @@ const ru = {
   'onlineClass.chat.loadOlder': 'Показать более ранние',
   'onlineClass.chat.tooFast': 'Слишком много сообщений. Подождите немного',
   'onlineClass.chat.unread': 'Новые сообщения',
-
   'onlineClass.recording.start': 'Начать запись',
   'onlineClass.recording.stop': 'Остановить запись',
   'onlineClass.recording.starting': 'Запись запускается…',
@@ -237,7 +253,6 @@ const ru = {
   'onlineClass.recording.list': 'Записи урока',
   'onlineClass.recording.none': 'Записей нет',
   'onlineClass.recording.retention': 'Будет удалена',
-
   'onlineClass.captions': 'Субтитры',
   'onlineClass.captions.waiting': 'Ожидание речи…',
   'onlineClass.transcription.start': 'Включить расшифровку',
@@ -248,7 +263,6 @@ const ru = {
   'onlineClass.transcript.empty': 'Расшифровки нет',
   'onlineClass.transcript.downloadTxt': 'Скачать TXT',
   'onlineClass.transcript.downloadVtt': 'Скачать VTT',
-
   'onlineClass.whiteboard': 'Доска',
   'onlineClass.whiteboard.pen': 'Перо',
   'onlineClass.whiteboard.highlighter': 'Маркер',
@@ -320,7 +334,6 @@ const ru = {
   'onlineClass.room.panels': 'Чат и участники',
   'onlineClass.room.showBoard': 'Показать доску',
   'onlineClass.room.showScreen': 'Показать демонстрацию экрана',
-
   'onlineClass.artifacts.title': 'Материалы онлайн-урока',
   'onlineClass.artifacts.none': 'Онлайн-урок ещё не проводился',
   'onlineClass.artifacts.attendance': 'Посещаемость',
@@ -332,12 +345,6 @@ const ru = {
   'onlineClass.artifacts.snapshots': 'Доска',
   'onlineClass.artifacts.open': 'Открыть',
   'onlineClass.artifacts.processing': 'Обрабатывается',
-
-  'error.generic': 'Что-то пошло не так',
-  'error.NOT_ENOUGH_CARDS': 'Нужно минимум 4 карточки',
-  'error.NO_CARDS_DUE': 'На сегодня карточек нет',
-  'error.SESSION_IN_PROGRESS': 'Сначала завершите текущую сессию',
-  'error.CONFLICT': 'Такая запись уже существует',
 };
 
 const de: Record<keyof typeof ru, string> = {
@@ -370,7 +377,6 @@ const de: Record<keyof typeof ru, string> = {
   'nav.today': 'Heute',
   'nav.myCards': 'Meine Karten',
   'nav.settings': 'Einstellungen',
-  'nav.onlineClasses': 'Online-Unterricht',
 
   'teachers.title': 'Lehrer',
   'teachers.create': 'Lehrer hinzufügen',
@@ -496,6 +502,12 @@ const de: Record<keyof typeof ru, string> = {
   'lang.DE': 'Deutsch',
   'lang.RU': 'Russisch',
 
+  'error.generic': 'Etwas ist schiefgelaufen',
+  'error.NOT_ENOUGH_CARDS': 'Mindestens 4 Karten nötig',
+  'error.NO_CARDS_DUE': 'Heute keine Karten fällig',
+  'error.SESSION_IN_PROGRESS': 'Beende zuerst die laufende Sitzung',
+  'error.CONFLICT': 'Dieser Eintrag existiert bereits',
+  'nav.onlineClasses': 'Online-Unterricht',
   'onlineClass.title': 'Online-Unterricht',
   'onlineClass.start': 'Online-Unterricht starten',
   'onlineClass.join': 'Unterricht beitreten',
@@ -526,9 +538,22 @@ const de: Record<keyof typeof ru, string> = {
   'onlineClass.prejoin.unsupported': 'Dieser Browser unterstützt keine Videoanrufe',
   'onlineClass.prejoin.retry': 'Erneut versuchen',
   'onlineClass.prejoin.cameraOff': 'Kamera aus',
+  'onlineClass.prejoin.hint': 'Prüfen Sie Ihre Geräte vor der Stunde. Sie können auch ohne Kamera und Mikrofon teilnehmen.',
+  'onlineClass.prejoin.checking': 'Geräte werden überprüft…',
+  'onlineClass.prejoin.permissionHelp': 'Öffnen Sie die Website-Einstellungen links neben der Adressleiste, erlauben Sie Kamera und Mikrofon und versuchen Sie es erneut.',
+  'onlineClass.prejoin.deviceError': 'Die Geräte können nicht gestartet werden. Eventuell werden Kamera oder Mikrofon von einem anderen Programm genutzt.',
+  'onlineClass.prejoin.previewHint': 'Vorschau · andere Teilnehmer können Sie noch nicht sehen',
+  'onlineClass.prejoin.audioOnly': 'Nur Mikrofon',
+  'onlineClass.prejoin.joinWithoutDevices': 'Ohne Kamera und Mikrofon beitreten',
+  'onlineClass.prejoin.joinNote': 'Kamera und Mikrofon lassen sich später im Raum einschalten.',
+  'onlineClass.disconnect.title': 'Verbindung zum Online-Unterricht unterbrochen',
+  'onlineClass.disconnect.hint': 'Das beendet die Stunde nicht. Sie können denselben Raum erneut betreten oder es ohne Kamera und Mikrofon versuchen.',
+  'onlineClass.disconnect.code': 'Trennungsgrund',
+  'onlineClass.disconnect.retry': 'Erneut verbinden',
+  'onlineClass.disconnect.retryWithoutMedia': 'Ohne Kamera erneut verbinden',
+  'onlineClass.disconnect.back': 'Zurück zu den Stunden',
   'onlineClass.recording.active': 'Aufnahme läuft',
   'onlineClass.transcription.active': 'Transkription läuft',
-
   'onlineClass.waitingRoom': 'Warteraum',
   'onlineClass.waitingRoom.empty': 'Niemand wartet',
   'onlineClass.admit': 'Einlassen',
@@ -548,7 +573,6 @@ const de: Record<keyof typeof ru, string> = {
   'onlineClass.unmuteRequested': 'Die Lehrkraft bittet dich, das Mikrofon einzuschalten',
   'onlineClass.studentScreenShare': 'Bildschirmfreigabe für Schüler erlauben',
   'onlineClass.attendance': 'Anwesenheit',
-
   'onlineClass.chat': 'Chat',
   'onlineClass.chat.placeholder': 'Nachricht schreiben…',
   'onlineClass.chat.send': 'Senden',
@@ -561,7 +585,6 @@ const de: Record<keyof typeof ru, string> = {
   'onlineClass.chat.loadOlder': 'Ältere anzeigen',
   'onlineClass.chat.tooFast': 'Zu viele Nachrichten. Bitte kurz warten',
   'onlineClass.chat.unread': 'Neue Nachrichten',
-
   'onlineClass.recording.start': 'Aufnahme starten',
   'onlineClass.recording.stop': 'Aufnahme stoppen',
   'onlineClass.recording.starting': 'Aufnahme wird gestartet…',
@@ -575,7 +598,6 @@ const de: Record<keyof typeof ru, string> = {
   'onlineClass.recording.list': 'Aufzeichnungen',
   'onlineClass.recording.none': 'Keine Aufzeichnungen',
   'onlineClass.recording.retention': 'Wird gelöscht am',
-
   'onlineClass.captions': 'Untertitel',
   'onlineClass.captions.waiting': 'Warte auf Sprache…',
   'onlineClass.transcription.start': 'Transkription starten',
@@ -586,7 +608,6 @@ const de: Record<keyof typeof ru, string> = {
   'onlineClass.transcript.empty': 'Kein Transkript',
   'onlineClass.transcript.downloadTxt': 'TXT herunterladen',
   'onlineClass.transcript.downloadVtt': 'VTT herunterladen',
-
   'onlineClass.whiteboard': 'Whiteboard',
   'onlineClass.whiteboard.pen': 'Stift',
   'onlineClass.whiteboard.highlighter': 'Marker',
@@ -658,7 +679,6 @@ const de: Record<keyof typeof ru, string> = {
   'onlineClass.room.panels': 'Chat und Teilnehmer',
   'onlineClass.room.showBoard': 'Whiteboard anzeigen',
   'onlineClass.room.showScreen': 'Bildschirmfreigabe anzeigen',
-
   'onlineClass.artifacts.title': 'Materialien der Online-Stunde',
   'onlineClass.artifacts.none': 'Noch keine Online-Stunde gehalten',
   'onlineClass.artifacts.attendance': 'Anwesenheit',
@@ -670,12 +690,6 @@ const de: Record<keyof typeof ru, string> = {
   'onlineClass.artifacts.snapshots': 'Whiteboard',
   'onlineClass.artifacts.open': 'Öffnen',
   'onlineClass.artifacts.processing': 'Wird verarbeitet',
-
-  'error.generic': 'Etwas ist schiefgelaufen',
-  'error.NOT_ENOUGH_CARDS': 'Mindestens 4 Karten nötig',
-  'error.NO_CARDS_DUE': 'Heute keine Karten fällig',
-  'error.SESSION_IN_PROGRESS': 'Beende zuerst die laufende Sitzung',
-  'error.CONFLICT': 'Dieser Eintrag existiert bereits',
 };
 
 export type TranslationKey = keyof typeof ru;

@@ -2,19 +2,16 @@ package com.mcschool.flashcard.teachers;
 
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
-import com.mcschool.flashcard.notifications.NotificationService;
 import com.mcschool.flashcard.teachers.dto.CreateTeacherRequest;
-import com.mcschool.flashcard.teachers.dto.TeacherInvitationResponse;
 import com.mcschool.flashcard.teachers.dto.UpdateTeacherTrialTranscriptFolderRequest;
-import com.mcschool.flashcard.users.Invitations;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import com.mcschool.flashcard.users.UserResponse;
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,32 +19,63 @@ import org.springframework.transaction.annotation.Transactional;
 public class TeacherService {
 
     private final UserRepository userRepository;
-    private final NotificationService notificationService;
+    private final PasswordEncoder passwordEncoder;
 
-    public TeacherService(UserRepository userRepository, NotificationService notificationService) {
+    public TeacherService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
-        this.notificationService = notificationService;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional
-    public TeacherInvitationResponse createTeacher(CreateTeacherRequest request) {
+    public UserResponse createTeacher(CreateTeacherRequest request) {
         String email = request.email().trim().toLowerCase(Locale.ROOT);
-        if (userRepository.existsByEmail(email)) {
-            throw new ConflictException("An account with this email already exists");
+        String username = request.username().trim();
+
+        User existingByEmail = userRepository.findByEmail(email).orElse(null);
+        User existingByUsername = userRepository.findByUsernameIgnoreCase(username).orElse(null);
+
+        if (existingByEmail != null) {
+            if (existingByEmail.getRole() == Role.TEACHER && existingByEmail.isArchived()) {
+                existingByEmail.releaseTeacherLoginIdentity();
+            } else {
+                throw new ConflictException("An account with this email already exists");
+            }
         }
-        String token = Invitations.newToken();
-        Instant expiresAt = Invitations.expiry(Instant.now());
-        User teacher = userRepository.save(
-                User.invitedTeacher(request.fullName().trim(), email, token, expiresAt));
-        notificationService.sendInvitation(teacher, token);
-        return new TeacherInvitationResponse(UserResponse.from(teacher), token, expiresAt);
+
+        if (existingByUsername != null) {
+            if (existingByUsername.getRole() == Role.TEACHER && existingByUsername.isArchived()) {
+                existingByUsername.releaseTeacherLoginIdentity();
+            } else {
+                throw new ConflictException("An account with this login already exists");
+            }
+        }
+
+        userRepository.flush();
+
+        User teacher = userRepository.save(User.activeTeacher(
+                request.fullName().trim(),
+                email,
+                username,
+                passwordEncoder.encode(request.password())));
+        return UserResponse.from(teacher);
     }
 
     @Transactional(readOnly = true)
     public List<UserResponse> listTeachers() {
         return userRepository.findAllByRoleOrderByFullNameAsc(Role.TEACHER).stream()
+                .filter(user -> !user.isArchived())
                 .map(UserResponse::from)
                 .toList();
+    }
+
+    @Transactional
+    public void deleteTeacher(UUID teacherId) {
+        User teacher = userRepository.findById(teacherId)
+                .filter(user -> user.getRole() == Role.TEACHER)
+                .filter(user -> !user.isArchived())
+                .orElseThrow(() -> new ResourceNotFoundException("Teacher not found"));
+        teacher.archive();
+        teacher.releaseTeacherLoginIdentity();
     }
 
     @Transactional

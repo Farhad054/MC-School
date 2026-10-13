@@ -1,11 +1,22 @@
 package com.mcschool.flashcard.lessons;
 
+import com.mcschool.flashcard.skills.SkillBoardMcpService;
+import com.mcschool.flashcard.skills.SkillMasteryMcpService;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.auth.McpOAuthService;
 import com.mcschool.flashcard.drive.TeacherGoogleDriveDownloadService;
 import com.mcschool.flashcard.lessons.dto.GroupLessonResponse;
 import com.mcschool.flashcard.lessons.dto.LessonPreparationResponse;
 import com.mcschool.flashcard.lessons.dto.UpdateLessonPreparationRequest;
+import com.mcschool.flashcard.monthlyplans.MonthlyPlanService;
+import com.mcschool.flashcard.monthlyplans.dto.MonthlyPlanResponse;
+import com.mcschool.flashcard.settings.SchoolBrandGuideService;
+import com.mcschool.flashcard.settings.StoryTemplateMasterService;
+import com.mcschool.flashcard.settings.StoryTemplateDownloadLinkService;
+import com.mcschool.flashcard.settings.SchoolPromptSettingsResponse;
+import com.mcschool.flashcard.settings.SchoolPromptSettingsService;
+import com.mcschool.flashcard.trialleads.FunnelAnalyticsService;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
@@ -39,7 +50,7 @@ public class MindcraftiMcpController {
 
     private static final String API_KEY_HEADER = "X-Mindcrafti-Api-Key";
     private static final String SERVER_NAME = "mindcrafti-lessons";
-    private static final String SERVER_VERSION = "1.9.0";
+    private static final String SERVER_VERSION = "1.21.0";
     private static final int MAX_DIRECT_PDF_BYTES = 15 * 1024 * 1024;
 
     private final String apiKey;
@@ -48,10 +59,20 @@ public class MindcraftiMcpController {
     private final McpOAuthService oauthService;
     private final GoogleCalendarLessonService calendarLessonService;
     private final LessonPreparationService preparationService;
+    private final LessonPreparationRepository preparationRepository;
+    private final TranscriptLessonGuard transcriptLessonGuard;
     private final TeacherGoogleDriveDownloadService teacherDriveDownloadService;
     private final McpHomeworkSeriesService homeworkSeriesService;
     private final McpAnalyticsService analyticsService;
     private final McpHomeworkReadService homeworkReadService;
+    private final McpHomeworkWriteService homeworkWriteService;
+    private final MonthlyPlanService monthlyPlanService;
+    private final SchoolPromptSettingsService schoolPromptSettingsService;
+    private final SchoolBrandGuideService schoolBrandGuideService;
+    private final LessonPdfDraftService lessonPdfDraftService;
+    private final StoryTemplateMasterService storyTemplateMasterService;
+    private final StoryTemplateDownloadLinkService storyTemplateDownloadLinkService;
+    private final FunnelAnalyticsService funnelAnalyticsService;
 
     public MindcraftiMcpController(
             @Value("${MINDCRAFTI_LESSON_IMPORT_API_KEY:}") String apiKey,
@@ -60,20 +81,53 @@ public class MindcraftiMcpController {
             McpOAuthService oauthService,
             GoogleCalendarLessonService calendarLessonService,
             LessonPreparationService preparationService,
+            LessonPreparationRepository preparationRepository,
+            TranscriptLessonGuard transcriptLessonGuard,
             TeacherGoogleDriveDownloadService teacherDriveDownloadService,
             McpHomeworkSeriesService homeworkSeriesService,
             McpAnalyticsService analyticsService,
-            McpHomeworkReadService homeworkReadService) {
+            McpHomeworkReadService homeworkReadService,
+            McpHomeworkWriteService homeworkWriteService,
+            MonthlyPlanService monthlyPlanService,
+            SchoolPromptSettingsService schoolPromptSettingsService,
+            SchoolBrandGuideService schoolBrandGuideService,
+            LessonPdfDraftService lessonPdfDraftService,
+            StoryTemplateMasterService storyTemplateMasterService,
+            StoryTemplateDownloadLinkService storyTemplateDownloadLinkService,
+            FunnelAnalyticsService funnelAnalyticsService) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.objectMapper = objectMapper;
         this.userRepository = userRepository;
         this.oauthService = oauthService;
         this.calendarLessonService = calendarLessonService;
         this.preparationService = preparationService;
+        this.preparationRepository = preparationRepository;
+        this.transcriptLessonGuard = transcriptLessonGuard;
         this.teacherDriveDownloadService = teacherDriveDownloadService;
         this.homeworkSeriesService = homeworkSeriesService;
         this.analyticsService = analyticsService;
         this.homeworkReadService = homeworkReadService;
+        this.homeworkWriteService = homeworkWriteService;
+        this.monthlyPlanService = monthlyPlanService;
+        this.schoolPromptSettingsService = schoolPromptSettingsService;
+        this.schoolBrandGuideService = schoolBrandGuideService;
+        this.lessonPdfDraftService = lessonPdfDraftService;
+        this.storyTemplateMasterService = storyTemplateMasterService;
+        this.storyTemplateDownloadLinkService = storyTemplateDownloadLinkService;
+        this.funnelAnalyticsService = funnelAnalyticsService;
+    }
+
+    private SkillBoardMcpService skillBoardMcpService;
+    private SkillMasteryMcpService skillMasteryMcpService;
+
+    @Autowired
+    public void setSkillBoardMcpService(SkillBoardMcpService service) {
+        this.skillBoardMcpService = service;
+    }
+
+    @Autowired
+    public void setSkillMasteryMcpService(SkillMasteryMcpService service) {
+        this.skillMasteryMcpService = service;
     }
 
     @GetMapping
@@ -122,7 +176,7 @@ public class MindcraftiMcpController {
         result.put("capabilities", Map.of("tools", Map.of("listChanged", true)));
         result.put("serverInfo", Map.of("name", SERVER_NAME, "version", SERVER_VERSION));
         result.put("instructions", authenticated
-                ? "Mindcrafti school tools include lessons, homework assignment, direct access to submitted homework PDFs, rendered submission pages and read-only student analytics. For a student's homework over a week or other date range, use find_student_homeworks. Use get_homework_submission for the actual submitted PDF and get_homework_submission_pages when handwriting or images must be inspected visually. Admins can read all teachers and students; teachers are restricted to their own students. For morning reports, use get_school_day_summary with yesterday's date."
+                ? "For the curriculum skills board, always read get_skill_board fresh before answering from it or using edit_skill_board. Edit only explicitly requested items, using the exact returned revision. Preserve unrelated content and read back after saving. A stale revision means reconcile, not blind retry. This catalog does not contain pupil mastery. Mindcrafti school tools include lessons, structured monthly plans for students and groups, school prompts, the current school Brand Guide, the current approved 3-slide Mindcrafti Stories PPTX via get_story_template_info and get_story_template_chunk, homework assignment, direct PDF homework upload, explicit replacement/update/deletion of existing homework, submitted homework PDFs, rendered submission pages, read-only student analytics and admin-only public funnel analytics. When preparing the next lesson for a student or group, use get_month_plan for the current month when a plan exists, then combine it with recent lesson/homework evidence and the current school prompt. IMPORTANT: when a teacher asks to create a lesson, homework, worksheet or other teaching material 'по промту', 'по школьному промту', 'using the prompt', or clearly asks to use the school's prompt, first call get_school_prompt with the most specific lessonType: group or individual for lesson logic, workbook for a workbook/worksheet, homework for homework, diagnostic for a diagnostic lesson, or error_correction for work on mistakes, and then follow the returned prompt as the base instruction. Apply any extra teacher instructions on top of that prompt. If the teacher explicitly says 'без промта' or 'without the prompt', do not call get_school_prompt. Do not assume or reuse an old prompt from chat history; fetch the current prompt each time the teacher asks to work 'по промту'. For ANY Mindcrafti-branded document or visual material (PDF, homework, diagnostic, worksheet, report, presentation, work-on-mistakes document, parent report, internal document or other branded artifact), first call get_brand_guide and follow the current Brand Guide for visual design. Do not reuse a Brand Guide from chat history. When ChatGPT creates homework PDFs, assign them directly with assign_homework_series using pdfBase64; Google Drive is optional."
                 : "The connector is in diagnostic mode. Sign in with Mindcrafti OAuth to access school data tools.");
         return result;
     }
@@ -134,7 +188,7 @@ public class MindcraftiMcpController {
         result.put("capabilities", Map.of("tools", Map.of()));
         result.put("serverInfo", Map.of("name", SERVER_NAME, "version", SERVER_VERSION));
         result.put("instructions", authenticated
-                ? "Mindcrafti lesson, homework-file and school analytics tools. Admins can target all teachers; teachers can access only their own students."
+                ? "For the curriculum skills board, always read get_skill_board fresh before answering from it or using edit_skill_board. Edit only explicitly requested items, using the exact returned revision. Preserve unrelated content and read back after saving. A stale revision means reconcile, not blind retry. This catalog does not contain pupil mastery. Mindcrafti lesson, school-prompt, Brand Guide, homework-file and school analytics tools. If the teacher says to make a lesson or homework 'по промту', fetch the current school prompt with get_school_prompt before generating. For any Mindcrafti-branded document or visual material, fetch the current Brand Guide with get_brand_guide before creating it. Extra teacher instructions override or refine the prompt for that request. If the teacher says 'без промта', do not fetch the lesson prompt."
                 : "Mindcrafti diagnostic MCP connection. No school data is exposed without authentication.");
         return result;
     }
@@ -143,10 +197,35 @@ public class MindcraftiMcpController {
         List<Map<String, Object>> tools = new ArrayList<>();
         tools.add(tool("mindcrafti_status", "Check that the Mindcrafti MCP server is reachable.", schema(Map.of(), List.of()), readOnlyAnnotations()));
         if (!authenticated) return tools;
+        tools.addAll(SkillBoardMcpService.definitions());
+        tools.addAll(SkillMasteryMcpService.definitions());
 
+        tools.add(tool("get_school_prompt", "Get the current administrator-managed Mindcrafti school prompt. Use this whenever the teacher asks to create a lesson, homework or teaching material 'по промту' / 'по школьному промту' / 'using the prompt'. Choose group for group-lesson logic, individual for one-to-one lesson logic, workbook for creating a lesson workbook/teacher answers, homework for creating homework, diagnostic for a trial/diagnostic lesson, and error_correction for a personalised work-on-mistakes document. Always fetch it fresh instead of relying on a prompt remembered from earlier chat messages. Teacher-specific extra instructions may be applied on top of the returned prompt.", schema(Map.of("lessonType", property("string", "Prompt type: group, individual, workbook, homework, diagnostic or error_correction.")), List.of("lessonType")), readOnlyAnnotations()));
+        tools.add(tool("get_brand_guide", "Get the current administrator-managed Mindcrafti Brand Guide, including its searchable rules and the uploaded source PDF as base64 when available. ALWAYS use this before creating or redesigning any Mindcrafti-branded PDF, homework, diagnostic, worksheet, report, presentation, work-on-mistakes document or other visual material. Fetch it fresh instead of relying on a Brand Guide remembered from chat history.", schema(Map.of(), List.of()), readOnlyAnnotations()));
+
+        tools.add(tool("get_story_template_info", "Get the current APPROVED Mindcrafti Instagram Stories master PPTX metadata. Always call before producing 3 Mindcrafti Stories. The master has 3 slides and its photo, decoration, logo, graphic positions and typography must stay unchanged. Use the current version and SHA256, never prior chat copies.", schema(Map.of(), List.of()), readOnlyAnnotations()));
+        tools.add(tool("get_story_template_download_link", "Get a short-lived, signed HTTPS link to the exact approved PPTX. First call get_story_template_info. Download the file using the returned URL within 5 minutes and verify SHA256 before editing. Prefer this tool to base64 chunks when a downloader is available.", schema(Map.of(), List.of()), readOnlyAnnotations()));
+        tools.add(tool("get_story_template_chunk", "Download an exact binary chunk of the CURRENT approved three-slide PPTX. First call get_story_template_info; get each chunk using the returned version; concatenate decoded base64 chunks in order and validate the SHA256. Do not regenerate the design from screenshots.", schema(Map.of("version", property("integer", "Current master revision from get_story_template_info."), "chunkIndex", property("integer", "Zero-based index, start at 0; repeat until chunkCount is reached.")), List.of("version", "chunkIndex")), readOnlyAnnotations()));
+        tools.add(tool("update_story_template_master", "ADMIN ONLY: Replace the approved three-slide Mindcrafti Stories PPTX. Requires explicit user approval and the expected version from get_story_template_info. The source file must have exactly three slides. The replaced file becomes the only master for all subsequent Stories.", schema(Map.of("filename", property("string", "New PPTX filename."), "pptxBase64", property("string", "Full PPTX binary encoded as base64, up to 15 MB."), "expectedVersion", property("integer", "Latest template version.")), List.of("filename", "pptxBase64", "expectedVersion")), writeAnnotations()));
+        Map<String,Object> cdp = new LinkedHashMap<>();
+        cdp.put("teacherId",property("string","Teacher UUID from find_lessons"));
+        cdp.put("eventId",property("string","Exact calendar event ID"));
+        cdp.put("lessonJson",property("string","JSON lesson content: title, optional lessonPlan and difficulties, tasks (2-24 objects with question, answer, optional lines 2-12). No homework."));
+        tools.add(tool("create_lesson_draft","Generate and QA two branded PDF documents, save as unpublished draft; read school prompt, Brand Guide, monthly plan, recent work first.",schema(cdp,List.of("teacherId","eventId","lessonJson")),writeAnnotations()));
+        Map<String,Object> dp = Map.of("teacherId",property("string","Teacher UUID"),"draftId",property("string","Draft UUID"));
+        tools.add(tool("get_lesson_draft","Get unpublished draft metadata.",schema(dp,List.of("teacherId","draftId")),readOnlyAnnotations()));
+        Map<String,Object> dd = new LinkedHashMap<>(dp);
+        dd.put("kind",property("string","workbook or answers"));
+        tools.add(tool("download_lesson_draft_pdf","Download student or teacher PDF for review.",schema(dd,List.of("teacherId","draftId","kind")),readOnlyAnnotations()));
+        Map<String,Object> pd = new LinkedHashMap<>(dp);
+        pd.put("confirm",property("boolean","True only on explicit user instruction to publish approved documents"));
+        tools.add(tool("publish_lesson_draft","Attach two approved PDFs to the exact lesson, without homework.",schema(pd,List.of("teacherId","draftId","confirm")),writeAnnotations()));
         tools.add(tool("find_lessons", "Find upcoming Mindcrafti lessons. Admins can search all connected teacher calendars; teachers can search only their own calendar.", schema(Map.of("query", property("string", "Optional student, group, or event title filter.")), List.of()), readOnlyAnnotations()));
-        tools.add(tool("get_lesson_preparation", "Read workbook, teacher answers, homework notes, difficulties and lesson plan for one lesson.", schema(Map.of("teacherId", property("string", "Teacher UUID returned by find_lessons."), "eventId", property("string", "Google Calendar event ID returned by find_lessons.")), List.of("teacherId", "eventId")), readOnlyAnnotations()));
-        tools.add(tool("download_lesson_pdf", "Download one PDF already stored in a lesson directly from Mindcrafti. Returns the PDF as base64 so it can be saved or reused without Google Drive.", schema(Map.of("teacherId", property("string", "Teacher UUID returned by find_lessons."), "eventId", property("string", "Google Calendar event ID returned by find_lessons."), "kind", property("string", "PDF kind: workbook or answers.")), List.of("teacherId", "eventId", "kind")), readOnlyAnnotations()));
+        tools.add(tool("find_trial_lessons", "Find trial/diagnostic lessons. Admins can search trial lessons across the whole school; teachers see only their own. Returns the concrete teacherId/eventId and whether an original transcript PDF is stored, so download_lesson_transcript can be used next.", schema(Map.of("query", property("string", "Optional teacher name, lesson title, phone number or date text filter.")), List.of()), readOnlyAnnotations()));
+        tools.add(tool("get_lesson_preparation", "Read lesson metadata, homework notes, difficulties, lesson plan, and which PDF documents are attached. Transcript text is not returned when a transcript PDF exists; use download_lesson_transcript when the actual document is needed.", schema(Map.of("teacherId", property("string", "Teacher UUID returned by find_lessons."), "eventId", property("string", "Google Calendar event ID returned by find_lessons.")), List.of("teacherId", "eventId")), readOnlyAnnotations()));
+        tools.add(tool("download_lesson_pdf", "Download one PDF already stored in a lesson directly from Mindcrafti. Returns the PDF as base64 so it can be saved or reused without Google Drive.", schema(Map.of("teacherId", property("string", "Teacher UUID returned by find_lessons."), "eventId", property("string", "Google Calendar event ID returned by find_lessons."), "kind", property("string", "PDF kind: workbook, answers or transcript.")), List.of("teacherId", "eventId", "kind")), readOnlyAnnotations()));
+        tools.add(tool("download_lesson_transcript", "Download the original transcript PDF stored on one lesson. Use this whenever you need to inspect or reuse a lesson transcript; the normal lesson-preparation response intentionally does not inline the full transcript.", schema(Map.of("teacherId", property("string", "Teacher UUID returned by find_lessons."), "eventId", property("string", "Google Calendar event ID returned by find_lessons.")), List.of("teacherId", "eventId")), readOnlyAnnotations()));
+        tools.add(tool("audit_lesson_transcripts", "Admin-only, read-only. Audit every stored lesson transcript across the school and report wrong lesson/date links plus legacy filenames that cannot be verified automatically.", schema(Map.of(), List.of()), readOnlyAnnotations()));
 
         Map<String, Object> prepareProperties = new LinkedHashMap<>();
         prepareProperties.put("teacherId", property("string", "Teacher UUID returned by find_lessons."));
@@ -169,10 +248,26 @@ public class MindcraftiMcpController {
         answerProperties.put("filename", property("string", "Optional PDF filename. Used for Drive fallback lookup."));
         tools.add(tool("attach_lesson_answers", "Copy a teacher-answer PDF from Google Drive into one concrete lesson, using the selected teacher's Drive access when needed.", schema(answerProperties, List.of("teacherId", "eventId", "driveFileId")), writeAnnotations()));
 
+        Map<String, Object> transcriptProperties = new LinkedHashMap<>();
+        transcriptProperties.put("teacherId", property("string", "Teacher UUID returned by find_lessons."));
+        transcriptProperties.put("eventId", property("string", "Google Calendar event ID returned by find_lessons."));
+        transcriptProperties.put("driveFileId", property("string", "Google Drive raw file ID or Drive URL containing the transcript PDF."));
+        transcriptProperties.put("filename", property("string", "Optional transcript PDF filename. Used for Drive fallback lookup."));
+        tools.add(tool("attach_lesson_transcript", "Copy the original Soniox transcript PDF from Google Drive into one concrete Mindcrafti lesson. Mindcrafti validates the date/time in the original filename against the selected event before attaching it.", schema(transcriptProperties, List.of("teacherId", "eventId", "driveFileId", "filename")), writeAnnotations()));
+
         Map<String, Object> targetProperties = new LinkedHashMap<>();
         targetProperties.put("query", property("string", "Optional student or group name filter, for example Виталина, Christian or Группа 1."));
         targetProperties.put("teacherId", property("string", "Optional teacher UUID. Teachers never need it. Admins may omit it to search across every active teacher."));
         tools.add(tool("find_homework_targets", "Find students and groups that can receive homework. Admins search all active teachers by default. Every result includes teacherId and teacherName so it can be used directly for follow-up actions.", schema(targetProperties, List.of()), readOnlyAnnotations()));
+
+        Map<String, Object> monthPlanProperties = new LinkedHashMap<>();
+        monthPlanProperties.put("teacherId", property("string", "Optional teacher UUID. Teachers never need it. Admins may omit it when targetId identifies one teacher uniquely."));
+        monthPlanProperties.put("targetType", property("string", "Monthly plan target type: student or group."));
+        monthPlanProperties.put("targetId", property("string", "Student or group UUID."));
+        monthPlanProperties.put("month", property("string", "Plan month in YYYY-MM format."));
+        tools.add(tool("get_month_plan", "Read the current structured monthly teaching plan for one student or group. Use it before preparing the next lesson when the target has a plan for the current month.", schema(monthPlanProperties, List.of("targetType", "targetId", "month")), readOnlyAnnotations()));
+        monthPlanProperties.put("planJson", property("string", "Complete monthly plan encoded as a JSON object string. This replaces the current saved plan for the target and month."));
+        tools.add(tool("update_month_plan", "Create or replace the structured monthly teaching plan for one student or group. Use this when the teacher asks to save or change the plan.", schema(monthPlanProperties, List.of("targetType", "targetId", "month", "planJson")), writeAnnotations()));
 
         Map<String, Object> seriesProperties = new LinkedHashMap<>();
         seriesProperties.put("teacherId", property("string", "Optional teacher UUID. Teachers never need it. Admins may omit it and Mindcrafti will infer the teacher from targetId when the target is unique."));
@@ -180,9 +275,10 @@ public class MindcraftiMcpController {
         seriesProperties.put("targetId", property("string", "Student or group UUID returned by find_homework_targets."));
         seriesProperties.put("startDate", property("string", "First homework date in YYYY-MM-DD format."));
         seriesProperties.put("days", property("integer", "Number of consecutive calendar days to assign, from 1 to 31."));
-        seriesProperties.put("driveFileIds", arrayProperty("Google Drive PDF file IDs. Supply one PDF for all days or exactly one PDF per day."));
+        seriesProperties.put("pdfBase64", arrayProperty("Preferred when the PDFs are already in ChatGPT: PDF bytes encoded as base64. Supply one PDF for all days or exactly one PDF per day. Maximum 15 MB per PDF. Do not also pass driveFileIds."));
+        seriesProperties.put("driveFileIds", arrayProperty("Optional legacy/fallback Google Drive PDF file IDs. Supply one PDF for all days or exactly one PDF per day. Do not also pass pdfBase64."));
         seriesProperties.put("filenames", arrayProperty("Optional display filenames: empty, one filename for all days, or one filename per day."));
-        tools.add(tool("assign_homework_series", "Assign dated PDF homework for several consecutive days to one student or every active student in a group. Admins may omit teacherId when targetId identifies one teacher uniquely. Existing PDF homework on the same student/date is skipped to avoid duplicates.", schema(seriesProperties, List.of("targetType", "targetId", "startDate", "days", "driveFileIds")), writeAnnotations()));
+        tools.add(tool("assign_homework_series", "Assign dated PDF homework for several consecutive days to one student or every active student in a group. Prefer pdfBase64 for PDFs created or already available in ChatGPT, so no intermediate Google Drive upload is needed. driveFileIds remains available as a fallback. Admins may omit teacherId when targetId identifies one teacher uniquely. Existing PDF homework on the same student/date is skipped to avoid duplicates.", schema(seriesProperties, List.of("targetType", "targetId", "startDate", "days")), writeAnnotations()));
 
         tools.add(tool("list_school_teachers", "List teachers visible to the signed-in account, including each teacher's student count. Admins see the whole school; a teacher sees only themselves.", schema(Map.of(), List.of()), readOnlyAnnotations()));
 
@@ -196,6 +292,24 @@ public class MindcraftiMcpController {
         homeworkRangeProperties.put("fromDate", property("string", "First assigned-homework date in YYYY-MM-DD."));
         homeworkRangeProperties.put("toDate", property("string", "Last assigned-homework date in YYYY-MM-DD. Maximum range is 366 days."));
         tools.add(tool("find_student_homeworks", "Find all homework buckets for one student in an inclusive date range. Returns submission status and homeworkId values that can be passed directly to get_homework_submission or get_homework_submission_pages.", schema(homeworkRangeProperties, List.of("studentId", "fromDate", "toDate")), readOnlyAnnotations()));
+
+        Map<String, Object> replaceHomeworkProperties = new LinkedHashMap<>();
+        replaceHomeworkProperties.put("homeworkId", property("string", "Existing homework UUID returned by find_student_homeworks or get_student_homework_history."));
+        replaceHomeworkProperties.put("pdfBase64", property("string", "Replacement assigned-homework PDF encoded as base64. Maximum 15 MB."));
+        replaceHomeworkProperties.put("filename", property("string", "Optional display filename for the replacement PDF. The current filename is preserved when omitted."));
+        tools.add(tool("replace_homework", "Replace the assigned PDF of one existing unsubmitted homework while preserving its homework ID and assigned date. Use this when the wrong PDF was assigned and must be corrected. Submitted homework cannot be replaced.", schema(replaceHomeworkProperties, List.of("homeworkId", "pdfBase64")), destructiveWriteAnnotations()));
+
+        Map<String, Object> updateHomeworkProperties = new LinkedHashMap<>();
+        updateHomeworkProperties.put("homeworkId", property("string", "Existing homework UUID returned by find_student_homeworks or get_student_homework_history."));
+        updateHomeworkProperties.put("newStartDate", property("string", "Optional replacement assigned date in YYYY-MM-DD format. Date changes are blocked when the homework contains cards."));
+        updateHomeworkProperties.put("pdfBase64", property("string", "Optional replacement assigned-homework PDF encoded as base64. Maximum 15 MB."));
+        updateHomeworkProperties.put("filename", property("string", "Optional display filename used when pdfBase64 is provided. The current filename is preserved when omitted."));
+        tools.add(tool("update_homework", "Update one existing unsubmitted homework. You may change its assigned date, replace its assigned PDF, or do both in one call. At least one of newStartDate or pdfBase64 is required.", schema(updateHomeworkProperties, List.of("homeworkId")), destructiveWriteAnnotations()));
+
+        Map<String, Object> deleteHomeworkProperties = new LinkedHashMap<>();
+        deleteHomeworkProperties.put("homeworkId", property("string", "Existing homework UUID returned by find_student_homeworks or get_student_homework_history."));
+        deleteHomeworkProperties.put("confirm", property("boolean", "Must be true. Confirms permanent deletion of the homework record and stored PDFs. Homework containing cards cannot be deleted."));
+        tools.add(tool("delete_homework", "Permanently delete one existing homework. Requires confirm=true and should only be used after an explicit teacher/admin deletion request. Homework containing cards cannot be deleted.", schema(deleteHomeworkProperties, List.of("homeworkId", "confirm")), destructiveWriteAnnotations()));
 
         Map<String, Object> recentHomeworkProperties = new LinkedHashMap<>();
         recentHomeworkProperties.put("studentId", property("string", "Student UUID returned by find_students."));
@@ -228,6 +342,12 @@ public class MindcraftiMcpController {
         Map<String, Object> sessionProperties = new LinkedHashMap<>();
         sessionProperties.put("sessionId", property("string", "Card study-session UUID returned by a summary or student activity tool."));
         tools.add(tool("get_card_session_details", "Inspect one card session in detail: start/end time, duration, every question, the student's first answer, correct answer and whether the first attempt was wrong. Teachers can only inspect sessions belonging to their own students.", schema(sessionProperties, List.of("sessionId")), readOnlyAnnotations()));
+
+        Map<String, Object> funnelProperties = new LinkedHashMap<>();
+        funnelProperties.put("fromDate", property("string", "First date in YYYY-MM-DD. One report can cover up to 90 days."));
+        funnelProperties.put("toDate", property("string", "Last date in YYYY-MM-DD. Maximum range is 90 days."));
+        funnelProperties.put("recentLimit", property("integer", "Optional number of recent visitor sessions with detailed timelines to return, 1 to 100. Defaults to 50."));
+        tools.add(tool("get_public_funnel_analytics", "Admin-only. Analyze the public website acquisition funnel: visits, conversion at every step, drop-offs, traffic sources, devices, time spent, bookings, contracts and recent visitor timelines. Use this when the administrator asks how advertising traffic or the website funnel is performing.", schema(funnelProperties, List.of("fromDate", "toDate")), readOnlyAnnotations()));
         return tools;
     }
 
@@ -244,22 +364,57 @@ public class MindcraftiMcpController {
             status.put("mode", auth.authenticated() ? "full" : "diagnostic");
             status.put("authentication", auth.apiKey() ? "api_key" : auth.user() != null ? "oauth" : "none");
             if (auth.user() != null) status.put("role", auth.user().getRole().name());
+            List<Map<String, Object>> visibleTools = tools(auth.authenticated());
+            status.put("availableToolCount", visibleTools.size());
+            status.put("availableToolNames", visibleTools.stream().map(tool -> String.valueOf(tool.get("name"))).toList());
             return toolResult(status);
         }
         if (!auth.authenticated()) throw new IllegalArgumentException("This Mindcrafti tool requires authentication");
+        if (SkillBoardMcpService.TOOL_NAMES.contains(name))
+            return skillBoardMcpService.call(name, arguments, auth.user());
+        if (SkillMasteryMcpService.TOOL_NAMES.contains(name))
+            return skillMasteryMcpService.call(name, arguments, auth.user());
         return switch (name) {
+            case "get_school_prompt" -> toolResult(getSchoolPrompt(arguments));
+            case "get_brand_guide" -> toolResult(schoolBrandGuideService.readForMcp());
+            case "create_lesson_draft" -> toolResult(createLessonDraft(arguments,auth));
+            case "get_lesson_draft" -> toolResult(lessonPdfDraftService.info(requireTeacher(arguments,auth),uuid(required(arguments,"draftId"),"draftId")));
+            case "download_lesson_draft_pdf" -> toolResult(lessonPdfDraftService.download(requireTeacher(arguments,auth),uuid(required(arguments,"draftId"),"draftId"),required(arguments,"kind")));
+            case "publish_lesson_draft" -> toolResult(publishLessonDraft(arguments,auth));
+            case "get_story_template_info" -> toolResult(storyTemplateMasterService.infoForMcp(auth.user(), auth.apiKey()));
+            case "get_story_template_download_link" -> toolResult(storyTemplateDownloadLinkService.create(auth.user(), auth.apiKey()));
+            case "get_story_template_chunk" -> toolResult(storyTemplateMasterService.chunkForMcp(auth.user(), auth.apiKey(), Long.parseLong(required(arguments, "version")), integer(arguments.get("chunkIndex"), "chunkIndex")));
+            case "update_story_template_master" -> toolResult(storyTemplateMasterService.uploadFromMcp(auth.user(), auth.apiKey(), required(arguments, "filename"), required(arguments, "pptxBase64"), Long.parseLong(required(arguments, "expectedVersion"))));
             case "find_lessons" -> toolResult(findLessons(string(arguments.get("query")), auth));
+            case "find_trial_lessons" -> toolResult(findTrialLessons(string(arguments.get("query")), auth));
             case "get_lesson_preparation" -> toolResult(getPreparation(arguments, auth));
             case "download_lesson_pdf" -> toolResult(downloadLessonPdf(arguments, auth));
+            case "download_lesson_transcript" -> toolResult(downloadLessonTranscript(arguments, auth));
+            case "audit_lesson_transcripts" -> toolResult(auditLessonTranscripts(auth));
             case "prepare_lesson" -> toolResult(prepareLesson(arguments, auth));
             case "attach_lesson_answers" -> toolResult(attachLessonAnswers(arguments, auth));
+            case "attach_lesson_transcript" -> toolResult(attachLessonTranscript(arguments, auth));
             case "find_homework_targets" -> toolResult(findHomeworkTargets(arguments, auth));
+            case "get_month_plan" -> toolResult(getMonthPlan(arguments, auth));
+            case "update_month_plan" -> toolResult(updateMonthPlan(arguments, auth));
             case "assign_homework_series" -> toolResult(assignHomeworkSeries(arguments, auth));
             case "list_school_teachers" -> toolResult(analyticsService.listTeachers(auth.user(), auth.apiKey()));
             case "find_students" -> toolResult(analyticsService.findStudents(auth.user(), auth.apiKey(), string(arguments.get("query")), string(arguments.get("teacherId"))));
             case "find_student_homeworks" -> toolResult(homeworkReadService.findStudentHomeworks(
                     auth.user(), auth.apiKey(), uuid(required(arguments, "studentId"), "studentId"),
                     date(arguments, "fromDate"), date(arguments, "toDate")));
+            case "replace_homework" -> toolResult(homeworkWriteService.replaceHomework(
+                    auth.user(),
+                    auth.apiKey(),
+                    uuid(required(arguments, "homeworkId"), "homeworkId"),
+                    string(arguments.get("filename")),
+                    decodePdfBase64(required(arguments, "pdfBase64"), "pdfBase64")));
+            case "update_homework" -> toolResult(updateHomework(arguments, auth));
+            case "delete_homework" -> toolResult(homeworkWriteService.deleteHomework(
+                    auth.user(),
+                    auth.apiKey(),
+                    uuid(required(arguments, "homeworkId"), "homeworkId"),
+                    booleanValue(arguments.get("confirm"), "confirm")));
             case "get_recent_homework_submissions" -> toolResult(homeworkReadService.recentSubmissions(
                     auth.user(), auth.apiKey(), uuid(required(arguments, "studentId"), "studentId"),
                     arguments.containsKey("limit") ? integer(arguments.get("limit"), "limit") : 5));
@@ -273,8 +428,69 @@ public class MindcraftiMcpController {
             case "get_student_activity" -> toolResult(analyticsService.studentActivity(auth.user(), auth.apiKey(), uuid(required(arguments, "studentId"), "studentId"), date(arguments, "fromDate"), date(arguments, "toDate")));
             case "get_student_homework_history" -> toolResult(analyticsService.homeworkHistory(auth.user(), auth.apiKey(), uuid(required(arguments, "studentId"), "studentId"), date(arguments, "fromDate"), date(arguments, "toDate")));
             case "get_card_session_details" -> toolResult(analyticsService.cardSessionDetails(auth.user(), auth.apiKey(), uuid(required(arguments, "sessionId"), "sessionId")));
+            case "get_public_funnel_analytics" -> toolResult(funnelAnalyticsService.report(
+                    auth.user(),
+                    auth.apiKey(),
+                    date(arguments, "fromDate"),
+                    date(arguments, "toDate"),
+                    arguments.containsKey("recentLimit") ? integer(arguments.get("recentLimit"), "recentLimit") : 50));
             default -> throw new IllegalArgumentException("Unknown tool: " + name);
         };
+    }
+
+    private Map<String, Object> updateHomework(Map<String, Object> arguments, AuthContext auth) {
+        UUID homeworkId = uuid(required(arguments, "homeworkId"), "homeworkId");
+
+        LocalDate newStartDate = null;
+        String rawDate = string(arguments.get("newStartDate")).trim();
+        if (!rawDate.isBlank()) {
+            try {
+                newStartDate = LocalDate.parse(rawDate);
+            } catch (RuntimeException ex) {
+                throw new IllegalArgumentException("newStartDate must use YYYY-MM-DD format");
+            }
+        }
+
+        byte[] pdf = null;
+        String encoded = string(arguments.get("pdfBase64")).trim();
+        if (!encoded.isBlank()) {
+            pdf = decodePdfBase64(encoded, "pdfBase64");
+        }
+
+        if (newStartDate == null && pdf == null) {
+            throw new IllegalArgumentException("Provide at least one change: newStartDate or pdfBase64");
+        }
+
+        return homeworkWriteService.updateHomework(
+                auth.user(),
+                auth.apiKey(),
+                homeworkId,
+                newStartDate,
+                string(arguments.get("filename")),
+                pdf);
+    }
+
+    private Map<String, Object> getSchoolPrompt(Map<String, Object> arguments) {
+        String lessonType = normalize(required(arguments, "lessonType"));
+        SchoolPromptSettingsResponse settings = schoolPromptSettingsService.readForMcp();
+        String prompt;
+        if ("group".equals(lessonType)) prompt = settings.groupLessonPrompt();
+        else if ("individual".equals(lessonType)) prompt = settings.individualLessonPrompt();
+        else if ("diagnostic".equals(lessonType)) prompt = settings.diagnosticLessonPrompt();
+        else if ("error_correction".equals(lessonType) || "error-correction".equals(lessonType)) prompt = settings.errorCorrectionPrompt();
+        else if ("workbook".equals(lessonType) || "worksheet".equals(lessonType)) prompt = settings.workbookPrompt();
+        else if ("homework".equals(lessonType)) prompt = settings.homeworkPrompt();
+        else throw new IllegalArgumentException("lessonType must be group, individual, workbook, homework, diagnostic or error_correction");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("lessonType", lessonType);
+        result.put("prompt", prompt == null ? "" : prompt);
+        result.put("updatedAt", settings.updatedAt() == null ? null : settings.updatedAt().toString());
+        result.put("usage", "Use this prompt only for its specific material type. Workbook and homework are intentionally separate: workbook does not imply homework, and homework does not imply workbook. Apply the teacher's additional instructions on top of the selected prompt. If an additional instruction conflicts with the school prompt for this one request, follow the teacher's explicit request unless it would make the task unsafe or impossible.");
+        result.put("configured", prompt != null && !prompt.isBlank());
+        result.put("brandGuide", schoolBrandGuideService.readForMcp());
+        result.put("brandGuideUsage", "The embedded Brand Guide is the current visual design standard. Apply it to every generated Mindcrafti document or PDF unless the administrator explicitly says otherwise.");
+        return result;
     }
 
     private List<Map<String, Object>> findLessons(String query, AuthContext auth) {
@@ -303,6 +519,55 @@ public class MindcraftiMcpController {
                 result.add(item);
             }
         }
+        return result;
+    }
+
+    private List<Map<String, Object>> findTrialLessons(String query, AuthContext auth) {
+        String normalizedQuery = normalize(query);
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (User teacher : accessibleTeachers(auth)) {
+            if (teacher.isArchived()) continue;
+
+            AuthenticatedUser principal = principal(teacher);
+            List<GroupLessonResponse> lessons;
+            try {
+                lessons = calendarLessonService.listGroupLessons(principal);
+            } catch (RuntimeException ignored) {
+                continue;
+            }
+
+            for (GroupLessonResponse lesson : lessons) {
+                if (lesson.groupId() != null || lesson.studentId() != null) continue;
+
+                LessonPreparation preparation = preparationRepository
+                        .findByTeacherIdAndEventId(teacher.getId(), lesson.eventId())
+                        .orElse(null);
+                boolean hasTranscript = preparation != null && preparation.hasTranscriptPdf();
+
+                if (!hasTranscript && !AdminTrialLessonController.looksLikeTrialTitle(lesson.title())) continue;
+
+                String haystack = normalize(String.join(" ",
+                        teacher.getFullName() == null ? "" : teacher.getFullName(),
+                        lesson.title() == null ? "" : lesson.title(),
+                        lesson.startsAt() == null ? "" : lesson.startsAt().toString()));
+                if (!normalizedQuery.isBlank() && !haystack.contains(normalizedQuery)) continue;
+
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("teacherId", teacher.getId().toString());
+                item.put("teacherName", teacher.getFullName());
+                item.put("eventId", lesson.eventId());
+                item.put("title", lesson.title());
+                item.put("startsAt", lesson.startsAt() == null ? null : lesson.startsAt().toString());
+                item.put("endsAt", lesson.endsAt() == null ? null : lesson.endsAt().toString());
+                item.put("hasTranscript", hasTranscript);
+                item.put("transcriptFilename", preparation == null ? null : preparation.getTranscriptFilename());
+                result.add(item);
+            }
+        }
+
+        result.sort((left, right) -> String.valueOf(right.get("startsAt"))
+                .compareTo(String.valueOf(left.get("startsAt"))));
         return result;
     }
 
@@ -337,13 +602,24 @@ public class MindcraftiMcpController {
             pdf = preparation.getAnswersPdf();
             filename = preparation.getAnswersFilename();
             if (filename == null || filename.isBlank()) filename = "lesson-answers.pdf";
-        } else throw new IllegalArgumentException("kind must be workbook or answers");
+        } else if ("transcript".equals(kind)) {
+            if (!preparation.hasTranscriptPdf()) throw new IllegalArgumentException("This lesson does not have a transcript PDF");
+            pdf = preparation.getTranscriptPdf();
+            filename = preparation.getTranscriptFilename();
+            if (filename == null || filename.isBlank()) filename = "lesson-transcript.pdf";
+        } else throw new IllegalArgumentException("kind must be workbook, answers or transcript");
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("filename", filename);
         result.put("mimeType", MediaType.APPLICATION_PDF_VALUE);
         result.put("sizeBytes", pdf.length);
         result.put("base64", Base64.getEncoder().encodeToString(pdf));
         return result;
+    }
+
+    private Map<String, Object> downloadLessonTranscript(Map<String, Object> arguments, AuthContext auth) {
+        Map<String, Object> transcriptArguments = new LinkedHashMap<>(arguments);
+        transcriptArguments.put("kind", "transcript");
+        return downloadLessonPdf(transcriptArguments, auth);
     }
 
     private LessonPreparationResponse prepareLesson(Map<String, Object> arguments, AuthContext auth) throws Exception {
@@ -354,10 +630,15 @@ public class MindcraftiMcpController {
         String homeworkNotes = optional(arguments, "homeworkNotes", current.homeworkNotes());
         String difficulties = optional(arguments, "difficulties", current.difficulties());
         String lessonPlan = optional(arguments, "lessonPlan", current.lessonPlan());
-        LessonPreparationResponse result = preparationService.update(teacher, eventId, new UpdateLessonPreparationRequest(homeworkNotes, difficulties, lessonPlan));
+        LessonPreparationResponse result = preparationService.update(teacher, eventId, new UpdateLessonPreparationRequest(homeworkNotes, difficulties, lessonPlan, null));
 
         String workbookBase64 = string(arguments.get("workbookBase64"));
-        String workbookFilename = normalizedPdfFilename(string(arguments.get("workbookFilename")), "lesson-workbook.pdf");
+        String rawWorkbookFilename = string(arguments.get("workbookFilename")).trim();
+        boolean transcriptCompatibilityImport = "__TRANSCRIPT__".equals(rawWorkbookFilename);
+        if (transcriptCompatibilityImport) {
+            throw new IllegalArgumentException("Transcript import through prepare_lesson is disabled. Use attach_lesson_transcript with the original Soniox PDF filename so Mindcrafti can verify the target lesson.");
+        }
+        String workbookFilename = normalizedPdfFilename(rawWorkbookFilename, "lesson-workbook.pdf");
         String driveWorkbookFileId = string(arguments.get("driveWorkbookFileId"));
         if (!workbookBase64.isBlank() && !driveWorkbookFileId.isBlank()) throw new IllegalArgumentException("Use either workbookBase64 or driveWorkbookFileId, not both");
         if (!workbookBase64.isBlank()) {
@@ -395,6 +676,60 @@ public class MindcraftiMcpController {
         return preparationService.uploadAnswers(teacher, eventId, filename, pdf);
     }
 
+    private LessonPreparationResponse attachLessonTranscript(Map<String, Object> arguments, AuthContext auth) throws Exception {
+        AuthenticatedUser teacher = requireTeacher(arguments, auth);
+        String eventId = required(arguments, "eventId");
+        requireLesson(teacher, eventId);
+        String driveFileId = required(arguments, "driveFileId");
+        String rawFilename = required(arguments, "filename");
+        String filename = normalizedPdfFilename(rawFilename, "lesson-transcript.pdf");
+        transcriptLessonGuard.validate(teacher, eventId, filename);
+        byte[] pdf = teacherDriveDownloadService.downloadForTeacher(teacher.id(), driveFileId, filename);
+        if (!looksLikePdf(pdf)) throw new IllegalArgumentException("driveFileId does not point to a PDF file");
+        return preparationService.uploadTranscript(teacher, eventId, filename, pdf);
+    }
+
+    private Map<String, Object> auditLessonTranscripts(AuthContext auth) {
+        if (!auth.apiKey() && (auth.user() == null || auth.user().getRole() != Role.ADMIN)) {
+            throw new IllegalArgumentException("audit_lesson_transcripts is admin-only");
+        }
+        return transcriptLessonGuard.auditAll();
+    }
+
+    private MonthlyPlanResponse getMonthPlan(Map<String, Object> arguments, AuthContext auth) {
+        String targetType = required(arguments, "targetType");
+        UUID targetId = uuid(required(arguments, "targetId"), "targetId");
+        AuthenticatedUser teacher = homeworkTeacher(arguments, auth, targetType, targetId);
+        return monthlyPlanService.get(teacher, targetType, targetId, required(arguments, "month"));
+    }
+
+    private MonthlyPlanResponse updateMonthPlan(Map<String, Object> arguments, AuthContext auth) {
+        String targetType = required(arguments, "targetType");
+        UUID targetId = uuid(required(arguments, "targetId"), "targetId");
+        AuthenticatedUser teacher = homeworkTeacher(arguments, auth, targetType, targetId);
+        return monthlyPlanService.save(
+                teacher,
+                targetType,
+                targetId,
+                required(arguments, "month"),
+                required(arguments, "planJson"));
+    }
+
+    private Map<String,Object> createLessonDraft(Map<String,Object> args,AuthContext auth) throws Exception {
+        AuthenticatedUser teacher=requireTeacher(args,auth);
+        String eventId=required(args,"eventId");
+        GroupLessonResponse lesson=calendarLessonService.listGroupLessons(teacher).stream().filter(l->eventId.equals(l.eventId())).findFirst().orElseThrow(()->new IllegalArgumentException("Lesson not found"));
+        String name=lesson.groupName()!=null?lesson.groupName():lesson.studentName()!=null?lesson.studentName():lesson.title();
+        return lessonPdfDraftService.create(teacher,eventId,name,required(args,"lessonJson"));
+    }
+    private Map<String,Object> publishLessonDraft(Map<String,Object> args,AuthContext auth) throws Exception {
+        AuthenticatedUser teacher=requireTeacher(args,auth);
+        UUID id=uuid(required(args,"draftId"),"draftId");
+        if(!booleanValue(args.get("confirm"),"confirm"))throw new IllegalArgumentException("Explicit confirmation required");
+        Map<String,Object> d=lessonPdfDraftService.info(teacher,id);
+        requireLesson(teacher,String.valueOf(d.get("eventId")));
+        return lessonPdfDraftService.publish(teacher,id,true);
+    }
     private Map<String, Object> findHomeworkTargets(Map<String, Object> arguments, AuthContext auth) {
         String query = string(arguments.get("query"));
         if (auth.user() != null && auth.user().getRole() == Role.TEACHER) return homeworkTargetsForTeacher(auth.user(), query);
@@ -430,8 +765,21 @@ public class MindcraftiMcpController {
         LocalDate startDate;
         try { startDate = LocalDate.parse(required(arguments, "startDate")); } catch (RuntimeException ex) { throw new IllegalArgumentException("startDate must use YYYY-MM-DD format"); }
         int days = integer(arguments.get("days"), "days");
-        List<String> driveFileIds = stringList(arguments.get("driveFileIds"), "driveFileIds");
         List<String> filenames = arguments.containsKey("filenames") ? stringList(arguments.get("filenames"), "filenames") : List.of();
+        boolean hasDirect = arguments.containsKey("pdfBase64");
+        boolean hasDrive = arguments.containsKey("driveFileIds");
+        if (hasDirect == hasDrive) {
+            throw new IllegalArgumentException("Provide exactly one PDF source: pdfBase64 or driveFileIds");
+        }
+        if (hasDirect) {
+            List<String> encodedPdfs = stringList(arguments.get("pdfBase64"), "pdfBase64");
+            List<byte[]> pdfs = new ArrayList<>();
+            for (int i = 0; i < encodedPdfs.size(); i++) {
+                pdfs.add(decodePdfBase64(encodedPdfs.get(i), "pdfBase64[" + i + "]"));
+            }
+            return homeworkSeriesService.assignDirectSeries(teacher, targetType, targetId, startDate, days, pdfs, filenames);
+        }
+        List<String> driveFileIds = stringList(arguments.get("driveFileIds"), "driveFileIds");
         return homeworkSeriesService.assignSeries(teacher, targetType, targetId, startDate, days, driveFileIds, filenames);
     }
 
@@ -520,6 +868,7 @@ public class MindcraftiMcpController {
     private boolean hasValidApiKey(String candidate) { return !apiKey.isBlank() && candidate != null && !candidate.isBlank() && MessageDigest.isEqual(apiKey.getBytes(StandardCharsets.UTF_8), candidate.getBytes(StandardCharsets.UTF_8)); }
     private Map<String, Object> readOnlyAnnotations() { return Map.of("readOnlyHint", true, "destructiveHint", false, "idempotentHint", true, "openWorldHint", false); }
     private Map<String, Object> writeAnnotations() { return Map.of("readOnlyHint", false, "destructiveHint", false, "idempotentHint", true, "openWorldHint", false); }
+    private Map<String, Object> destructiveWriteAnnotations() { return Map.of("readOnlyHint", false, "destructiveHint", true, "idempotentHint", false, "openWorldHint", false); }
     private Map<String, Object> tool(String name, String description, Map<String, Object> inputSchema, Map<String, Object> annotations) { Map<String, Object> tool = new LinkedHashMap<>(); tool.put("name", name); tool.put("description", description); tool.put("inputSchema", inputSchema); tool.put("annotations", annotations); return tool; }
     private Map<String, Object> schema(Map<String, Object> properties, List<String> required) { Map<String, Object> schema = new LinkedHashMap<>(); schema.put("type", "object"); schema.put("properties", properties); if (!required.isEmpty()) schema.put("required", required); schema.put("additionalProperties", false); return schema; }
     private Map<String, Object> property(String type, String description) { return Map.of("type", type, "description", description); }
@@ -535,6 +884,7 @@ public class MindcraftiMcpController {
     private UUID uuid(String value, String field) { try { return UUID.fromString(value); } catch (IllegalArgumentException ex) { throw new IllegalArgumentException(field + " must be a UUID"); } }
     private LocalDate date(Map<String, Object> values, String field) { try { return LocalDate.parse(required(values, field)); } catch (RuntimeException ex) { throw new IllegalArgumentException(field + " must use YYYY-MM-DD format"); } }
     private int integer(Object value, String field) { if (value instanceof Number number) return number.intValue(); try { return Integer.parseInt(string(value)); } catch (RuntimeException ex) { throw new IllegalArgumentException(field + " must be an integer"); } }
+    private boolean booleanValue(Object value, String field) { if (value instanceof Boolean flag) return flag; String text = string(value).trim(); if ("true".equalsIgnoreCase(text)) return true; if ("false".equalsIgnoreCase(text)) return false; throw new IllegalArgumentException(field + " must be a boolean"); }
     private List<String> stringList(Object value, String field) { if (!(value instanceof List<?> list)) throw new IllegalArgumentException(field + " must be an array of strings"); List<String> result = new ArrayList<>(); for (Object item : list) { String text = string(item).trim(); if (text.isBlank()) throw new IllegalArgumentException(field + " cannot contain blank values"); result.add(text); } return result; }
     private record AuthContext(boolean authenticated, boolean apiKey, User user) {}
 }

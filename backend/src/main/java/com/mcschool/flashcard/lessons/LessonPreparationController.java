@@ -30,14 +30,17 @@ public class LessonPreparationController {
     private final LessonPreparationService service;
     private final GoogleCalendarLessonService lessonService;
     private final McpHomeworkSeriesService homeworkSeriesService;
+    private final TranscriptLessonGuard transcriptLessonGuard;
 
     public LessonPreparationController(
             LessonPreparationService service,
             GoogleCalendarLessonService lessonService,
-            McpHomeworkSeriesService homeworkSeriesService) {
+            McpHomeworkSeriesService homeworkSeriesService,
+            TranscriptLessonGuard transcriptLessonGuard) {
         this.service = service;
         this.lessonService = lessonService;
         this.homeworkSeriesService = homeworkSeriesService;
+        this.transcriptLessonGuard = transcriptLessonGuard;
     }
 
     @GetMapping("/{eventId}")
@@ -76,6 +79,27 @@ public class LessonPreparationController {
         return service.uploadAnswers(teacher, eventId, file.getOriginalFilename(), file.getBytes());
     }
 
+
+    @PostMapping(value = "/{eventId}/transcript", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public LessonPreparationResponse uploadTranscript(
+            @AuthenticationPrincipal AuthenticatedUser teacher,
+            @PathVariable String eventId,
+            @RequestParam("file") MultipartFile file) throws Exception {
+        requireLesson(teacher, eventId);
+        transcriptLessonGuard.validate(teacher, eventId, file.getOriginalFilename());
+        return service.uploadTranscript(teacher, eventId, file.getOriginalFilename(), file.getBytes());
+    }
+
+    @GetMapping("/{eventId}/transcript")
+    public ResponseEntity<byte[]> transcript(
+            @AuthenticationPrincipal AuthenticatedUser teacher,
+            @PathVariable String eventId) {
+        LessonPreparation preparation = service.require(teacher, eventId);
+        if (!preparation.hasTranscriptPdf()) return ResponseEntity.notFound().build();
+        String filename = preparation.getTranscriptFilename() == null ? "lesson-transcript.pdf" : preparation.getTranscriptFilename();
+        return pdf(filename, preparation.getTranscriptPdf());
+    }
+
     @GetMapping("/{eventId}/answers")
     public ResponseEntity<byte[]> answers(@AuthenticationPrincipal AuthenticatedUser teacher,
                                           @PathVariable String eventId) {
@@ -83,6 +107,14 @@ public class LessonPreparationController {
         if (!preparation.hasAnswers()) return ResponseEntity.notFound().build();
         String filename = preparation.getAnswersFilename() == null ? "lesson-answers.pdf" : preparation.getAnswersFilename();
         return pdf(filename, preparation.getAnswersPdf());
+    }
+
+    @PostMapping("/{eventId}/drive-archive")
+    public LessonPreparationResponse archiveToDrive(
+            @AuthenticationPrincipal AuthenticatedUser teacher,
+            @PathVariable String eventId) {
+        requireLesson(teacher, eventId);
+        return service.archiveToDrive(teacher, eventId);
     }
 
     @PostMapping(value = "/{eventId}/homework-series", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

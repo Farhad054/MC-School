@@ -15,6 +15,7 @@ export type TrialLeadStatus =
   | 'BOOKED'
   | 'CONTACTED'
   | 'CONTRACT'
+  | 'NO_RESPONSE'
   | 'DECLINED';
 
 export type TrialLead = {
@@ -34,6 +35,113 @@ export type TrialLead = {
   updatedAt: string;
 };
 
+
+export type SiteVisit = {
+  id: string;
+  sessionId: string;
+  countryCode?: string | null;
+  path?: string | null;
+  source?: string | null;
+  referrer?: string | null;
+  deviceType?: string | null;
+  deviceModel?: string | null;
+  osName?: string | null;
+  osVersion?: string | null;
+  browserName?: string | null;
+  browserVersion?: string | null;
+  screenSize?: string | null;
+  viewportSize?: string | null;
+  language?: string | null;
+  userAgent?: string | null;
+  funnelStage?: string | null;
+  diagnosticStage?: string | null;
+  grade?: string | null;
+  schoolType?: string | null;
+  subject?: string | null;
+  goal?: string | null;
+  priority?: string | null;
+  firstInteractionLabel?: string | null;
+  furthestSectionId?: string | null;
+  furthestSectionLabel?: string | null;
+  maxScrollPercent?: number | null;
+  maxActiveSeconds?: number | null;
+  clientError?: string | null;
+  trialPageLoadedAt?: string | null;
+  gradeOptionsVisibleAt?: string | null;
+  firstInteractionAt?: string | null;
+  firstScrollAt?: string | null;
+  leadPhone?: string | null;
+  leadStatus?: TrialLeadStatus | null;
+  createdAt: string;
+  updatedAt?: string | null;
+};
+
+export type FunnelAnalytics = {
+  fromDate: string;
+  toDate: string;
+  timezone: string;
+  totals: {
+    visits: number;
+    interactions: number;
+    leads: number;
+    bookings: number;
+    contracts: number;
+    interactionRatePct: number;
+    leadConversionPct: number;
+    bookingConversionPct: number;
+    contractConversionPct: number;
+    averageActiveSeconds?: number | null;
+    averageActiveMinutes?: number | null;
+  };
+  funnel: Array<{
+    stage: string;
+    label: string;
+    sessions: number;
+    conversionFromVisitPct: number;
+    conversionFromPreviousPct: number;
+    dropOffFromPrevious: number;
+  }>;
+  stepTiming: Array<{
+    stage: string;
+    label: string;
+    samples: number;
+    averageSecondsToNext?: number | null;
+    averageMinutesToNext?: number | null;
+  }>;
+  sources: Array<{
+    source: string;
+    visits: number;
+    leads: number;
+    bookings: number;
+    contracts: number;
+    leadConversionPct: number;
+    bookingConversionPct: number;
+    averageActiveSeconds?: number | null;
+  }>;
+  devices: Array<{
+    device: string;
+    visits: number;
+    leads: number;
+    bookings: number;
+    contracts: number;
+    leadConversionPct: number;
+    bookingConversionPct: number;
+    averageActiveSeconds?: number | null;
+  }>;
+  countries: Array<{
+    countryCode: string;
+    visits: number;
+    leads: number;
+    bookings: number;
+    contracts: number;
+    leadConversionPct: number;
+    bookingConversionPct: number;
+    averageActiveSeconds?: number | null;
+  }>;
+  recentVisits: Array<Record<string, unknown>>;
+  measurementLimitations: string[];
+};
+
 function headers(): Record<string, string> {
   const token = getAccessToken();
   return {
@@ -51,6 +159,18 @@ async function parse<T>(response: Response): Promise<T> {
 
 export const trialLeadsApi = {
   list: async (): Promise<TrialLead[]> => parse<TrialLead[]>(await fetch(`${BASE_URL}/admin/trial-leads`, { headers: headers() })),
+  listVisits: async (): Promise<SiteVisit[]> => parse<SiteVisit[]>(await fetch(`${BASE_URL}/admin/site-visits`, { headers: headers() })),
+  deleteVisit: async (id: string): Promise<void> => {
+    await parse(await fetch(`${BASE_URL}/admin/site-visits/${id}`, {
+      method: 'DELETE',
+      headers: headers(),
+    }));
+  },
+  funnelAnalytics: async (fromDate: string, toDate: string, recentLimit = 50): Promise<FunnelAnalytics> =>
+    parse<FunnelAnalytics>(await fetch(
+      `${BASE_URL}/admin/site-visits/analytics?fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}&recentLimit=${recentLimit}`,
+      { headers: headers() },
+    )),
   setStatus: async (id: string, status: TrialLeadStatus): Promise<void> => {
     await parse(await fetch(`${BASE_URL}/admin/trial-leads/${id}/status`, {
       method: 'PATCH',

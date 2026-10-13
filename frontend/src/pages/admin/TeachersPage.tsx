@@ -1,16 +1,12 @@
 import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, getAccessToken, setAccessToken } from '../../api/client';
-import type { TeacherInvitation, User } from '../../api/types';
+import { api, getPersistentAccessToken, setSessionAccessToken } from '../../api/client';
+import type { User } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { useAuth } from '../../auth/AuthContext';
+import { saveAdminImpersonation } from '../../auth/adminImpersonation';
 import { toErrorMessage } from '../../lib/errors';
-import { InvitationNotice } from '../../components/InvitationNotice';
 import { TeacherTrialTranscriptFolderPicker } from './TeacherTrialTranscriptFolderPicker';
-
-const ADMIN_TOKEN_KEY = 'mindcrafti.impersonation.adminToken';
-const ADMIN_TEACHER_ID_KEY = 'mindcrafti.impersonation.teacherId';
-const ADMIN_TEACHER_NAME_KEY = 'mindcrafti.impersonation.teacherName';
 
 /** Admin home: create teacher accounts and manage their school lessons. */
 export function TeachersPage() {
@@ -20,11 +16,13 @@ export function TeachersPage() {
   const [teachers, setTeachers] = useState<User[]>([]);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [invitation, setInvitation] = useState<TeacherInvitation | null>(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [enteringTeacherId, setEnteringTeacherId] = useState<string | null>(null);
   const [driveTeacherId, setDriveTeacherId] = useState<string | null>(null);
+  const [deletingTeacherId, setDeletingTeacherId] = useState<string | null>(null);
 
   async function reload() {
     setTeachers(await api.teachers.list());
@@ -40,10 +38,11 @@ export function TeachersPage() {
     event.preventDefault();
     setError(null);
     try {
-      const created = await api.teachers.create(fullName.trim(), email.trim());
-      setInvitation(created);
+      await api.teachers.create(fullName.trim(), email.trim(), username.trim(), password);
       setFullName('');
       setEmail('');
+      setUsername('');
+      setPassword('');
       await reload();
     } catch (e) {
       setError(toErrorMessage(e, t));
@@ -52,7 +51,7 @@ export function TeachersPage() {
 
   async function enterAsTeacher(teacher: User) {
     if (enteringTeacherId) return;
-    const adminToken = getAccessToken();
+    const adminToken = getPersistentAccessToken();
     if (!adminToken) {
       setError('Административная сессия не найдена. Войдите в аккаунт администратора снова.');
       return;
@@ -62,10 +61,8 @@ export function TeachersPage() {
     setError(null);
     try {
       const auth = await api.auth.impersonateTeacher(teacher.id);
-      sessionStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
-      sessionStorage.setItem(ADMIN_TEACHER_ID_KEY, teacher.id);
-      sessionStorage.setItem(ADMIN_TEACHER_NAME_KEY, teacher.fullName);
-      setAccessToken(auth.accessToken);
+      saveAdminImpersonation(adminToken, teacher, `/admin/lessons?teacherId=${teacher.id}`);
+      setSessionAccessToken(auth.accessToken);
       setUser(auth.user);
       navigate('/teacher/lessons');
     } catch (e) {
@@ -77,6 +74,23 @@ export function TeachersPage() {
 
   function updateTeacher(updated: User) {
     setTeachers((current) => current.map((teacher) => teacher.id === updated.id ? updated : teacher));
+  }
+
+  async function deleteTeacher(teacher: User) {
+    if (deletingTeacherId) return;
+    if (!window.confirm('Удалить учителя ' + teacher.fullName + '? Учитель больше не сможет войти в систему.')) return;
+
+    setDeletingTeacherId(teacher.id);
+    setError(null);
+    try {
+      await api.teachers.remove(teacher.id);
+      setTeachers((current) => current.filter((item) => item.id !== teacher.id));
+      if (driveTeacherId === teacher.id) setDriveTeacherId(null);
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      setDeletingTeacherId(null);
+    }
   }
 
   return (
@@ -100,14 +114,32 @@ export function TeachersPage() {
               <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </label>
           </div>
+          <div className="row">
+            <label className="field">
+              <span className="field__label">Логин</span>
+              <input
+                className="input"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="off"
+                required
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">Пароль</span>
+              <input
+                className="input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                required
+              />
+            </label>
+          </div>
           <button className="btn" type="submit">{t('teachers.create')}</button>
         </form>
-        {invitation && (
-          <InvitationNotice
-            message={t('teachers.inviteCreated')}
-            token={invitation.invitationToken}
-          />
-        )}
       </div>
 
       {loading ? (
@@ -138,6 +170,14 @@ export function TeachersPage() {
               <span className={`pill ${teacher.status === 'ACTIVE' ? 'pill--learned' : 'pill--active'}`}>
                 {teacher.status}
               </span>
+              <button
+                className="btn btn--danger"
+                type="button"
+                disabled={Boolean(deletingTeacherId)}
+                onClick={() => void deleteTeacher(teacher)}
+              >
+                {deletingTeacherId === teacher.id ? 'Удаляем…' : 'Удалить'}
+              </button>
             </div>
             {driveTeacherId === teacher.id && <TeacherTrialTranscriptFolderPicker teacher={teacher} onSaved={updateTeacher} />}
           </Fragment>

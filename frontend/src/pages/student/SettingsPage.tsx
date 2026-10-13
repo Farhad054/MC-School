@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { aiPilotApi } from '../../api/aiPilot';
 import type { Language } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 
 /** Shared account settings: language, password for students, push notifications and logout. */
+const NICK_AI_PILOT_TEACHER_ID = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
+
 export function SettingsPage() {
   const { t, language, setLanguage } = useI18n();
   const { user, setUser, logout } = useAuth();
@@ -18,8 +21,30 @@ export function SettingsPage() {
   const [pushBusy, setPushBusy] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [passwordBusy, setPasswordBusy] = useState(false);
+  const [aiPilotEnabled, setAiPilotEnabled] = useState(false);
+  const [aiPreparationTime, setAiPreparationTime] = useState('10:00');
+  const [aiSettingsBusy, setAiSettingsBusy] = useState(false);
+  const [aiSettingsLoaded, setAiSettingsLoaded] = useState(false);
   const [passwordSaved, setPasswordSaved] = useState(false);
   const languages: Language[] = ['RU', 'DE'];
+
+  useEffect(() => {
+    if (user?.id !== NICK_AI_PILOT_TEACHER_ID) return;
+    let cancelled = false;
+    aiPilotApi.settings()
+      .then((settings) => {
+        if (cancelled) return;
+        setAiPilotEnabled(settings.enabled);
+        setAiPreparationTime(settings.preparationTime || '10:00');
+        setAiSettingsLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setAiSettingsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     async function loadPushState() {
@@ -34,7 +59,12 @@ export function SettingsPage() {
 
         const registration = await navigator.serviceWorker.register('/sw.js');
         await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription();
+        let subscription = await registration.pushManager.getSubscription();
+
+        if (subscription && !subscriptionUsesKey(subscription, config.publicKey)) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
 
         if (!subscription) {
           setPushEnabled(false);
@@ -55,6 +85,22 @@ export function SettingsPage() {
     }
     loadPushState();
   }, []);
+
+  async function saveAiPilotSettings() {
+    if (aiSettingsBusy) return;
+    setAiSettingsBusy(true);
+    setError(null);
+    try {
+      const settings = await aiPilotApi.updateSettings(aiPilotEnabled, aiPreparationTime);
+      setAiPilotEnabled(settings.enabled);
+      setAiPreparationTime(settings.preparationTime);
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : toErrorMessage(e, t));
+    } finally {
+      setAiSettingsBusy(false);
+    }
+  }
 
   async function choose(next: Language) {
     setError(null);
@@ -106,6 +152,20 @@ export function SettingsPage() {
       const registration = await navigator.serviceWorker.register('/sw.js');
       await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
+      const iosDevice = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      if (subscription && (iosDevice || !subscriptionUsesKey(subscription, config.publicKey))) {
+        try {
+          const previous = subscription.toJSON();
+          if (previous.endpoint && previous.keys?.p256dh && previous.keys?.auth) {
+            await api.push.unsubscribe({ endpoint: previous.endpoint, p256dh: previous.keys.p256dh, auth: previous.keys.auth });
+          }
+        } catch {
+          // Continue rebuilding locally even if server cleanup fails.
+        }
+        await subscription.unsubscribe();
+        subscription = null;
+      }
+      await registration.update();
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
@@ -118,6 +178,7 @@ export function SettingsPage() {
       }
       await api.push.subscribe({ endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth });
       setPushEnabled(true);
+      await api.push.test();
     } catch (e) {
       setError(e instanceof Error ? e.message : toErrorMessage(e, t));
     } finally {
@@ -182,6 +243,54 @@ export function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {user?.id === NICK_AI_PILOT_TEACHER_ID && (
+        <div className="panel stack">
+          <div>
+            <h2 style={{ marginTop: 0 }}>AI подготовка уроков</h2>
+            <p className="muted" style={{ marginBottom: 0 }}>
+              По умолчанию система готовит все ваши уроки на сегодня в 10:00 по времени Германии. Время можно менять.
+            </p>
+          </div>
+
+          {!aiSettingsLoaded ? (
+            <div className="muted">Загружаем настройки...</div>
+          ) : (
+            <>
+              <label className="row" style={{ justifyContent: 'space-between', gap: 16 }}>
+                <span>
+                  <strong>Автоподготовка включена</strong>
+                  <span className="muted" style={{ display: 'block', fontSize: 12 }}>
+                    AI не выдаёт материалы ученикам автоматически. Сначала вы их проверяете.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={aiPilotEnabled}
+                  onChange={(event) => setAiPilotEnabled(event.target.checked)}
+                />
+              </label>
+
+              <label>
+                <span className="field__label">Время подготовки</span>
+                <input
+                  className="input"
+                  type="time"
+                  value={aiPreparationTime}
+                  onChange={(event) => setAiPreparationTime(event.target.value || '10:00')}
+                />
+                <span className="muted" style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+                  Europe/Berlin. После этого времени система проверяет календарь и готовит ещё не подготовленные уроки этого дня.
+                </span>
+              </label>
+
+              <button className="btn btn--block" type="button" disabled={aiSettingsBusy} onClick={() => void saveAiPilotSettings()}>
+                {aiSettingsBusy ? 'Сохраняем...' : 'Сохранить время AI'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {user?.role === 'STUDENT' && (
         <div className="panel stack">
@@ -287,4 +396,17 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
     bytes[i] = rawData.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+
+function subscriptionUsesKey(subscription: PushSubscription, publicKey: string): boolean {
+  const expected = new Uint8Array(urlBase64ToArrayBuffer(publicKey));
+  const current = subscription.options.applicationServerKey
+    ? new Uint8Array(subscription.options.applicationServerKey)
+    : null;
+  if (!current || current.length !== expected.length) return false;
+  for (let i = 0; i < current.length; i += 1) {
+    if (current[i] !== expected[i]) return false;
+  }
+  return true;
 }

@@ -22,6 +22,18 @@ type StrokeGeometry = {
   canvasWidth: number;
   canvasHeight: number;
 };
+type StrokePoint = { x: number; y: number };
+type DrawingStroke = {
+  tool: Tool;
+  color: PenColor;
+  size: number;
+  points: StrokePoint[];
+};
+type PageDrawing = {
+  width: number;
+  height: number;
+  strokes: DrawingStroke[];
+};
 
 const PEN_COLORS: Array<{ value: PenColor; labelRu: string; labelDe: string }> = [
   { value: '#2563eb', labelRu: 'Синий', labelDe: 'Blau' },
@@ -32,14 +44,17 @@ const PEN_COLORS: Array<{ value: PenColor; labelRu: string; labelDe: string }> =
 
 const PEN_SIZES = [3, 5, 8, 12];
 
-export function PdfHomeworkPage() {
+export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = {}) {
   const { homeworkId = '' } = useParams();
   const { language, t } = useI18n();
   const [homework, setHomework] = useState<Homework | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageUrls, setPageUrls] = useState<Record<number, string>>({});
-  const [drawings, setDrawings] = useState<Record<number, string>>({});
+  const drawingsRef = useRef<Record<number, PageDrawing>>({});
   const [tool, setTool] = useState<Tool>('pen');
+  const [touchDrawingEnabled, setTouchDrawingEnabled] = useState(() =>
+    typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+  );
   const [penColor, setPenColor] = useState<PenColor>('#2563eb');
   const [penSize, setPenSize] = useState(5);
   const [desktopZoom, setDesktopZoom] = useState(100);
@@ -128,11 +143,20 @@ export function PdfHomeworkPage() {
     setError(null);
     setMessage(null);
     try {
-      const overlays = Object.entries(drawings).map(([index, imageBase64]) => ({ pageIndex: Number(index), imageBase64 }));
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      const overlays: Array<{ pageIndex: number; imageBase64: string }> = [];
+      for (const [index, drawing] of Object.entries(drawingsRef.current)) {
+        if (drawing.strokes.length === 0) continue;
+        overlays.push({
+          pageIndex: Number(index),
+          imageBase64: await pageDrawingToDataUrl(drawing),
+        });
+      }
       await api.study.submitPdfHomework(homeworkId, overlays);
       setPageUrls({});
       const updated = (await api.study.homeworks()).find((item) => item.id === homeworkId) ?? null;
       setHomework(updated);
+      onSubmitted?.();
       setMessage(language === 'DE' ? 'Hausaufgabe wurde abgegeben.' : 'Домашняя работа сдана.');
     } catch (e) {
       setError(toErrorMessage(e, t));
@@ -189,6 +213,14 @@ export function PdfHomeworkPage() {
                 <button type="button" className={`btn ${tool === 'eraser' ? '' : 'btn--secondary'}`} onClick={() => setTool('eraser')}>
                   {language === 'DE' ? 'Radierer' : 'Ластик'}
                 </button>
+                <button
+                  type="button"
+                  className={`btn ${touchDrawingEnabled ? '' : 'btn--secondary'}`}
+                  onClick={() => setTouchDrawingEnabled(!touchDrawingEnabled)}
+                  title={language === 'DE' ? 'Für Android-Stifte, die als Touch erkannt werden' : 'Для Android-стилусов, которые определяются как касание'}
+                >
+                  {language === 'DE' ? 'Android/Finger' : 'Android/палец'}
+                </button>
                 <ColorPicker language={language} value={penColor} onChange={(color) => { setPenColor(color); setTool('pen'); }} />
                 <SizePicker language={language} value={penSize} onChange={(size) => { setPenSize(size); setTool('pen'); }} />
               </div>
@@ -215,9 +247,11 @@ export function PdfHomeworkPage() {
         <WorksheetCanvas
           key={pageIndex}
           pageUrl={pageUrl}
-          initialDrawing={drawings[pageIndex]}
+          initialDrawing={drawingsRef.current[pageIndex]}
           tool={tool}
           setTool={setTool}
+          touchDrawingEnabled={touchDrawingEnabled}
+          setTouchDrawingEnabled={setTouchDrawingEnabled}
           penColor={penColor}
           setPenColor={setPenColor}
           penSize={penSize}
@@ -231,7 +265,7 @@ export function PdfHomeworkPage() {
           pageCount={pageCount}
           setPageIndex={setPageIndex}
           onDesktopZoomChange={setDesktopZoom}
-          onChange={(dataUrl) => setDrawings((current) => ({ ...current, [pageIndex]: dataUrl }))}
+          onChange={(drawing) => { drawingsRef.current[pageIndex] = drawing; }}
         />
       )}
 
@@ -242,8 +276,8 @@ export function PdfHomeworkPage() {
           </button>
           <p className="muted" style={{ marginBottom: 0, fontSize: 13 }}>
             {language === 'DE'
-              ? 'Apple Pencil schreibt. Mit zwei Fingern zoomst du die Seite; Farbe und Stiftbreite kannst du in der Werkzeugleiste ändern.'
-              : 'Apple Pencil пишет. Двумя пальцами масштабируется страница. Цвет и толщину ручки можно менять в панели инструментов.'}
+              ? 'Apple Pencil oder Android-Stift schreibt. Auf Android kann Einfinger-Schreiben aktiviert werden; mit zwei Fingern zoomst und verschiebst du die Seite.'
+              : 'Apple Pencil и Android-стилус пишут прямо по листу. На Android можно включить режим «1 палец/стилус пишет», а двумя пальцами двигать и масштабировать страницу.'}
           </p>
         </div>
       )}
@@ -305,11 +339,76 @@ function DesktopZoomControls({ zoom, onChange }: { zoom: number; onChange: (valu
   );
 }
 
-function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, penColor, setPenColor, penSize, setPenSize, language, desktopControls, desktopZoom, viewport, toolbarScale, pageIndex, pageCount, setPageIndex, onDesktopZoomChange, onChange }: {
+function strokeWidth(stroke: DrawingStroke) {
+  return stroke.tool === 'eraser' ? Math.max(24, stroke.size * 5) : stroke.size;
+}
+
+function prepareStrokeContext(ctx: CanvasRenderingContext2D, stroke: DrawingStroke) {
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = strokeWidth(stroke);
+  ctx.strokeStyle = stroke.color;
+  ctx.fillStyle = stroke.color;
+  ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
+}
+
+function drawStrokeDot(ctx: CanvasRenderingContext2D, point: StrokePoint, stroke: DrawingStroke) {
+  prepareStrokeContext(ctx, stroke);
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, strokeWidth(stroke) / 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawStrokeSegment(ctx: CanvasRenderingContext2D, from: StrokePoint, to: StrokePoint, stroke: DrawingStroke) {
+  prepareStrokeContext(ctx, stroke);
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+}
+
+function redrawStrokes(ctx: CanvasRenderingContext2D, width: number, height: number, strokes: DrawingStroke[]) {
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, width, height);
+  for (const stroke of strokes) {
+    if (stroke.points.length === 0) continue;
+    drawStrokeDot(ctx, stroke.points[0], stroke);
+    for (let i = 1; i < stroke.points.length; i += 1) {
+      drawStrokeSegment(ctx, stroke.points[i - 1], stroke.points[i], stroke);
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+async function pageDrawingToDataUrl(drawing: PageDrawing): Promise<string> {
+  const canvas = document.createElement('canvas');
+  canvas.width = drawing.width;
+  canvas.height = drawing.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not prepare homework drawing');
+  redrawStrokes(ctx, canvas.width, canvas.height, drawing.strokes);
+
+  return new Promise<string>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('Could not encode homework drawing'));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error ?? new Error('Could not read homework drawing'));
+      reader.readAsDataURL(blob);
+    }, 'image/png');
+  });
+}
+
+function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingEnabled, setTouchDrawingEnabled, penColor, setPenColor, penSize, setPenSize, language, desktopControls, desktopZoom, viewport, toolbarScale, pageIndex, pageCount, setPageIndex, onDesktopZoomChange, onChange }: {
   pageUrl: string;
-  initialDrawing?: string;
+  initialDrawing?: PageDrawing;
   tool: Tool;
   setTool: (tool: Tool) => void;
+  touchDrawingEnabled: boolean;
+  setTouchDrawingEnabled: (enabled: boolean) => void;
   penColor: PenColor;
   setPenColor: (color: PenColor) => void;
   penSize: number;
@@ -323,31 +422,31 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, penColor, set
   pageCount: number;
   setPageIndex: (updater: (page: number) => number) => void;
   onDesktopZoomChange: (value: number) => void;
-  onChange: (dataUrl: string) => void;
+  onChange: (drawing: PageDrawing) => void;
 }) {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingPointerIdRef = useRef<number | null>(null);
+  const activeTouchPointersRef = useRef<Set<number>>(new Set());
   const strokeGeometryRef = useRef<StrokeGeometry | null>(null);
-  const historyRef = useRef<string[]>([]);
+  const strokesRef = useRef<DrawingStroke[]>(initialDrawing?.strokes.map((stroke) => ({
+    ...stroke,
+    points: stroke.points.map((point) => ({ ...point })),
+  })) ?? []);
+  const activeStrokeRef = useRef<DrawingStroke | null>(null);
+  const lastPointRef = useRef<StrokePoint | null>(null);
   const [ready, setReady] = useState(false);
-  const [undoCount, setUndoCount] = useState(0);
+  const [undoCount, setUndoCount] = useState(strokesRef.current.length);
 
-  useEffect(() => {
+  function emitDrawing() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    const guardTouch = (event: TouchEvent) => {
-      if (event.touches.length < 2) event.preventDefault();
-    };
-
-    canvas.addEventListener('touchstart', guardTouch, { passive: false });
-    canvas.addEventListener('touchmove', guardTouch, { passive: false });
-    return () => {
-      canvas.removeEventListener('touchstart', guardTouch);
-      canvas.removeEventListener('touchmove', guardTouch);
-    };
-  }, []);
+    onChange({
+      width: canvas.width,
+      height: canvas.height,
+      strokes: strokesRef.current,
+    });
+  }
 
   function setupCanvas() {
     const image = imageRef.current;
@@ -357,12 +456,8 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, penColor, set
     canvas.height = image.naturalHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (initialDrawing) {
-      const saved = new Image();
-      saved.onload = () => ctx.drawImage(saved, 0, 0, canvas.width, canvas.height);
-      saved.src = initialDrawing;
-    }
+    redrawStrokes(ctx, canvas.width, canvas.height, strokesRef.current);
+    setUndoCount(strokesRef.current.length);
     setReady(true);
   }
 
@@ -378,23 +473,34 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, penColor, set
     };
   }
 
-  function point(event: React.PointerEvent<HTMLCanvasElement>, geometry?: StrokeGeometry | null) {
-    const canvas = canvasRef.current!;
-    const g = geometry ?? currentGeometry(canvas);
+  function pointFromPointer(event: PointerEvent, geometry: StrokeGeometry) {
     return {
-      x: (event.clientX - g.left) * (g.canvasWidth / g.width),
-      y: (event.clientY - g.top) * (g.canvasHeight / g.height),
+      x: (event.clientX - geometry.left) * (geometry.canvasWidth / geometry.width),
+      y: (event.clientY - geometry.top) * (geometry.canvasHeight / geometry.height),
     };
   }
 
-  function pushHistory(canvas: HTMLCanvasElement) {
-    historyRef.current.push(canvas.toDataURL('image/png'));
-    if (historyRef.current.length > 30) historyRef.current.shift();
-    setUndoCount(historyRef.current.length);
+  function canDrawWithPointer(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType !== 'touch') return true;
+    return touchDrawingEnabled && activeTouchPointersRef.current.size <= 1;
   }
 
   function start(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (event.pointerType === 'touch') return;
+    if (event.pointerType === 'touch') {
+      activeTouchPointersRef.current.add(event.pointerId);
+      // The second finger belongs to browser pinch/pan. If a one-finger stroke
+      // was in progress, cancel it instead of drawing an accidental line.
+      if (activeTouchPointersRef.current.size > 1) {
+        if (drawingPointerIdRef.current !== null) {
+          activeStrokeRef.current = null;
+          lastPointRef.current = null;
+          drawingPointerIdRef.current = null;
+          strokeGeometryRef.current = null;
+        }
+        return;
+      }
+    }
+    if (!canDrawWithPointer(event)) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -402,75 +508,89 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, penColor, set
     if (!canvas || drawingPointerIdRef.current !== null) return;
 
     const geometry = currentGeometry(canvas);
-    strokeGeometryRef.current = geometry;
-    const startPoint = point(event, geometry);
+    const startPoint = pointFromPointer(event.nativeEvent, geometry);
+    const stroke: DrawingStroke = {
+      tool,
+      color: penColor,
+      size: penSize,
+      points: [startPoint],
+    };
 
+    strokeGeometryRef.current = geometry;
+    activeStrokeRef.current = stroke;
+    lastPointRef.current = startPoint;
     drawingPointerIdRef.current = event.pointerId;
     event.currentTarget.setPointerCapture(event.pointerId);
-    pushHistory(canvas);
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.beginPath();
-    ctx.moveTo(startPoint.x, startPoint.y);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = tool === 'eraser' ? Math.max(24, penSize * 5) : penSize;
-    ctx.strokeStyle = penColor;
-    ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
+    if (ctx) drawStrokeDot(ctx, startPoint, stroke);
   }
 
   function move(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (event.pointerType === 'touch' || drawingPointerIdRef.current !== event.pointerId) return;
+    if (!canDrawWithPointer(event) || drawingPointerIdRef.current !== event.pointerId) return;
 
     event.preventDefault();
     event.stopPropagation();
     const ctx = canvasRef.current?.getContext('2d');
-    if (!ctx) return;
-    const p = point(event, strokeGeometryRef.current);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
+    const geometry = strokeGeometryRef.current;
+    const stroke = activeStrokeRef.current;
+    if (!ctx || !geometry || !stroke) return;
+
+    const nativeEvent = event.nativeEvent;
+    const samples = typeof nativeEvent.getCoalescedEvents === 'function'
+      ? nativeEvent.getCoalescedEvents()
+      : [nativeEvent];
+
+    for (const sample of samples.length > 0 ? samples : [nativeEvent]) {
+      const nextPoint = pointFromPointer(sample, geometry);
+      const previousPoint = lastPointRef.current;
+      if (previousPoint) drawStrokeSegment(ctx, previousPoint, nextPoint, stroke);
+      stroke.points.push(nextPoint);
+      lastPointRef.current = nextPoint;
+    }
   }
 
   function finish(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (event.pointerType === 'touch' || drawingPointerIdRef.current !== event.pointerId) return;
+    if (event.pointerType === 'touch') activeTouchPointersRef.current.delete(event.pointerId);
+    if (drawingPointerIdRef.current !== event.pointerId) return;
 
     event.preventDefault();
     event.stopPropagation();
+    const stroke = activeStrokeRef.current;
+    if (stroke) {
+      strokesRef.current = [...strokesRef.current, stroke];
+      setUndoCount(strokesRef.current.length);
+      emitDrawing();
+    }
+
+    activeStrokeRef.current = null;
+    lastPointRef.current = null;
     drawingPointerIdRef.current = null;
     strokeGeometryRef.current = null;
     try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* no-op */ }
-    const canvas = canvasRef.current;
-    if (canvas) onChange(canvas.toDataURL('image/png'));
-  }
-
-  function restore(dataUrl: string) {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const img = new Image();
-    img.onload = () => {
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      onChange(canvas.toDataURL('image/png'));
-    };
-    img.src = dataUrl;
   }
 
   function undo() {
-    const previous = historyRef.current.pop();
-    setUndoCount(historyRef.current.length);
-    if (previous) restore(previous);
+    if (strokesRef.current.length === 0) return;
+    strokesRef.current = strokesRef.current.slice(0, -1);
+    setUndoCount(strokesRef.current.length);
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (canvas && ctx) redrawStrokes(ctx, canvas.width, canvas.height, strokesRef.current);
+    emitDrawing();
   }
 
   function clear() {
+    if (strokesRef.current.length === 0) return;
+    strokesRef.current = [];
+    setUndoCount(0);
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    pushHistory(canvas);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    onChange(canvas.toDataURL('image/png'));
+    if (canvas && ctx) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    emitDrawing();
   }
 
   const documentWidth = desktopControls ? `${desktopZoom}%` : '100%';
@@ -501,6 +621,15 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, penColor, set
         >
           <button type="button" className={`btn ${tool === 'pen' ? '' : 'btn--secondary'}`} onClick={() => setTool('pen')} title={language === 'DE' ? 'Stift' : 'Ручка'}>✎</button>
           <button type="button" className={`btn ${tool === 'eraser' ? '' : 'btn--secondary'}`} onClick={() => setTool('eraser')} title={language === 'DE' ? 'Radierer' : 'Ластик'}>⌫</button>
+          <button
+            type="button"
+            className={`btn ${touchDrawingEnabled ? '' : 'btn--secondary'}`}
+            onClick={() => setTouchDrawingEnabled(!touchDrawingEnabled)}
+            title={language === 'DE' ? 'Android/Finger schreiben' : 'Android: писать стилусом/пальцем'}
+            aria-pressed={touchDrawingEnabled}
+          >
+            ☝
+          </button>
           <div style={{ height: 1, background: 'rgba(0,0,0,.12)' }} />
           {PEN_COLORS.map((color) => (
             <button
@@ -539,7 +668,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, penColor, set
           <button className="btn btn--secondary" type="button" disabled={pageIndex >= pageCount - 1} onClick={() => setPageIndex((p) => p + 1)} title={language === 'DE' ? 'Nächste Seite' : 'Следующая страница'}>↓</button>
           <div style={{ height: 1, background: 'rgba(0,0,0,.12)' }} />
           <button className="btn btn--secondary" type="button" onClick={undo} disabled={undoCount === 0} title={language === 'DE' ? 'Rückgängig' : 'Шаг назад'}>↶</button>
-          <button className="btn btn--ghost" type="button" onClick={clear} title={language === 'DE' ? 'Seite löschen' : 'Очистить страницу'}>×</button>
+          <button className="btn btn--ghost" type="button" onClick={clear} disabled={undoCount === 0} title={language === 'DE' ? 'Seite löschen' : 'Очистить страницу'}>×</button>
         </div>
       )}
 
@@ -548,7 +677,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, penColor, set
           <button className="btn btn--secondary" type="button" onClick={undo} disabled={undoCount === 0}>
             {language === 'DE' ? 'Rückgängig' : '↶ Шаг назад'}
           </button>
-          <button className="btn btn--ghost" type="button" onClick={clear}>
+          <button className="btn btn--ghost" type="button" onClick={clear} disabled={undoCount === 0}>
             {language === 'DE' ? 'Seite löschen' : 'Очистить страницу'}
           </button>
         </div>

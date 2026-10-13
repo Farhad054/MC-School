@@ -35,13 +35,13 @@ async function parse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
-async function pdfBytes(eventId: string, kind: 'workbook' | 'answers') {
+async function pdfBytes(eventId: string, kind: 'workbook' | 'answers' | 'transcript') {
   const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/${kind}`, { headers: authHeaders() });
   if (!response.ok) throw new ApiRequestError(response.status, kind.toUpperCase(), response.statusText);
   return response.arrayBuffer();
 }
 
-async function pdfUrl(eventId: string, kind: 'workbook' | 'answers') {
+async function pdfUrl(eventId: string, kind: 'workbook' | 'answers' | 'transcript') {
   return URL.createObjectURL(new Blob([await pdfBytes(eventId, kind)], { type: 'application/pdf' }));
 }
 
@@ -71,7 +71,7 @@ export const lessonPreparationApi = {
   get(eventId: string) {
     return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}`, { headers: authHeaders() }).then(parse<LessonPreparation>);
   },
-  update(eventId: string, payload: { homeworkNotes: string; difficulties: string; lessonPlan: string }) {
+  update(eventId: string, payload: { homeworkNotes: string; difficulties: string; lessonPlan: string; transcriptText: string }) {
     return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}`, {
       method: 'PUT',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -84,6 +84,15 @@ export const lessonPreparationApi = {
   uploadAnswers(eventId: string, file: File) {
     return uploadPdf(eventId, 'answers', file);
   },
+  uploadTranscript(eventId: string, file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/transcript`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: form,
+    }).then(parse<LessonPreparation>);
+  },
   workbookUrl(eventId: string) {
     return pdfUrl(eventId, 'workbook');
   },
@@ -93,6 +102,15 @@ export const lessonPreparationApi = {
   },
   answersUrl(eventId: string) {
     return pdfUrl(eventId, 'answers');
+  },
+  transcriptUrl(eventId: string) {
+    return pdfUrl(eventId, 'transcript');
+  },
+  archiveToDrive(eventId: string) {
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/drive-archive`, {
+      method: 'POST',
+      headers: authHeaders(),
+    }).then(parse<LessonPreparation>);
   },
   assignHomeworkSeries(eventId: string, startDate: string, days: number, files: File[]) {
     return uploadHomeworkSeries(eventId, startDate, days, files);

@@ -21,9 +21,11 @@ export function AdminLessonDetailPage() {
   const [lessonPlan, setLessonPlan] = useState('');
   const [workbookUrl, setWorkbookUrl] = useState<string | null>(null);
   const [answersUrl, setAnswersUrl] = useState<string | null>(null);
+  const [transcriptUrl, setTranscriptUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<MaterialKind | null>(null);
+  const [archivingDrive, setArchivingDrive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -58,6 +60,12 @@ export function AdminLessonDetailPage() {
             if (!cancelled) setAnswersUrl(URL.createObjectURL(blob));
           } catch { /* page remains usable */ }
         }
+        if (prep.hasTranscript) {
+          try {
+            const blob = await adminLessonsApi.transcript(teacherId, decodedEventId);
+            if (!cancelled) setTranscriptUrl(URL.createObjectURL(blob));
+          } catch { /* page remains usable */ }
+        }
       } catch (e) {
         if (!cancelled) setError(toErrorMessage(e, t));
       } finally {
@@ -70,6 +78,7 @@ export function AdminLessonDetailPage() {
 
   useEffect(() => () => { if (workbookUrl) URL.revokeObjectURL(workbookUrl); }, [workbookUrl]);
   useEffect(() => () => { if (answersUrl) URL.revokeObjectURL(answersUrl); }, [answersUrl]);
+  useEffect(() => () => { if (transcriptUrl) URL.revokeObjectURL(transcriptUrl); }, [transcriptUrl]);
 
   async function save() {
     if (saving) return;
@@ -88,6 +97,21 @@ export function AdminLessonDetailPage() {
       setError(toErrorMessage(e, t));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function archiveToDrive() {
+    if (archivingDrive || (!preparation?.hasWorkbook && !preparation?.hasAnswers)) return;
+    setArchivingDrive(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await adminLessonsApi.archiveToDrive(teacherId, decodedEventId);
+      setMessage('PDF сохранены в Google Drive. Копии в Mindcrafti остаются основными.');
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      setArchivingDrive(false);
     }
   }
 
@@ -145,6 +169,11 @@ export function AdminLessonDetailPage() {
           <button className="btn" type="button" onClick={() => void save()} disabled={saving}>
             {saving ? 'Сохраняем…' : 'Сохранить информацию'}
           </button>
+          {(preparation?.hasWorkbook || preparation?.hasAnswers) && (
+            <button className="btn btn--ghost" type="button" onClick={() => void archiveToDrive()} disabled={archivingDrive}>
+              {archivingDrive ? 'Сохраняем в Drive…' : 'Сохранить в Google Drive'}
+            </button>
+          )}
           {lesson?.calendarUrl && <a className="btn btn--ghost" href={lesson.calendarUrl} target="_blank" rel="noreferrer">Google Calendar</a>}
         </div>
       </div>
@@ -172,6 +201,13 @@ export function AdminLessonDetailPage() {
           url={answersUrl}
           uploading={uploading === 'answers'}
           onUpload={(file) => void upload('answers', file)}
+        />
+        <AdminMaterialCard
+          title="Транскрипция урока"
+          description="Оригинальный PDF Soniox, привязанный именно к этому уроку"
+          filename={preparation?.transcriptFilename}
+          url={transcriptUrl}
+          uploading={false}
         />
       </div>
 
@@ -215,7 +251,7 @@ function AdminMaterialCard({ title, description, filename, url, uploading, onUpl
   filename?: string | null;
   url: string | null;
   uploading: boolean;
-  onUpload: (file: File) => void;
+  onUpload?: (file: File) => void;
 }) {
   return (
     <section className="panel" style={{ padding: 18, margin: 0 }}>
@@ -234,23 +270,25 @@ function AdminMaterialCard({ title, description, filename, url, uploading, onUpl
         </div>
       )}
 
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-        <GoogleDrivePdfPicker disabled={uploading} onSelect={onUpload} />
-        <label className="btn btn--ghost" style={{ cursor: uploading ? 'default' : 'pointer' }}>
-          {uploading ? 'Загружаем…' : url ? 'Заменить PDF' : 'Загрузить PDF'}
-          <input
-            type="file"
-            accept="application/pdf,.pdf"
-            hidden
-            disabled={uploading}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onUpload(file);
-              e.currentTarget.value = '';
-            }}
-          />
-        </label>
-      </div>
+      {onUpload && (
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <GoogleDrivePdfPicker disabled={uploading} onSelect={onUpload} />
+          <label className="btn btn--ghost" style={{ cursor: uploading ? 'default' : 'pointer' }}>
+            {uploading ? 'Загружаем…' : url ? 'Заменить PDF' : 'Загрузить PDF'}
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              hidden
+              disabled={uploading}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onUpload(file);
+                e.currentTarget.value = '';
+              }}
+            />
+          </label>
+        </div>
+      )}
     </section>
   );
 }
