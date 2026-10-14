@@ -348,8 +348,11 @@ public class OnlineClassService {
         if (!onlineClass.isConnectable()) {
             throw new ConflictException("This class is not open");
         }
-        if (!host && !isWithinJoinWindow(onlineClass)) {
-            throw new ConflictException("This class is not open for joining yet");
+        // Opening a room early overrides the calendar's earliest join time, but
+        // never reopens a historical lesson after its scheduled end plus grace.
+        // Participant authorization and teacher admission still apply below.
+        if (!host && now().isAfter(onlineClass.getScheduledEndAt().plus(properties.joinWindowAfterEnd()))) {
+            throw new ConflictException("This class is not open for joining anymore");
         }
 
         User user = accessService.requireActiveUser(caller.id());
@@ -441,7 +444,7 @@ public class OnlineClassService {
     private OnlineClassResponse toResponse(OnlineClass onlineClass, AuthenticatedUser caller) {
         return OnlineClassResponse.from(onlineClass,
                 accessService.isHost(caller, onlineClass),
-                isWithinJoinWindow(onlineClass),
+                onlineClass.isConnectable() || isWithinJoinWindow(onlineClass),
                 recordingProvider.isConfigured(),
                 transcriptionProvider.isConfigured());
     }
