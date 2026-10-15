@@ -5,7 +5,7 @@ export type PdfState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'ready'; doc: PdfDoc }
-  | { status: 'error' };
+  | { status: 'error'; message: string };
 
 /**
  * Loads a PDF from a function that fetches its bytes.
@@ -45,8 +45,8 @@ export function usePdf(
         loaded = doc;
         setState({ status: 'ready', doc });
       })
-      .catch(() => {
-        if (active) setState({ status: 'error' });
+      .catch((error: unknown) => {
+        if (active) setState({ status: 'error', message: error instanceof Error ? error.message : String(error) });
       });
     return () => {
       active = false;
