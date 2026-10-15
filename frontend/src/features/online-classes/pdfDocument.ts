@@ -6,6 +6,8 @@
  * the answers panel render pages the same way.
  */
 
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
+
 export interface RenderedPage {
   canvas: HTMLCanvasElement;
   /** Width / height of the page, used to letterbox marks onto it. */
@@ -30,8 +32,11 @@ export function widthBucket(width: number): number {
 
 export async function openPdf(data: ArrayBuffer): Promise<PdfDoc> {
   const pdfjs = await import('pdfjs-dist');
-  const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
-  pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  // Bundle the PDF worker as a real Vite worker, rather than relying on
+  // pdf.js to dynamically import a worker URL (which fails on iPad Safari).
+  if (!pdfjs.GlobalWorkerOptions.workerPort) {
+    pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
+  }
 
   const task = pdfjs.getDocument({ data: new Uint8Array(data), isEvalSupported: false });
   const document = await task.promise;
