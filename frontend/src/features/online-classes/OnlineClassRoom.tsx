@@ -1,3 +1,5 @@
+import { lessonPreparationApi } from '../../api/lessonPreparation';
+import { buildPdf, dataUrlToBytes } from './pdfWriter';
 import {
   ConnectionStateToast,
   ControlBar,
@@ -124,6 +126,42 @@ function RoomBody({
   const { t } = useI18n();
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [homeworkOpen, setHomeworkOpen] = useState(false);
+  const [materialBusy, setMaterialBusy] = useState(false);
+  const [materialError, setMaterialError] = useState<string | null>(null);
+  const uploadMaterial = async (file: File) => {
+    if (!eventId) { setMaterialError('Урок не связан с календарём. Загрузка недоступна.'); return; }
+    setMaterialBusy(true);
+    setMaterialError(null);
+    try {
+      let pdfFile = file;
+      if (file.type.startsWith('image/')) {
+        const url = URL.createObjectURL(file);
+        try {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          const scale = Math.min(1, 2200 / Math.max(image.naturalWidth, image.naturalHeight));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Canvas unavailable');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+          const jpeg = dataUrlToBytes(canvas.toDataURL('image/jpeg', 0.88));
+          const bytes = buildPdf([{ jpeg, width: canvas.width, height: canvas.height }]);
+          pdfFile = new File([new Uint8Array(bytes)], file.name.replace(/\.[^.]+$/, '') + '.pdf', { type: 'application/pdf' });
+        } finally { URL.revokeObjectURL(url); }
+      } else if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+        throw new Error('Unsupported file');
+      }
+      await lessonPreparationApi.uploadWorkbook(eventId, pdfFile);
+      window.dispatchEvent(new Event('mc-workbook-updated'));
+    } catch {
+      setMaterialError('Не удалось загрузить файл. Используйте PDF, JPG или PNG.');
+    } finally { setMaterialBusy(false); }
+  };
   const [waiting, setWaiting] = useState(0);
   const [mainView, setMainView] = useState<'board' | 'screen'>('board');
   const sharing = useScreenShareActive();
@@ -175,6 +213,15 @@ function RoomBody({
             <path d="M8 7h6M8 11h4"/>
           </svg>
         </button>
+        {connection.host && (
+          <label title="Загрузить PDF или фото на доску" style={{ cursor: materialBusy ? 'wait' : 'pointer', padding: '6px 10px', borderRadius: 8, background: '#1d4ed8', color: 'white' }}>
+            {materialBusy ? 'Загрузка…' : '＋ PDF / Фото'}
+            <input type="file" accept=".pdf,application/pdf,image/png,image/jpeg,image/webp" disabled={materialBusy}
+              style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
+              onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadMaterial(file); event.target.value = ''; }} />
+          </label>
+        )}
+        {materialError && <span role="alert" style={{ color: '#dc2626' }}>{materialError}</span>}
         <ConnectionStatus />
         <RecordingControls
           classId={classId}
