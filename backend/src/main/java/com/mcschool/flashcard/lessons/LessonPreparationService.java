@@ -62,11 +62,9 @@ public class LessonPreparationService {
             preparation.attachWorkbook(storedFilename, pdf);
         }
         LessonPreparation saved = repository.save(preparation);
-        if (answersCompatibility) {
-            driveArchiveService.archiveAnswersBestEffort(teacher, eventId, storedFilename, pdf);
-        } else {
-            driveArchiveService.archiveWorkbookBestEffort(teacher, eventId, storedFilename, pdf);
-        }
+        // Live classroom uploads must respond immediately after database persistence.
+        // Drive archiving is available separately via the explicit archive endpoint;
+        // do not block the upload HTTP request on remote Drive calls.
         return response(saved);
     }
 
