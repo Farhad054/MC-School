@@ -98,6 +98,11 @@ export async function requestBlob(path: string): Promise<Blob> { const response 
 async function requestText(path: string): Promise<string> { const response = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() }); const text = await response.text(); if (!response.ok) { let payload: any; try { payload = text ? JSON.parse(text) : undefined; } catch { payload = undefined; } throw new ApiRequestError(response.status, payload?.errorCode ?? 'UNKNOWN', payload?.message ?? response.statusText); } return text; }
 
 export const api = {
+  learningTime: {
+    record: (event: {eventId:string;kind:'CARDS'|'HOMEWORK';referenceId:string;seconds:number}) => request<void>('POST','/learning-time/events',event),
+    school: (days=30) => request<import('./types').StudentTimeSummary[]>('GET', '/learning-time/admin?days='+days),
+    student: (studentId:string,days=30) => request<import('./types').StudentTimeReport>('GET','/learning-time/students/'+encodeURIComponent(studentId)+'?days='+days),
+  },
   auth: {
     login: (email: string, password: string) => request<AuthResponse>('POST', '/auth/login', { email, password }),
     activate: (invitationToken: string, email: string, password: string) => request<AuthResponse>('POST', '/auth/activate', { invitationToken, email: email.trim() || null, password }),

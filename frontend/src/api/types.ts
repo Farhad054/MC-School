@@ -58,3 +58,7 @@ export interface MonthlyPlanResponse {
   version: number;
   updatedAt: string | null;
 }
+
+export interface StudentTimeSummary {studentId:string;studentName:string;cardSeconds:number;homeworkSeconds:number;cardSessions:number;homeworkAssignments:number;activeDays:number;lastActivityAt:string|null}
+export interface StudentTimeDetail {kind:'CARDS'|'HOMEWORK';referenceId:string;seconds:number;label:string;lastActivityAt:string|null;completedAt:string|null}
+export interface StudentTimeReport {summary:StudentTimeSummary;details:StudentTimeDetail[]}

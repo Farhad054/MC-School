@@ -5,6 +5,7 @@ import type { Homework } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 import { PdfHomeworkPage } from './PdfHomeworkPage';
+import { useActiveLearningTime } from '../../hooks/useActiveLearningTime';
 
 const MAX_IMAGE_EDGE = 2200;
 const JPEG_QUALITY = 0.86;
@@ -23,6 +24,7 @@ export function PdfHomeworkWithSubmissionPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  useActiveLearningTime('HOMEWORK', homeworkId, Boolean(homeworkId && homework?.hasWorksheet && !homework.submitted));
 
   async function refresh() {
     const current = (await api.study.homeworks()).find((item) => item.id === homeworkId) ?? null;
