@@ -1,4 +1,5 @@
 import { lessonPreparationApi } from '../../api/lessonPreparation';
+import { onlineClassesApi } from '../../api/onlineClasses';
 import { buildPdf, dataUrlToBytes } from './pdfWriter';
 import {
   ConnectionStateToast,
@@ -157,9 +158,13 @@ function RoomBody({
         throw new Error('Unsupported file');
       }
       await lessonPreparationApi.uploadWorkbook(eventId, pdfFile);
+      const bytes = await onlineClassesApi.documentBytes(classId);
+      if (!bytes || bytes.byteLength === 0) {
+        throw new Error('PDF сохранён, но недоступен на доске');
+      }
       window.dispatchEvent(new Event('mc-workbook-updated'));
-    } catch {
-      setMaterialError('Не удалось загрузить файл. Используйте PDF, JPG или PNG.');
+    } catch (error) {
+      setMaterialError(error instanceof Error ? error.message : 'Не удалось загрузить файл.');
     } finally { setMaterialBusy(false); }
   };
   const [waiting, setWaiting] = useState(0);
