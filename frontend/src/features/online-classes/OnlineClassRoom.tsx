@@ -24,6 +24,7 @@ import { useStudentRoster } from './useStudentRoster';
 import { AnswersButton } from './AnswersButton';
 import { AnswersPanel } from './AnswersPanel';
 import { HomeworkDrawer } from './HomeworkDrawer';
+import { SolutionsDrawer } from './SolutionsDrawer';
 import { CameraColumn } from './CameraColumn';
 import { CaptionsPanel } from './CaptionsPanel';
 import { RecordingControls } from './RecordingControls';
@@ -210,8 +211,8 @@ function RoomBody({
             if (!homeworkOpen) answers.close();
             setHomeworkOpen((open) => !open);
           }}
-          aria-label={t('onlineClass.room.homework')}
-          title={t('onlineClass.room.homework')}
+          aria-label={connection.host ? 'Решения' : t('onlineClass.room.homework')}
+          title={connection.host ? 'Решения' : t('onlineClass.room.homework')}
           aria-expanded={homeworkOpen}
           aria-controls="classroom-homework-panel"
           aria-pressed={homeworkOpen}
@@ -307,7 +308,7 @@ function RoomBody({
           )}
 
           {homeworkOpen && (
-            <HomeworkDrawer classId={classId} onClose={() => setHomeworkOpen(false)} />
+            connection.host ? <SolutionsDrawer eventId={eventId} onClose={() => setHomeworkOpen(false)} /> : <HomeworkDrawer classId={classId} onClose={() => setHomeworkOpen(false)} />
           )}
 
           {/* Kept mounted (just hidden) so chat history, the roster and the
