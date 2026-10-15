@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { onlineClassesApi } from '../../api/onlineClasses';
 import type { PdfDoc } from './pdfDocument';
 import { usePdf } from './usePdf';
@@ -9,7 +10,15 @@ import { usePdf } from './usePdf';
  * and the board stays blank — the lesson never waits on it.
  */
 export function useBoardDocument(classId: string): PdfDoc | null {
-  const state = usePdf(classId, async () => {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const refresh = () => setRevision((value) => value + 1);
+    window.addEventListener('mc-workbook-updated', refresh);
+    // Participants discover newly uploaded materials without rejoining the room.
+    const timer = window.setInterval(refresh, 15000);
+    return () => { window.removeEventListener('mc-workbook-updated', refresh); window.clearInterval(timer); };
+  }, [classId]);
+  const state = usePdf(`${classId}:${revision}`, async () => {
     const bytes = await onlineClassesApi.documentBytes(classId);
     if (!bytes) throw new Error('no document');
     return bytes;
