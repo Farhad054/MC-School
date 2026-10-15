@@ -1343,3 +1343,35 @@
   .online-class-room__topbar .classroom-homework-toggle { min-width: 44px; min-height: 44px; }
   .classroom-homework__close, .classroom-homework__pagination button { min-width: 44px; min-height: 44px; }
 }
+
+/* Compact Goodnotes-inspired classroom header: one row instead of stacked toolbars. */
+.whiteboard__topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 4px 8px;
+  background: #14366c;
+  color: #f8fafc;
+}
+.whiteboard__topline-pages { flex: 0 0 auto; }
+.whiteboard__topline .board-toolbar {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  gap: 4px 8px;
+}
+.whiteboard__topline .board-toolbar button { color: #f8fafc; }
+.whiteboard__topline .board-toolbar__swatches button { color: transparent; }
+.whiteboard__topline .page-nav { background: rgba(255,255,255,.1); border-radius: 10px; }
+.whiteboard__topline .page-nav button { color: #fff; }
+.whiteboard__topline .page-nav__label { color: #fff; }
+.whiteboard__topline .board-toolbar .board-toolbar__tool.is-active { background: #2563eb; }
+@media (max-width: 900px) {
+  .whiteboard__topline { flex-wrap: wrap; }
+  .whiteboard__topline .board-toolbar { overflow-x: auto; flex-wrap: nowrap; }
+  .whiteboard__topline .board-toolbar__group { flex-shrink: 0; }
+}
