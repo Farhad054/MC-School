@@ -23,5 +23,8 @@ export function useBoardDocument(classId: string): PdfDoc | null {
     if (!bytes) throw new Error('no document');
     return bytes;
   });
+  useEffect(() => {
+    if (state.status === 'error') window.dispatchEvent(new CustomEvent('mc-workbook-render-error', { detail: 'Не удалось открыть PDF на доске. Проверьте формат файла или сообщите об ошибке.' }));
+  }, [state.status]);
   return state.status === 'ready' ? state.doc : null;
 }
