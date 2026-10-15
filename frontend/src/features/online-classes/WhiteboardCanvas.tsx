@@ -41,7 +41,8 @@ export type Tool =
   | 'text'
   | 'erase'
   | 'select'
-  | 'laser';
+  | 'laser'
+  | 'pan';
 
 /** Eraser behaviour: wipe the part under the eraser, or delete the whole stroke. */
 export type EraserMode = 'partial' | 'stroke';
@@ -368,7 +369,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       // Capture is a nicety (keeps a drag alive off-surface); not required.
     }
     // Middle button, or space held, moves the page instead of drawing.
-    const navigate = kind === 'mouse' && (event.button === 1 || spaceHeld.current);
+    const navigate = (live.current.tool === 'pan' && !lockedRef.current) || (kind === 'mouse' && (event.button === 1 || spaceHeld.current));
     if (navigate) event.preventDefault();
     applyIntents(controller.down(event.pointerId, kind, localPoint(event), palm, navigate, kind === 'pen' ? event.pressure : undefined));
   };
