@@ -182,6 +182,16 @@ export function BoardToolbar({
           </div>
         )}
 
+      {(tool === 'pen' || tool === 'highlighter') && (
+        <label className="board-toolbar__size" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#fff', flexShrink: 0, whiteSpace: 'nowrap' }}>
+          Толщина {Math.round(activeSettings.width * 1000)}
+          <input type="range" aria-label="Толщина ручки" min={MIN_WIDTH_PERMILLE}
+            max={MAX_WIDTH_PERMILLE} value={Math.round(activeSettings.width * 1000)}
+            onChange={(event) => onSettingsChange(tool, { width: Number(event.target.value) / 1000 })}
+            style={{ width: 95 }} />
+        </label>
+      )}
+
       <div className="board-toolbar__group" role="group" aria-label={t('onlineClass.board.inputMode')}>
         {(['stylus', 'finger'] as const).map((mode) => (
           <button
