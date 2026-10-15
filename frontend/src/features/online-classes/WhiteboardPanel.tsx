@@ -340,6 +340,13 @@ export function WhiteboardPanel({
 
   return (
     <section className="whiteboard" aria-label={t('onlineClass.board.viewLabel')} onKeyDown={onKeyDown}>
+      <div className="whiteboard__topline">
+      <div className="whiteboard__topline-pages">
+        <PageNavigator current={pages.current} count={pages.count} disabled={locked}
+          onPrevious={() => setPages(previousPage)}
+          onNext={() => setPages(nextPage)}
+          onAdd={(isHost || personal) && canAnnotate ? () => setPages(addPage) : undefined} />
+      </div>
       {canAnnotate && (
         <BoardToolbar
           tool={tool}
@@ -364,6 +371,7 @@ export function WhiteboardPanel({
         />
       )}
 
+      </div>
       <div role="status" aria-live="polite" className="whiteboard__notice">
         {saved && <span>{t('onlineClass.whiteboard.saved')}</span>}
         {saveError === 'unavailable' && (
@@ -402,16 +410,6 @@ export function WhiteboardPanel({
           onLaserMove={sendLaser}
         />
 
-        <div className="whiteboard__pages">
-          <PageNavigator
-            current={pages.current}
-            count={pages.count}
-            disabled={locked}
-            onPrevious={() => setPages(previousPage)}
-            onNext={() => setPages(nextPage)}
-            onAdd={(isHost || personal) && canAnnotate ? () => setPages(addPage) : undefined}
-          />
-        </div>
 
         <div className="whiteboard__zoom" role="group">
           <button
