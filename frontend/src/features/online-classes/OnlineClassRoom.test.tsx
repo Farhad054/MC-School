@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { lessonPreparationApi } from '../../api/lessonPreparation';
@@ -75,11 +75,11 @@ vi.mock('./WhiteboardPanel', () => ({
 }));
 
 vi.mock('../../api/lessonPreparation', () => ({
-  lessonPreparationApi: { get: vi.fn(), answersBytes: vi.fn() },
+  lessonPreparationApi: { get: vi.fn(), answersBytes: vi.fn(), uploadWorkbook: vi.fn() },
 }));
 vi.mock('../../api/onlineClasses', async () => {
   const actual = await vi.importActual<typeof import('../../api/onlineClasses')>('../../api/onlineClasses');
-  return { ...actual, onlineClassesApi: { listParticipants: vi.fn() } };
+  return { ...actual, onlineClassesApi: { listParticipants: vi.fn(), documentBytes: vi.fn() } };
 });
 
 import { OnlineClassRoom } from './OnlineClassRoom';
@@ -106,6 +106,47 @@ function mount(host: boolean, extra: Partial<React.ComponentProps<typeof OnlineC
     </I18nProvider>,
   );
 }
+
+describe('PDF upload contract', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([]);
+    vi.mocked(lessonPreparationApi.get).mockResolvedValue({ hasAnswers: false } as never);
+  });
+
+  it('uploads a PDF and verifies that the classroom can read it', async () => {
+    vi.mocked(lessonPreparationApi.uploadWorkbook).mockResolvedValue({ hasWorkbook: true } as never);
+    vi.mocked(onlineClassesApi.documentBytes).mockResolvedValue(new ArrayBuffer(16));
+    const refresh = vi.fn();
+    window.addEventListener('mc-workbook-updated', refresh);
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['%PDF-1.4 sample'], 'lesson.pdf', { type: 'application/pdf' });
+    await userEvent.upload(input, file);
+    await waitFor(() => expect(lessonPreparationApi.uploadWorkbook).toHaveBeenCalledWith('e1', file));
+    await waitFor(() => expect(onlineClassesApi.documentBytes).toHaveBeenCalledWith('c1'));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    window.removeEventListener('mc-workbook-updated', refresh);
+  });
+
+  it('reports when the saved PDF cannot be opened from the classroom', async () => {
+    vi.mocked(lessonPreparationApi.uploadWorkbook).mockResolvedValue({ hasWorkbook: true } as never);
+    vi.mocked(onlineClassesApi.documentBytes).mockResolvedValue(null);
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, new File(['pdf'], 'lesson.pdf', { type: 'application/pdf' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('PDF сохранён, но недоступен на доске');
+  });
+
+  it('reports a rejected upload instead of spinning forever', async () => {
+    vi.mocked(lessonPreparationApi.uploadWorkbook).mockRejectedValue(new Error('HTTP 413'));
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, new File(['pdf'], 'large.pdf', { type: 'application/pdf' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('HTTP 413');
+    await waitFor(() => expect(screen.getByText('＋ PDF / Фото')).toBeInTheDocument());
+  });
+});
 
 describe('OnlineClassRoom', () => {
   beforeEach(() => {
