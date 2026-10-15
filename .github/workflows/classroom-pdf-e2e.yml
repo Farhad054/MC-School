@@ -27,10 +27,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
-      - run: npx --yes --package=@playwright/test playwright --version
-      - run: npx --yes playwright install --with-deps chromium
-      - run: npm run preview -- --host 127.0.0.1 > /tmp/mc-vite.log 2>&1 &
-      - run: npx --yes --package=@playwright/test playwright test --config=playwright.config.mjs
+      - run: npm install --no-save @playwright/test
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --config=playwright.config.mjs
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
