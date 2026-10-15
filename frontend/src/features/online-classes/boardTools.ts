@@ -35,6 +35,7 @@ export interface ToolSettings {
 /** Each tool remembers its own colour and thickness, like a physical pen tray. */
 export const DEFAULT_TOOL_SETTINGS: Record<Tool, ToolSettings> = {
   pan: { color: COLORS[0], width: 0.004 },
+  pen: { color: COLORS[0], width: 0.004 },
   highlighter: { color: COLORS[4], width: 0.016 },
   erase: { color: COLORS[0], width: 0.012 },
   select: { color: COLORS[0], width: 0.004 },
