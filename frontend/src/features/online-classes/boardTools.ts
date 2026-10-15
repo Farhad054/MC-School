@@ -11,6 +11,7 @@ export interface ToolDefinition {
 
 /** Order mirrors a notebook toolbar: write, mark up, shape, erase, select, point. */
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
+  { tool: 'pan', labelKey: 'onlineClass.board.select', glyph: '✋', settings: 'none' },
   { tool: 'pen', labelKey: 'onlineClass.whiteboard.pen', glyph: '✎', settings: 'ink' },
   { tool: 'highlighter', labelKey: 'onlineClass.whiteboard.highlighter', glyph: '▌', settings: 'ink' },
   { tool: 'erase', labelKey: 'onlineClass.whiteboard.eraser', glyph: '⌫', settings: 'eraser' },
@@ -33,7 +34,7 @@ export interface ToolSettings {
 
 /** Each tool remembers its own colour and thickness, like a physical pen tray. */
 export const DEFAULT_TOOL_SETTINGS: Record<Tool, ToolSettings> = {
-  pen: { color: COLORS[0], width: 0.004 },
+  pan: { color: COLORS[0], width: 0.004 },
   highlighter: { color: COLORS[4], width: 0.016 },
   erase: { color: COLORS[0], width: 0.012 },
   select: { color: COLORS[0], width: 0.004 },
