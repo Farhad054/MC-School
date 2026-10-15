@@ -181,8 +181,6 @@ public class McpAnalyticsService {
         int correctFirstTry = sessions.stream().mapToInt(StudySession::getCorrectFirstTry).sum();
         int wrongFirstTry = Math.max(0, totalSessionCards - correctFirstTry);
         long studySeconds = sessions.stream().mapToLong(this::durationSeconds).sum();
-        LearningTimeReadService.Breakdown dayTime = learningTime.forDay(student.getId(), date);
-        Map<UUID, Long> homeworkTimes = learningTime.homeworkByReference(student.getId(), date);
         long scheduledSessions = sessions.stream().filter(session -> session.getSessionType() == SessionType.SCHEDULED).count();
         long practiceSessions = sessions.stream().filter(session -> session.getSessionType() == SessionType.PRACTICE).count();
         long reviewCompleted = reviewDays.stream().filter(history -> "COMPLETED".equals(history.getStatus().name())).count();
@@ -372,6 +370,8 @@ public class McpAnalyticsService {
         int correctFirstTry = sessions.stream().mapToInt(StudySession::getCorrectFirstTry).sum();
         int wrongFirstTry = Math.max(0, sessionCards - correctFirstTry);
         long studySeconds = sessions.stream().mapToLong(this::durationSeconds).sum();
+        LearningTimeReadService.Breakdown dayTime = learningTime.forDay(student.getId(), date);
+        Map<UUID, Long> homeworkTimes = learningTime.homeworkByReference(student.getId(), date);
         long scheduledSessions = sessions.stream().filter(session -> session.getSessionType() == SessionType.SCHEDULED).count();
         long practiceSessions = sessions.stream().filter(session -> session.getSessionType() == SessionType.PRACTICE).count();
 

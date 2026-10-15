@@ -33,7 +33,7 @@ public class LearningTimeReadService {
                 FROM learning_activity_events
                 WHERE student_id = ? AND recorded_at >= ? AND recorded_at < ?
                 GROUP BY activity_type
-                """, rs -> result.put(rs.getString("activity_type"), rs.getLong("seconds")),
+                """, (org.springframework.jdbc.core.RowCallbackHandler) rs -> result.put(rs.getString("activity_type"), rs.getLong("seconds")),
                 studentId, timestamp(from), timestamp(to.plusDays(1)));
         return new Breakdown(result.getOrDefault("CARDS", 0L),
                 result.getOrDefault("HOMEWORK", 0L));
@@ -48,7 +48,7 @@ public class LearningTimeReadService {
                     FROM learning_activity_events
                     WHERE student_id = ? AND activity_type = 'HOMEWORK'
                     GROUP BY reference_id
-                    """, rs -> result.put(rs.getObject("reference_id", UUID.class), rs.getLong("seconds")),
+                    """, (org.springframework.jdbc.core.RowCallbackHandler) rs -> result.put(rs.getObject("reference_id", UUID.class), rs.getLong("seconds")),
                     studentId);
         } else {
             jdbc.query("""
@@ -56,7 +56,7 @@ public class LearningTimeReadService {
                     FROM learning_activity_events
                     WHERE student_id = ? AND activity_type = 'HOMEWORK' AND recorded_at < ?
                     GROUP BY reference_id
-                    """, rs -> result.put(rs.getObject("reference_id", UUID.class), rs.getLong("seconds")),
+                    """, (org.springframework.jdbc.core.RowCallbackHandler) rs -> result.put(rs.getObject("reference_id", UUID.class), rs.getLong("seconds")),
                     studentId, timestamp(throughDay.plusDays(1)));
         }
         return result;
