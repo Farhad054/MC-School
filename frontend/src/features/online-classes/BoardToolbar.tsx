@@ -168,6 +168,20 @@ export function BoardToolbar({
         })}
       </div>
 
+      {TOOL_DEFINITIONS.find((entry) => entry.tool === tool)?.settings !== 'eraser' &&
+        TOOL_DEFINITIONS.find((entry) => entry.tool === tool)?.settings !== 'none' && (
+          <div className="board-toolbar__swatches" role="radiogroup" aria-label={t('onlineClass.whiteboard.color')}>
+            {COLORS.slice(0, 6).map((value) => (
+              <button key={value} type="button" role="radio"
+                aria-checked={activeSettings.color === value}
+                aria-label={value}
+                className={activeSettings.color === value ? 'is-active' : undefined}
+                style={{ background: value, width: 24, height: 24, borderRadius: '50%' }}
+                onClick={() => onSettingsChange(tool, { color: value })} />
+            ))}
+          </div>
+        )}
+
       <div className="board-toolbar__group" role="group" aria-label={t('onlineClass.board.inputMode')}>
         {(['stylus', 'finger'] as const).map((mode) => (
           <button
