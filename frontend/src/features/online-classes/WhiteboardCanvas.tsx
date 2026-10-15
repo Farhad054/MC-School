@@ -193,6 +193,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     const { tool: active, color: ink, strokeWidth: width, eraserMode: eraser } = live.current;
     const point = toPage(local);
 
+    if (active === 'pan') return;
     if (active === 'laser') {
       pointLaser(point);
       return;
