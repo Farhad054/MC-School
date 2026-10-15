@@ -14,9 +14,7 @@ export function useBoardDocument(classId: string): PdfDoc | null {
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1);
     window.addEventListener('mc-workbook-updated', refresh);
-    // Participants discover newly uploaded materials without rejoining the room.
-    const timer = window.setInterval(refresh, 15000);
-    return () => { window.removeEventListener('mc-workbook-updated', refresh); window.clearInterval(timer); };
+    return () => { window.removeEventListener('mc-workbook-updated', refresh); };
   }, [classId]);
   const state = usePdf(`${classId}:${revision}`, async () => {
     const bytes = await onlineClassesApi.documentBytes(classId);
@@ -24,7 +22,7 @@ export function useBoardDocument(classId: string): PdfDoc | null {
     return bytes;
   });
   useEffect(() => {
-    if (state.status === 'error') window.dispatchEvent(new CustomEvent('mc-workbook-render-error', { detail: 'Не удалось открыть PDF на доске. Проверьте формат файла или сообщите об ошибке.' }));
+    if (state.status === 'error') window.dispatchEvent(new CustomEvent('mc-workbook-render-error', { detail: `Не удалось открыть PDF на доске: ${state.message}` }));
   }, [state.status]);
   return state.status === 'ready' ? state.doc : null;
 }
