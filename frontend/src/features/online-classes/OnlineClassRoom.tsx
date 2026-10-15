@@ -129,6 +129,11 @@ function RoomBody({
   const [homeworkOpen, setHomeworkOpen] = useState(false);
   const [materialBusy, setMaterialBusy] = useState(false);
   const [materialError, setMaterialError] = useState<string | null>(null);
+  useEffect(() => {
+    const report = (event: Event) => setMaterialError((event as CustomEvent<string>).detail);
+    window.addEventListener('mc-workbook-render-error', report);
+    return () => window.removeEventListener('mc-workbook-render-error', report);
+  }, []);
   const uploadMaterial = async (file: File) => {
     if (!eventId) { setMaterialError('Урок не связан с календарём. Загрузка недоступна.'); return; }
     setMaterialBusy(true);
