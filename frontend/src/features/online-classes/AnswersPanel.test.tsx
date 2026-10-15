@@ -101,7 +101,7 @@ describe('AnswersPanel', () => {
   });
 
   it('reports an unreadable file without breaking the lesson', () => {
-    renderPanel({ status: 'error' });
+    renderPanel({ status: 'error', message: 'PDF parse failed' });
     expect(screen.getByRole('alert')).toHaveTextContent('Не удалось открыть файл ответов');
   });
 });
