@@ -3,6 +3,7 @@ package com.mcschool.flashcard.lessons;
 import com.mcschool.flashcard.cards.Card;
 import com.mcschool.flashcard.cards.CardRepository;
 import com.mcschool.flashcard.homeworks.Homework;
+import com.mcschool.flashcard.learningtime.LearningTimeReadService;
 import com.mcschool.flashcard.homeworks.HomeworkDeadlinePolicy;
 import com.mcschool.flashcard.homeworks.HomeworkRepository;
 import com.mcschool.flashcard.homeworks.HomeworkStats;
@@ -47,6 +48,7 @@ public class McpAnalyticsService {
     private final StudySessionRepository sessionRepository;
     private final StudySessionItemRepository itemRepository;
     private final DailyReviewHistoryRepository reviewHistoryRepository;
+    private final LearningTimeReadService learningTime;
 
     public McpAnalyticsService(
             UserRepository userRepository,
@@ -54,13 +56,15 @@ public class McpAnalyticsService {
             CardRepository cardRepository,
             StudySessionRepository sessionRepository,
             StudySessionItemRepository itemRepository,
-            DailyReviewHistoryRepository reviewHistoryRepository) {
+            DailyReviewHistoryRepository reviewHistoryRepository,
+            LearningTimeReadService learningTime) {
         this.userRepository = userRepository;
         this.homeworkRepository = homeworkRepository;
         this.cardRepository = cardRepository;
         this.sessionRepository = sessionRepository;
         this.itemRepository = itemRepository;
         this.reviewHistoryRepository = reviewHistoryRepository;
+        this.learningTime = learningTime;
     }
 
     @Transactional(readOnly = true)
@@ -117,6 +121,8 @@ public class McpAnalyticsService {
         int missingWork = 0;
         int totalErrors = 0;
         long totalStudySeconds = 0;
+        long totalCardActiveSeconds = 0;
+        long totalHomeworkActiveSeconds = 0;
 
         for (User student : students) {
             Map<String, Object> row = studentDay(student, date);
@@ -126,6 +132,8 @@ public class McpAnalyticsService {
             if (Boolean.TRUE.equals(row.get("hasMissingWork"))) missingWork++;
             totalErrors += intValue(row.get("wrongFirstTry"));
             totalStudySeconds += longValue(row.get("cardStudySeconds"));
+            totalCardActiveSeconds += longValue(row.get("cardActiveSeconds"));
+            totalHomeworkActiveSeconds += longValue(row.get("homeworkActiveSeconds"));
         }
 
         Map<String, Object> totals = new LinkedHashMap<>();
@@ -136,6 +144,7 @@ public class McpAnalyticsService {
         totals.put("wrongFirstTry", totalErrors);
         totals.put("cardStudySeconds", totalStudySeconds);
         totals.put("cardStudyMinutes", roundedMinutes(totalStudySeconds));
+        putActiveTime(totals, totalCardActiveSeconds, totalHomeworkActiveSeconds);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", date.toString());
@@ -172,6 +181,8 @@ public class McpAnalyticsService {
         int correctFirstTry = sessions.stream().mapToInt(StudySession::getCorrectFirstTry).sum();
         int wrongFirstTry = Math.max(0, totalSessionCards - correctFirstTry);
         long studySeconds = sessions.stream().mapToLong(this::durationSeconds).sum();
+        LearningTimeReadService.Breakdown dayTime = learningTime.forDay(student.getId(), date);
+        Map<UUID, Long> homeworkTimes = learningTime.homeworkByReference(student.getId(), date);
         long scheduledSessions = sessions.stream().filter(session -> session.getSessionType() == SessionType.SCHEDULED).count();
         long practiceSessions = sessions.stream().filter(session -> session.getSessionType() == SessionType.PRACTICE).count();
         long reviewCompleted = reviewDays.stream().filter(history -> "COMPLETED".equals(history.getStatus().name())).count();
@@ -214,6 +225,8 @@ public class McpAnalyticsService {
         totals.put("firstTryAccuracyPercent", percent(correctFirstTry, totalSessionCards));
         totals.put("cardStudySeconds", studySeconds);
         totals.put("cardStudyMinutes", roundedMinutes(studySeconds));
+        LearningTimeReadService.Breakdown periodTime = learningTime.forPeriod(studentId, fromDate, toDate);
+        putActiveTime(totals, periodTime.cardSeconds(), periodTime.homeworkSeconds());
         totals.put("reviewDaysCompleted", reviewCompleted);
         totals.put("reviewDaysPartial", reviewPartial);
         totals.put("reviewDaysMissed", reviewMissed);
@@ -242,6 +255,7 @@ public class McpAnalyticsService {
                 .filter(homework -> between(homework.getStartDate(), fromDate, toDate))
                 .sorted(Comparator.comparing(Homework::getStartDate).reversed().thenComparing(Homework::getCreatedAt).reversed())
                 .toList();
+        Map<UUID, Long> trackedHomework = learningTime.homeworkByReference(studentId, null);
         Map<UUID, HomeworkStats> stats = new HashMap<>();
         for (HomeworkStats value : homeworkRepository.statsByStudentId(studentId)) stats.put(value.homeworkId(), value);
 
@@ -267,6 +281,7 @@ public class McpAnalyticsService {
             row.put("worksheetSubmittedAt", instant(homework.getSubmittedAt()));
             row.put("worksheetSubmittedAtBerlin", zoned(homework.getSubmittedAt()));
             row.put("worksheetStatus", worksheetStatus(homework));
+            putHomeworkTime(row, trackedHomework.getOrDefault(homework.getId(), 0L));
             HomeworkStats homeworkStats = stats.get(homework.getId());
             if (homeworkStats != null) {
                 row.put("totalCards", homeworkStats.totalCards());
@@ -384,7 +399,7 @@ public class McpAnalyticsService {
         boolean reviewMissing = "MISSED".equals(reviewStatus) || "PARTIAL".equals(reviewStatus)
                 || ("PENDING".equals(reviewStatus) && dueCards > 0);
         boolean hasAssignedWork = !assigned.isEmpty() || dueCards > 0;
-        boolean hasActivity = !sessions.isEmpty() || !pdfSubmittedThatDay.isEmpty();
+        boolean hasActivity = !sessions.isEmpty() || !pdfSubmittedThatDay.isEmpty() || dayTime.totalSeconds() > 0;
         boolean hasMissingWork = worksheetsMissing > 0 || reviewMissing;
 
         Map<String, Object> row = studentIdentity(student);
@@ -408,9 +423,20 @@ public class McpAnalyticsService {
         row.put("firstTryAccuracyPercent", percent(correctFirstTry, sessionCards));
         row.put("cardStudySeconds", studySeconds);
         row.put("cardStudyMinutes", roundedMinutes(studySeconds));
+        putActiveTime(row, dayTime.cardSeconds(), dayTime.homeworkSeconds());
+        row.put("worksheetAssignments", assigned.stream().filter(Homework::hasWorksheet)
+                .map(hw -> worksheetTimeRow(hw, date, homeworkTimes)).toList());
+        List<Homework> openHomeworks = allHomeworks.stream().filter(Homework::hasWorksheet)
+                .filter(hw -> !hw.getStartDate().isAfter(date))
+                .filter(hw -> !submittedByEndOfDay(hw, date))
+                .sorted(Comparator.comparing(Homework::getStartDate).reversed()).toList();
+        row.put("openWorksheetsAtEndOfDay", openHomeworks.size());
+        row.put("openHomeworkDetails", openHomeworks.stream().limit(30)
+                .map(hw -> worksheetTimeRow(hw, date, homeworkTimes)).toList());
         row.put("errors", errors);
         row.put("sessionIds", sessions.stream().map(session -> session.getId().toString()).toList());
-        row.put("pdfSubmissions", pdfSubmittedThatDay.stream().map(this::pdfSubmissionRow).toList());
+        row.put("pdfSubmissions", pdfSubmittedThatDay.stream()
+                .map(hw -> pdfSubmissionRow(hw, homeworkTimes)).toList());
         return row;
     }
 
@@ -426,6 +452,9 @@ public class McpAnalyticsService {
         long durationSeconds = durationSeconds(session);
         row.put("durationSeconds", durationSeconds);
         row.put("durationMinutes", roundedMinutes(durationSeconds));
+        long cardActive = learningTime.cardSessionSeconds(session.getStudent().getId(), session.getId());
+        row.put("cardActiveSeconds", cardActive);
+        row.put("cardActiveMinutes", roundedMinutes(cardActive));
         row.put("totalCards", session.getTotalCards());
         row.put("correctFirstTry", session.getCorrectFirstTry());
         int wrong = Math.max(0, session.getTotalCards() - session.getCorrectFirstTry());
@@ -451,7 +480,32 @@ public class McpAnalyticsService {
         return row;
     }
 
-    private Map<String, Object> pdfSubmissionRow(Homework homework) {
+    private Map<String, Object> worksheetTimeRow(Homework hw, LocalDate day, Map<UUID, Long> seconds) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("homeworkId", hw.getId().toString());
+        row.put("assignedDate", hw.getStartDate().toString());
+        row.put("filename", hw.getWorksheetFilename());
+        row.put("submittedByEndOfDay", submittedByEndOfDay(hw, day));
+        row.put("submittedAt", instant(hw.getSubmittedAt()));
+        putHomeworkTime(row, seconds.getOrDefault(hw.getId(), 0L));
+        return row;
+    }
+
+    private void putHomeworkTime(Map<String, Object> row, long seconds) {
+        row.put("homeworkActiveSeconds", seconds);
+        row.put("homeworkActiveMinutes", roundedMinutes(seconds));
+    }
+
+    private void putActiveTime(Map<String, Object> row, long cards, long homework) {
+        row.put("cardActiveSeconds", cards);
+        row.put("cardActiveMinutes", roundedMinutes(cards));
+        row.put("homeworkActiveSeconds", homework);
+        row.put("homeworkActiveMinutes", roundedMinutes(homework));
+        row.put("totalActiveSeconds", cards + homework);
+        row.put("totalActiveMinutes", roundedMinutes(cards + homework));
+    }
+
+    private Map<String, Object> pdfSubmissionRow(Homework homework, Map<UUID, Long> seconds) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("homeworkId", homework.getId().toString());
         row.put("assignedDate", homework.getStartDate().toString());
@@ -459,6 +513,7 @@ public class McpAnalyticsService {
         row.put("submittedAt", instant(homework.getSubmittedAt()));
         row.put("submittedAtBerlin", zoned(homework.getSubmittedAt()));
         row.put("status", worksheetStatus(homework));
+        putHomeworkTime(row, seconds.getOrDefault(homework.getId(), 0L));
         return row;
     }
 
@@ -591,8 +646,8 @@ public class McpAnalyticsService {
 
     private List<String> measurementLimitations() {
         return List.of(
-                "Card session duration is exact from session start to session completion, but per-card answer time is not stored.",
-                "PDF homework stores submission time but does not currently store when the student started working on the PDF.",
+                "cardStudySeconds is elapsed time from card session start to completion including pauses; cardActiveSeconds is tracked estimated active browser time since 2026-10-15.",
+                "homeworkActiveSeconds is estimated active in-site PDF homework time since 2026-10-15. Paper/offsite work and idle/background time are excluded; missing telemetry may undercount.",
                 "For past card-review obligations, daily_review_history is used when a snapshot exists; NO_SNAPSHOT means no historical due-card snapshot was stored for that day."
         );
     }

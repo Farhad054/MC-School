@@ -330,18 +330,18 @@ public class MindcraftiMcpController {
         Map<String, Object> dayProperties = new LinkedHashMap<>();
         dayProperties.put("date", property("string", "School date in YYYY-MM-DD. Use yesterday for a morning report about the previous day."));
         dayProperties.put("teacherId", property("string", "Optional teacher UUID. Admins can filter the school report by one teacher. Teachers are always restricted to themselves."));
-        tools.add(tool("get_school_day_summary", "Get a school-day summary of homework and card activity: who had assigned work, who worked, who missed work, PDF submissions, card sessions, time spent, first-try accuracy and concrete wrong answers. Admins see all accessible students; teachers see only their own.", schema(dayProperties, List.of("date")), readOnlyAnnotations()));
+        tools.add(tool("get_school_day_summary", "Get a school-day summary for morning 08:00 homework reporting: includes per-student PDF submissions, outstanding worksheets, worksheetAssignments with filename and homeworkActiveMinutes per assignment, cardActiveMinutes, first-try accuracy and errors. Use yesterday for a morning report and treat zero time as no measured website time, not proof of no offsite work. Admins see all; teachers see own students.", schema(dayProperties, List.of("date")), readOnlyAnnotations()));
 
         Map<String, Object> studentPeriodProperties = new LinkedHashMap<>();
         studentPeriodProperties.put("studentId", property("string", "Student UUID returned by find_students."));
         studentPeriodProperties.put("fromDate", property("string", "First date in YYYY-MM-DD."));
         studentPeriodProperties.put("toDate", property("string", "Last date in YYYY-MM-DD. Maximum range is 366 days."));
-        tools.add(tool("get_student_activity", "Get a detailed student summary for a date range: homework assignments, PDF submissions and lateness, completed card sessions, study time, first-try accuracy, missed/partial/completed review days and concrete errors. Teachers can only read their own students.", schema(studentPeriodProperties, List.of("studentId", "fromDate", "toDate")), readOnlyAnnotations()));
-        tools.add(tool("get_student_homework_history", "Get every homework bucket for one student in a date range, including PDF status/submission time, card counts and related completed card sessions. Teachers can only read their own students.", schema(studentPeriodProperties, List.of("studentId", "fromDate", "toDate")), readOnlyAnnotations()));
+        tools.add(tool("get_student_activity", "Get student summary for a date range with homework submissions, lateness, cardActiveMinutes and homeworkActiveMinutes (measured active site time), plus original elapsed cardStudyMinutes, review days and errors. Teachers only read their own students.", schema(studentPeriodProperties, List.of("studentId", "fromDate", "toDate")), readOnlyAnnotations()));
+        tools.add(tool("get_student_homework_history", "Get student homework buckets with PDF status, submission, card counts, estimated homeworkActiveMinutes for each homework (measured on-site time, excludes paper) and completed card sessions. Teachers only read their students.", schema(studentPeriodProperties, List.of("studentId", "fromDate", "toDate")), readOnlyAnnotations()));
 
         Map<String, Object> sessionProperties = new LinkedHashMap<>();
         sessionProperties.put("sessionId", property("string", "Card study-session UUID returned by a summary or student activity tool."));
-        tools.add(tool("get_card_session_details", "Inspect one card session in detail: start/end time, duration, every question, the student's first answer, correct answer and whether the first attempt was wrong. Teachers can only inspect sessions belonging to their own students.", schema(sessionProperties, List.of("sessionId")), readOnlyAnnotations()));
+        tools.add(tool("get_card_session_details", "Inspect card session with elapsed duration including breaks, cardActiveMinutes excluding idle/background time, all answers and errors. Teachers only inspect sessions belonging to their own students.", schema(sessionProperties, List.of("sessionId")), readOnlyAnnotations()));
 
         Map<String, Object> funnelProperties = new LinkedHashMap<>();
         funnelProperties.put("fromDate", property("string", "First date in YYYY-MM-DD. One report can cover up to 90 days."));
