@@ -1375,3 +1375,19 @@
   .whiteboard__topline .board-toolbar { overflow-x: auto; flex-wrap: nowrap; }
   .whiteboard__topline .board-toolbar__group { flex-shrink: 0; }
 }
+
+/* iPad repair: prevent a multi-row dark toolbar and restore readable controls. */
+.whiteboard__topline { background: #173768; min-height: 52px; max-height: 58px; flex-wrap: nowrap; overflow: visible; }
+.whiteboard__topline-pages { flex-shrink: 0; }
+.whiteboard__topline .board-toolbar { display: flex; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; white-space: nowrap; max-height: 52px; }
+.whiteboard__topline .board-toolbar__tools,
+.whiteboard__topline .board-toolbar__group { flex-shrink: 0; flex-wrap: nowrap; }
+.whiteboard__topline .board-toolbar button { color: #f8fafc; background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.16); white-space: nowrap; }
+.whiteboard__topline .board-toolbar button:disabled { opacity: .5; }
+.whiteboard__topline .board-toolbar__menu { background: #fff; color: #172554; }
+.whiteboard__topline .board-toolbar__menu button { color: #172554; background: #fff; }
+.whiteboard__topline .board-toolbar__swatches button { border-radius: 50%; color: transparent; }
+@media (max-width: 900px) {
+  .whiteboard__topline { flex-wrap: nowrap; padding: 3px 5px; gap: 4px; }
+  .whiteboard__topline .board-toolbar { flex-wrap: nowrap; overflow-x: auto; }
+}
