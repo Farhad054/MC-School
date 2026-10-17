@@ -50,7 +50,7 @@ public class MindcraftiMcpController {
 
     private static final String API_KEY_HEADER = "X-Mindcrafti-Api-Key";
     private static final String SERVER_NAME = "mindcrafti-lessons";
-    private static final String SERVER_VERSION = "1.21.0";
+    private static final String SERVER_VERSION = "1.22.0";
     private static final int MAX_DIRECT_PDF_BYTES = 15 * 1024 * 1024;
 
     private final String apiKey;
@@ -118,6 +118,7 @@ public class MindcraftiMcpController {
     }
 
     private SkillBoardMcpService skillBoardMcpService;
+    private PersonalNutritionMcpService personalNutritionMcpService;
     private SkillMasteryMcpService skillMasteryMcpService;
 
     @Autowired
@@ -128,6 +129,11 @@ public class MindcraftiMcpController {
     @Autowired
     public void setSkillMasteryMcpService(SkillMasteryMcpService service) {
         this.skillMasteryMcpService = service;
+    }
+
+    @Autowired
+    public void setPersonalNutritionMcpService(PersonalNutritionMcpService service) {
+        this.personalNutritionMcpService = service;
     }
 
     @GetMapping
@@ -199,6 +205,7 @@ public class MindcraftiMcpController {
         if (!authenticated) return tools;
         tools.addAll(SkillBoardMcpService.definitions());
         tools.addAll(SkillMasteryMcpService.definitions());
+        tools.addAll(PersonalNutritionMcpService.definitions());
 
         tools.add(tool("get_school_prompt", "Get the current administrator-managed Mindcrafti school prompt. Use this whenever the teacher asks to create a lesson, homework or teaching material 'по промту' / 'по школьному промту' / 'using the prompt'. Choose group for group-lesson logic, individual for one-to-one lesson logic, workbook for creating a lesson workbook/teacher answers, homework for creating homework, diagnostic for a trial/diagnostic lesson, and error_correction for a personalised work-on-mistakes document. Always fetch it fresh instead of relying on a prompt remembered from earlier chat messages. Teacher-specific extra instructions may be applied on top of the returned prompt.", schema(Map.of("lessonType", property("string", "Prompt type: group, individual, workbook, homework, diagnostic or error_correction.")), List.of("lessonType")), readOnlyAnnotations()));
         tools.add(tool("get_brand_guide", "Get the current administrator-managed Mindcrafti Brand Guide, including its searchable rules and the uploaded source PDF as base64 when available. ALWAYS use this before creating or redesigning any Mindcrafti-branded PDF, homework, diagnostic, worksheet, report, presentation, work-on-mistakes document or other visual material. Fetch it fresh instead of relying on a Brand Guide remembered from chat history.", schema(Map.of(), List.of()), readOnlyAnnotations()));
@@ -374,6 +381,11 @@ public class MindcraftiMcpController {
             return skillBoardMcpService.call(name, arguments, auth.user());
         if (SkillMasteryMcpService.TOOL_NAMES.contains(name))
             return skillMasteryMcpService.call(name, arguments, auth.user());
+        if (PersonalNutritionMcpService.TOOL_NAMES.contains(name)) {
+            if (auth.apiKey() || auth.user() == null || auth.user().getRole() != Role.ADMIN)
+                throw new IllegalArgumentException("Personal nutrition is restricted to a signed-in Mindcrafti ADMIN.");
+            return toolResult(personalNutritionMcpService.call(name, arguments, auth.user().getId()));
+        }
         return switch (name) {
             case "get_school_prompt" -> toolResult(getSchoolPrompt(arguments));
             case "get_brand_guide" -> toolResult(schoolBrandGuideService.readForMcp());
