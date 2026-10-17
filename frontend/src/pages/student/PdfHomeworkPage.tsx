@@ -472,13 +472,6 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     };
   }
 
-  function canDrawWithPointer(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (event.pointerType !== 'touch') return true;
-    // A finger/palm must never interfere with an active Apple Pencil stroke.
-    if (drawingPointerIdRef.current !== null) return false;
-    return touchDrawingEnabled && activeTouchPointersRef.current.size === 1;
-  }
-
   function cancelPreviewFrame() {
     if (previewFrameRef.current !== null) {
       window.cancelAnimationFrame(previewFrameRef.current);
