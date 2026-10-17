@@ -394,6 +394,8 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingPointerIdRef = useRef<number | null>(null);
+  const drawingPointerTypeRef = useRef<string | null>(null);
+  const previewFrameRef = useRef<number | null>(null);
   const activeTouchPointersRef = useRef<Set<number>>(new Set());
   const strokeGeometryRef = useRef<StrokeGeometry | null>(null);
   const strokesRef = useRef<DrawingStroke[]>(initialDrawing?.strokes.map((stroke) => ({
@@ -403,6 +405,28 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   const activeStrokeRef = useRef<DrawingStroke | null>(null);
   const [ready, setReady] = useState(false);
   const [undoCount, setUndoCount] = useState(strokesRef.current.length);
+
+  // iOS Safari / Android browsers may drop pointer capture when a system
+  // gesture, notification, or tab switch interrupts the pen. Release any
+  // abandoned pointer so the next contact can always start a new stroke.
+  useEffect(() => {
+    const recoverInterruptedInput = () => {
+      if (drawingPointerIdRef.current !== null) resetActiveStroke(true);
+      activeTouchPointersRef.current.clear();
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) recoverInterruptedInput();
+    };
+    window.addEventListener('blur', recoverInterruptedInput);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', recoverInterruptedInput);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (previewFrameRef.current !== null) window.cancelAnimationFrame(previewFrameRef.current);
+    };
+    // Handlers only depend on refs and onChange for this keyed worksheet page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function emitDrawing() {
     const canvas = canvasRef.current;
@@ -455,26 +479,57 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     return touchDrawingEnabled && activeTouchPointersRef.current.size === 1;
   }
 
-  function repaintActiveStroke() {
-    const active = activeStrokeRef.current;
-    const canvas = canvasRef.current;
-    const preview = previewCanvasRef.current;
-    if (!canvas || !active || !preview) return;
-    const previewCtx = preview.getContext('2d');
-    const committedCtx = canvas.getContext('2d');
-    if (!previewCtx || !committedCtx) return;
-    previewCtx.clearRect(0, 0, preview.width, preview.height);
-    if (active.tool === 'eraser') {
-      // destination-out on an independent preview would erase only the
-      // preview; use the underlying canvas for correct eraser feedback.
-      redrawStrokes(committedCtx, canvas.width, canvas.height, strokesRef.current);
-      renderHomeworkInkStroke(committedCtx, active);
-    } else {
-      renderHomeworkInkStroke(previewCtx, active);
+  function cancelPreviewFrame() {
+    if (previewFrameRef.current !== null) {
+      window.cancelAnimationFrame(previewFrameRef.current);
+      previewFrameRef.current = null;
     }
   }
 
+  function repaintActiveStroke() {
+    const active = activeStrokeRef.current;
+    const preview = previewCanvasRef.current;
+    if (!active || !preview || active.tool === 'eraser') return;
+    const ctx = preview.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, preview.width, preview.height);
+    renderHomeworkInkStroke(ctx, active);
+  }
+
+  // Multiple pointermove events can arrive within one display frame.
+  // Building the full Perfect Freehand outline every event causes severe
+  // latency as a stroke grows; render just once per animation frame.
+  function schedulePenPreview() {
+    if (previewFrameRef.current !== null) return;
+    previewFrameRef.current = window.requestAnimationFrame(() => {
+      previewFrameRef.current = null;
+      repaintActiveStroke();
+    });
+  }
+
+  function drawTemporaryEraser(from: StrokePoint, to: StrokePoint, stroke: DrawingStroke) {
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx) return;
+    const radius = Math.max(24, stroke.size * 5) / 2;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = radius * 2;
+    ctx.beginPath();
+    if (from.x === to.x && from.y === to.y) {
+      ctx.arc(to.x, to.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function resetActiveStroke(commit: boolean) {
+    cancelPreviewFrame();
     const stroke = activeStrokeRef.current;
     const canvas = canvasRef.current;
     const preview = previewCanvasRef.current;
@@ -484,7 +539,8 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
       const ctx = canvas.getContext('2d');
       if (ctx) {
         if (commit && stroke) {
-          // Restore the committed canvas before applying the final outline.
+          // The temporary eraser was drawn incrementally; rebuild the
+          // committed layer once, then apply the final smooth outline.
           if (stroke.tool === 'eraser') redrawStrokes(ctx, canvas.width, canvas.height, strokesRef.current);
           renderHomeworkInkStroke(ctx, stroke);
         } else {
@@ -499,34 +555,51 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     }
     activeStrokeRef.current = null;
     drawingPointerIdRef.current = null;
+    drawingPointerTypeRef.current = null;
     strokeGeometryRef.current = null;
+  }
+
+  function canDrawWithPointer(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType !== 'touch') return true;
+    if (drawingPointerIdRef.current !== null) return false;
+    return touchDrawingEnabled && activeTouchPointersRef.current.size === 1;
   }
 
   function start(event: React.PointerEvent<HTMLCanvasElement>) {
     if (event.pointerType === 'touch') {
+      // Ignore palm/finger input while a real stylus is already writing.
+      if (drawingPointerTypeRef.current === 'pen') return;
+      // On iPad, fingers navigate the worksheet; only track touch input
+      // when the Android/finger drawing mode has been enabled.
+      if (!touchDrawingEnabled) return;
       activeTouchPointersRef.current.add(event.pointerId);
       if (activeTouchPointersRef.current.size > 1) {
-        // Cancel finger drawing when two-finger navigation begins. Never
-        // cancel an Apple Pencil stroke because a palm touches the screen.
-        if (activeStrokeRef.current && drawingPointerIdRef.current !== null &&
-            activeTouchPointersRef.current.has(drawingPointerIdRef.current)) {
-          resetActiveStroke(false);
-        }
+        if (drawingPointerTypeRef.current === 'touch') resetActiveStroke(false);
+        return;
+      }
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas || !ready) return;
+    if (drawingPointerIdRef.current !== null) {
+      // A lost pointerup/lostpointercapture must not lock the pen forever.
+      // Recover the previous stroke when a new pen/mouse contact begins.
+      if (event.pointerType === 'pen' || event.pointerType === 'mouse') {
+        resetActiveStroke(true);
+      } else {
         return;
       }
     }
     if (!canDrawWithPointer(event)) return;
-    const canvas = canvasRef.current;
-    if (!canvas || !ready || drawingPointerIdRef.current !== null) return;
     event.preventDefault();
     event.stopPropagation();
 
     const geometry = currentGeometry(canvas);
+    if (!geometry.width || !geometry.height) return;
     const first = pointFromPointer(event.nativeEvent, geometry);
     const stroke: DrawingStroke = {
       tool,
       color: penColor,
-      // Store the width in PDF coordinates, not viewport pixels.
       size: penSize * geometry.canvasWidth / geometry.width,
       points: [{ ...first, pressure: event.pressure > 0 ? event.pressure : 0.5 }],
       pressureSensitive: event.pointerType === 'pen' && event.pressure > 0,
@@ -534,29 +607,43 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     strokeGeometryRef.current = geometry;
     activeStrokeRef.current = stroke;
     drawingPointerIdRef.current = event.pointerId;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    repaintActiveStroke();
+    drawingPointerTypeRef.current = event.pointerType;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Some Safari versions refuse capture during stylus/touch transitions.
+      // The pointerleave / lostcapture handlers still release the session.
+    }
+    if (tool === 'eraser') drawTemporaryEraser(first, first, stroke);
+    else repaintActiveStroke();
   }
 
-  function move(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (drawingPointerIdRef.current !== event.pointerId) return;
+  function appendPointerSamples(event: React.PointerEvent<HTMLCanvasElement>) {
     const geometry = strokeGeometryRef.current;
     const stroke = activeStrokeRef.current;
     if (!geometry || !stroke) return;
-    event.preventDefault();
-    event.stopPropagation();
 
     const nativeEvent = event.nativeEvent;
     const samples = typeof nativeEvent.getCoalescedEvents === 'function'
       ? nativeEvent.getCoalescedEvents() : [nativeEvent];
     const input = samples.length > 0 ? samples : [nativeEvent];
+    const step = 0.4 * geometry.canvasWidth / geometry.width;
     for (const sample of input) {
       const next = pointFromPointer(sample, geometry);
       const last = stroke.points[stroke.points.length - 1];
-      if (last && last.x === next.x && last.y === next.y) continue;
+      if (last && Math.hypot(last.x - next.x, last.y - next.y) < step) continue;
       stroke.points.push({ ...next, pressure: sample.pressure > 0 ? sample.pressure : 0.5 });
+      if (last && stroke.tool === 'eraser') drawTemporaryEraser(last, next, stroke);
     }
-    repaintActiveStroke();
+  }
+
+  function move(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (drawingPointerIdRef.current !== event.pointerId) return;
+    if (!activeStrokeRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    appendPointerSamples(event);
+    if (activeStrokeRef.current.tool === 'pen') schedulePenPreview();
   }
 
   function finish(event: React.PointerEvent<HTMLCanvasElement>) {
@@ -564,8 +651,29 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     if (drawingPointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
-    resetActiveStroke(event.type !== 'pointercancel');
+    if (event.type === 'pointerup') appendPointerSamples(event);
+    // A browser's pointercancel should not silently delete Pencil work.
+    // Touch gesture cancellations still discard accidental finger ink.
+    resetActiveStroke(event.type === 'pointerup' || drawingPointerTypeRef.current !== 'touch');
     try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* no-op */ }
+  }
+
+  function lostCapture(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType === 'touch') activeTouchPointersRef.current.delete(event.pointerId);
+    if (drawingPointerIdRef.current !== event.pointerId) return;
+    // This was previously unhandled, leaving the canvas permanently locked
+    // to an inactive pointerId until the whole page was reloaded.
+    resetActiveStroke(drawingPointerTypeRef.current !== 'touch');
+  }
+
+  function pointerLeft(event: React.PointerEvent<HTMLCanvasElement>) {
+    // Fallback when Safari declines setPointerCapture. Do not terminate
+    // normal captured strokes simply because the tip leaves the page bounds.
+    if (drawingPointerIdRef.current !== event.pointerId) return;
+    const target = event.currentTarget;
+    if (!target.hasPointerCapture?.(event.pointerId)) {
+      resetActiveStroke(true);
+    }
   }
 
   function undo() {
@@ -711,6 +819,8 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
             onPointerMove={move}
             onPointerUp={finish}
             onPointerCancel={finish}
+            onLostPointerCapture={lostCapture}
+            onPointerLeave={pointerLeft}
             style={{
               position: 'absolute',
               inset: 0,
