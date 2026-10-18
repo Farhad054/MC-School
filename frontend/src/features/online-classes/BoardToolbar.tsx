@@ -58,6 +58,7 @@ export function BoardToolbar({
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [colorsOpen, setColorsOpen] = useState(false);
+  const [colorMenuPosition, setColorMenuPosition] = useState({ top: 64, left: 12 });
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Touching anywhere outside the bar (the board) or pressing Escape closes the
@@ -175,12 +176,12 @@ export function BoardToolbar({
           <div className="board-toolbar__color-picker">
             <button type="button" className="board-toolbar__color-trigger" aria-label="Выбрать цвет / Farbe wählen"
               aria-haspopup="true" aria-expanded={colorsOpen} title="Цвет / Farbe"
-              onClick={() => { setColorsOpen((open) => !open); setMenuOpen(false); }}>
+              onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setColorMenuPosition({ top: rect.bottom + 8, left: Math.max(8, Math.min(rect.left, window.innerWidth - 150)) }); setColorsOpen((open) => !open); setMenuOpen(false); }}>
               <span className="board-toolbar__color-preview" style={{ backgroundColor: activeSettings.color }} />
               <span aria-hidden="true">⌄</span>
             </button>
             {colorsOpen && (
-              <div className="board-toolbar__color-popover" role="radiogroup" aria-label={t('onlineClass.whiteboard.color')}>
+              <div className="board-toolbar__color-popover" style={{ top: colorMenuPosition.top, left: colorMenuPosition.left }} role="radiogroup" aria-label={t('onlineClass.whiteboard.color')}>
                 {COLORS.map((value) => (
                   <button key={value} type="button" role="radio" aria-checked={activeSettings.color === value}
                     aria-label={value} className={activeSettings.color === value ? 'is-active' : undefined}
