@@ -129,6 +129,7 @@ function RoomBody({
 }) {
   const { t } = useI18n();
   const [panelsOpen, setPanelsOpen] = useState(false);
+  const [videosOpen, setVideosOpen] = useState(true);
   const [homeworkOpen, setHomeworkOpen] = useState(false);
   const [materialBusy, setMaterialBusy] = useState(false);
   const [materialError, setMaterialError] = useState<string | null>(null);
@@ -290,7 +291,7 @@ function RoomBody({
         />
       </div>
 
-      <div className="online-class-room__stage">
+      <div className={`online-class-room__stage${videosOpen ? " online-class-room__stage--videos-open" : ""}`}>
         <div className="online-class-room__main">
           {/* The board stays mounted while a screen is shown, so switching back
               returns to the same page, zoom, tool and marks. */}
@@ -357,7 +358,12 @@ function RoomBody({
           </aside>
         </div>
 
-        <CameraColumn hostUserId={hostUserId} localIsHost={connection.host} />
+        <button type="button" className="online-class-room__videos-toggle" aria-expanded={videosOpen} aria-controls="online-class-videos" onClick={() => setVideosOpen((open) => !open)} title={videosOpen ? 'Скрыть видео участников' : 'Показать видео участников'}>
+          {videosOpen ? 'Видео ›' : '‹ Видео'}
+        </button>
+        <div id="online-class-videos" className={`online-class-room__videos-drawer${videosOpen ? ' is-open' : ''}`} aria-hidden={!videosOpen} inert={!videosOpen}>
+          <CameraColumn hostUserId={hostUserId} localIsHost={connection.host} />
+        </div>
       </div>
 
       <CaptionsPanel enabled={transcriptionState === 'ACTIVE'} />
