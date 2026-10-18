@@ -389,3 +389,37 @@
     top:50%;
   }
 }
+
+/* Keep the top tools legible on narrow iPads: every island has a fixed
+   non-shrinking footprint and the strip can be swiped to reach offscreen tools. */
+.school-islands-board .whiteboard__topline {
+  overflow:visible;
+}
+.school-islands-board .whiteboard__topline .board-toolbar {
+  width:100%;
+  flex:1 1 auto;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scroll-snap-type:x proximity;
+  scrollbar-width:thin;
+  scrollbar-color:#bfcee4 transparent;
+  padding-bottom:3px;
+}
+.school-islands-board .whiteboard__topline .board-toolbar::-webkit-scrollbar {
+  display:block;
+  height:3px;
+}
+.school-islands-board .whiteboard__topline .board-toolbar::-webkit-scrollbar-thumb {
+  background:#bfcee4;
+  border-radius:999px;
+}
+.school-islands-board .board-toolbar__tools,
+.school-islands-board .board-toolbar__swatches,
+.school-islands-board .board-toolbar__size,
+.school-islands-board .board-toolbar__group {
+  flex:0 0 auto;
+  scroll-snap-align:start;
+}
+.school-islands-board .board-toolbar__tool:focus-visible {
+  outline:2px solid #3977da;
+}
