@@ -1807,3 +1807,28 @@
   .online-class-room__student-tile-header {padding:3px 5px;font-size:11px}
   .online-class-room__student-tile-header button {padding:4px;font-size:11px}
 }
+
+/* Continuous solutions PDF viewer: pages stacked with independent scroll and zoom. */
+.classroom-solutions { display:flex; flex-direction:column; min-height:0; }
+.classroom-solutions__toolbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+  padding:8px; border-bottom:1px solid #dce6f3; background:#fff;
+}
+.classroom-solutions__zoom { display:flex; gap:6px; align-items:center; }
+.classroom-solutions__zoom button {
+  min-width:40px; min-height:40px; border-radius:10px;
+  background:#fff; border:1px solid #dce6f3; color:#344b6e;
+}
+.classroom-solutions__scroller {
+  flex:1 1 auto; min-height:0; overflow:auto;
+  overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+  padding:10px; background:#eef3fa;
+}
+.classroom-solutions__sheet {
+  width:100%; margin-bottom:14px;
+  background:#fff; border:1px solid #dce6f3;
+  box-shadow:0 3px 12px rgba(32,58,99,.11);
+  overflow:visible;
+}
+.classroom-solutions__sheet small {display:block; padding:5px 8px;color:#506482;}
+.classroom-solutions__sheet canvas {display:block;}
