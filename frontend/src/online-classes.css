@@ -1489,3 +1489,87 @@
   outline: 2px solid #2563eb;
   outline-offset: 2px;
 }
+
+/* Floating Islands — lesson controls. Keep LiveKit handlers untouched. */
+.online-class-room__controls {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  width:100%;
+  box-sizing:border-box;
+  padding:10px max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain;
+  scrollbar-width:thin;
+  background:#f8fbff;
+  border-top:1px solid #e2eaf5;
+}
+.online-class-room__controls > .lk-control-bar {
+  display:flex;
+  flex:0 0 auto;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  width:max-content;
+  max-width:none;
+  padding:0;
+  margin:0;
+  background:transparent;
+  border:0;
+  box-shadow:none;
+}
+.online-class-room__controls > .lk-control-bar > *,
+.online-class-room__controls > button {
+  flex:0 0 auto;
+}
+.online-class-room__controls .lk-button,
+.online-class-room__controls > button:not([class*='lk-']) {
+  min-height:44px;
+  border:1px solid #dce6f3;
+  border-radius:14px;
+  padding:9px 13px;
+  background:#fff;
+  color:#314963;
+  box-shadow:0 4px 14px rgba(32,58,99,.10);
+  white-space:nowrap;
+}
+.online-class-room__controls .lk-button:hover,
+.online-class-room__controls > button:not([class*='lk-']):hover {
+  background:#f0f6ff;
+}
+.online-class-room__controls .lk-button[aria-pressed='true'],
+.online-class-room__controls > button[aria-pressed='true']:not([class*='lk-']) {
+  background:#e8f1ff;
+  color:#245fc9;
+  border-color:#bcd4fd;
+}
+.online-class-room__controls > button.online-class-room__leave {
+  background:#fff;
+  color:#c43e46;
+  border-color:#efcbd0;
+}
+.online-class-room__controls > button.online-class-room__end {
+  background:#fff;
+  color:#b9333d;
+  border-color:#efcbd0;
+}
+.online-class-room__controls .lk-button:focus-visible,
+.online-class-room__controls > button:focus-visible {
+  outline:2px solid #3977da;
+  outline-offset:2px;
+}
+@media(max-width:900px) {
+  .online-class-room__controls {
+    gap:7px;
+    padding-top:7px;
+    padding-bottom:max(7px,env(safe-area-inset-bottom));
+  }
+  .online-class-room__controls .lk-button,
+  .online-class-room__controls > button:not([class*='lk-']) {
+    padding:8px 11px;
+  }
+}
