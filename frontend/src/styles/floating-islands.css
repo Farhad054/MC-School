@@ -423,3 +423,45 @@
 .school-islands-board .board-toolbar__tool:focus-visible {
   outline:2px solid #3977da;
 }
+
+/* Tablet contrast and separation: do not inherit LiveKit's white icons. */
+.school-islands-board .board-toolbar__tools {
+  width:max-content;
+  min-width:0;
+  background:#fff;
+}
+.school-islands-board .board-toolbar__slot {
+  flex:0 0 auto;
+}
+.school-islands-board .board-toolbar__tool,
+.school-islands-board .board-toolbar__tool span,
+.school-islands-board .board-toolbar__group button {
+  color:#344b6e!important;
+  opacity:1;
+}
+.school-islands-board .board-toolbar__tool.is-active,
+.school-islands-board .board-toolbar__tool.is-active span,
+.school-islands-board .board-toolbar__group button.is-active {
+  color:#1556c0!important;
+  background:#e8f1ff;
+}
+.school-islands-board .board-toolbar__swatches {
+  width:max-content;
+  min-width:max-content;
+  flex:0 0 auto;
+  gap:9px;
+}
+.school-islands-board .board-toolbar__swatches button {
+  flex:0 0 29px;
+  width:29px!important;
+  height:29px!important;
+  min-width:29px;
+  min-height:29px;
+  padding:0!important;
+  opacity:1;
+  box-shadow:0 0 0 1px rgba(30,50,80,.14);
+}
+.school-islands-board .board-toolbar__size {
+  color:#344b6e!important;
+  background:#fff;
+}
