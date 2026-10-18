@@ -361,7 +361,7 @@ function RoomBody({
         <button type="button" className="online-class-room__videos-toggle" aria-expanded={videosOpen} aria-controls="online-class-videos" onClick={() => setVideosOpen((open) => !open)} title={videosOpen ? 'Скрыть видео участников' : 'Показать видео участников'}>
           {videosOpen ? 'Видео ›' : '‹ Видео'}
         </button>
-        <div id="online-class-videos" className={`online-class-room__videos-drawer${videosOpen ? ' is-open' : ''}`} aria-hidden={!videosOpen} inert={!videosOpen}>
+        <div id="online-class-videos" className={`online-class-room__videos-drawer${videosOpen ? ' is-open' : ''}`} aria-hidden={!videosOpen} ref={(element) => { element?.toggleAttribute('inert', !videosOpen); }}>
           <CameraColumn hostUserId={hostUserId} localIsHost={connection.host} />
         </div>
       </div>
