@@ -57,17 +57,18 @@ export function BoardToolbar({
 }: Props) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [colorsOpen, setColorsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Touching anywhere outside the bar (the board) or pressing Escape closes the
   // menu, so the user is back to drawing without an extra "done" step.
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !colorsOpen) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false);
+      if (!rootRef.current?.contains(event.target as Node)) { setMenuOpen(false); setColorsOpen(false); }
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key === 'Escape') { setMenuOpen(false); setColorsOpen(false); }
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown);
@@ -75,7 +76,7 @@ export function BoardToolbar({
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [menuOpen]);
+  }, [menuOpen, colorsOpen]);
 
   const activeSettings = settings[tool];
   const definition = TOOL_DEFINITIONS.find((entry) => entry.tool === tool);
@@ -171,15 +172,23 @@ export function BoardToolbar({
 
       {TOOL_DEFINITIONS.find((entry) => entry.tool === tool)?.settings !== 'eraser' &&
         TOOL_DEFINITIONS.find((entry) => entry.tool === tool)?.settings !== 'none' && (
-          <div className="board-toolbar__swatches" role="radiogroup" aria-label={t('onlineClass.whiteboard.color')}>
-            {COLORS.slice(0, 6).map((value) => (
-              <button key={value} type="button" role="radio"
-                aria-checked={activeSettings.color === value}
-                aria-label={value}
-                className={activeSettings.color === value ? 'is-active' : undefined}
-                style={{ background: value, width: 24, height: 24, borderRadius: '50%' }}
-                onClick={() => onSettingsChange(tool, { color: value })} />
-            ))}
+          <div className="board-toolbar__color-picker">
+            <button type="button" className="board-toolbar__color-trigger" aria-label="Выбрать цвет / Farbe wählen"
+              aria-haspopup="true" aria-expanded={colorsOpen} title="Цвет / Farbe"
+              onClick={() => { setColorsOpen((open) => !open); setMenuOpen(false); }}>
+              <span className="board-toolbar__color-preview" style={{ backgroundColor: activeSettings.color }} />
+              <span aria-hidden="true">⌄</span>
+            </button>
+            {colorsOpen && (
+              <div className="board-toolbar__color-popover" role="radiogroup" aria-label={t('onlineClass.whiteboard.color')}>
+                {COLORS.map((value) => (
+                  <button key={value} type="button" role="radio" aria-checked={activeSettings.color === value}
+                    aria-label={value} className={activeSettings.color === value ? 'is-active' : undefined}
+                    style={{ backgroundColor: value }}
+                    onClick={() => { onSettingsChange(tool, { color: value }); setColorsOpen(false); }} />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
