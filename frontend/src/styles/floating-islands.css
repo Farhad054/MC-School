@@ -524,3 +524,5 @@
   outline:2px solid #2563eb;
   outline-offset:2px;
 }
+
+.school-islands-board .board-toolbar__color-popover { position:fixed; }
