@@ -465,3 +465,62 @@
   color:#344b6e!important;
   background:#fff;
 }
+
+/* Collapsed ink color: one island, with choices anchored below it. */
+.school-islands-board .board-toolbar__color-picker {
+  position:relative;
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  padding:4px;
+  background:#fff;
+  border:1px solid var(--island-edge);
+  border-radius:14px;
+  box-shadow:var(--island-shadow);
+}
+.school-islands-board .board-toolbar button.board-toolbar__color-trigger {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:auto;
+  min-width:48px;
+  min-height:40px;
+  padding:5px 8px;
+  color:#526887;
+}
+.school-islands-board .board-toolbar__color-preview {
+  display:block;
+  flex:0 0 24px;
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  border:1px solid rgba(35,56,85,.22);
+}
+.school-islands-board .board-toolbar__color-popover {
+  position:absolute;
+  z-index:50;
+  top:calc(100% + 8px);
+  left:0;
+  display:grid;
+  grid-template-columns:repeat(3,34px);
+  gap:9px;
+  padding:12px;
+  width:max-content;
+  background:#fff;
+  border:1px solid var(--island-edge);
+  border-radius:14px;
+  box-shadow:0 10px 30px rgba(31,52,83,.2);
+}
+.school-islands-board .board-toolbar .board-toolbar__color-popover button {
+  width:34px;
+  height:34px;
+  min-width:34px;
+  min-height:34px;
+  padding:0;
+  border:2px solid rgba(35,56,85,.16);
+  border-radius:50%;
+}
+.school-islands-board .board-toolbar .board-toolbar__color-popover button.is-active {
+  outline:2px solid #2563eb;
+  outline-offset:2px;
+}
