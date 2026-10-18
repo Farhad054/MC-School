@@ -18,8 +18,8 @@ import type { ClassFeatureState, OnlineClassConnection } from '../../api/onlineC
 import { ChatPanel } from './ChatPanel';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { categorizeLiveKitError, type LiveKitErrorCategory } from './livekitDiagnostics';
-import { BoardSwitcher } from './BoardSwitcher';
-import { SHARED_BOARD_ID } from './boards';
+import { ALL_STUDENT_BOARDS_ID, BoardSwitcher } from './BoardSwitcher';
+import { SHARED_BOARD_ID, personalBoardId } from './boards';
 import { useStudentRoster } from './useStudentRoster';
 import { AnswersButton } from './AnswersButton';
 import { AnswersPanel } from './AnswersPanel';
@@ -214,7 +214,8 @@ function RoomBody({
   // keeps its page, zoom and tool while a personal board is open, and a teacher
   // walking through a whole group does not pile up one canvas per student
   // (their marks live on the server, so reopening one loses nothing).
-  const boardsToShow = activeBoard === SHARED_BOARD_ID ? [SHARED_BOARD_ID] : [SHARED_BOARD_ID, activeBoard];
+  const showingAllStudents = connection.host && activeBoard === ALL_STUDENT_BOARDS_ID;
+  const boardsToShow = showingAllStudents || activeBoard === SHARED_BOARD_ID ? [SHARED_BOARD_ID] : [SHARED_BOARD_ID, activeBoard];
 
   // A new screen share takes the main area; the user can switch back to the
   // board at any time, and the board keeps its marks while it is not shown.
@@ -329,6 +330,27 @@ function RoomBody({
               </div>
             );
           })}
+          {showingAllStudents && !showScreen && (
+            <div className="online-class-room__student-grid" aria-label="Доски всех учеников">
+              {students.slice(0, 4).map((student) => (
+                <div className="online-class-room__student-tile" key={student.userId}>
+                  <div className="online-class-room__student-tile-header">
+                    <strong>{student.displayName}</strong>
+                    <button type="button" onClick={() => setActiveBoard(personalBoardId(student.userId))}>Открыть</button>
+                  </div>
+                  <WhiteboardPanel
+                    classId={classId}
+                    actorId={currentUserId}
+                    isHost={connection.host}
+                    targetId={personalBoardId(student.userId)}
+                    canAnnotate={false}
+                    document={boardDocument}
+                  />
+                </div>
+              ))}
+              {students.length === 0 && <p className="online-class-room__student-grid-empty">Пока нет учеников</p>}
+            </div>
+          )}
           {showScreen && (
             <div className="online-class-room__screen">
               <ScreenShareView />
