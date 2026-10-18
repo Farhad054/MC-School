@@ -1701,3 +1701,42 @@
     right:min(58vw,220px);
   }
 }
+
+/* One compact line of lesson chrome; the board gets the released height. */
+.online-class-room__topbar {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  min-height:58px;
+  padding:7px max(12px,env(safe-area-inset-right)) 7px max(12px,env(safe-area-inset-left));
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;
+  background:#fff;
+}
+.online-class-room__topbar::-webkit-scrollbar {display:none}
+.online-class-room__topbar > * {
+  flex-shrink:0;
+}
+.online-class-room__topbar .online-class-room__videos-toggle {
+  position:static;
+  transform:none;
+  min-height:40px;
+  margin-left:auto;
+  border-radius:12px;
+  white-space:nowrap;
+  box-shadow:0 3px 12px rgba(32,58,99,.09);
+}
+.online-class-room__topbar .board-switcher {
+  flex:0 0 auto;
+}
+@media(max-width:800px) {
+  .online-class-room__topbar {
+    min-height:52px;
+    gap:7px;
+    padding-top:5px;
+    padding-bottom:5px;
+  }
+}
