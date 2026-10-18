@@ -30,7 +30,6 @@ import { CaptionsPanel } from './CaptionsPanel';
 import { RecordingControls } from './RecordingControls';
 import { TranscriptionControls } from './TranscriptionControls';
 import { ParticipantListPanel } from './ParticipantListPanel';
-import { StudentScreenShareToggle } from './StudentScreenShareToggle';
 import { WaitingRoomPanel } from './WaitingRoomPanel';
 import { useAnswersPanel } from './useAnswersPanel';
 import { useBoardDocument } from './useBoardDocument';
@@ -107,7 +106,6 @@ function RoomBody({
   connection,
   recordingState,
   transcriptionState,
-  studentScreenShareEnabled,
   recordingAvailable,
   transcriptionAvailable,
   onLeave,
@@ -120,7 +118,6 @@ function RoomBody({
   connection: OnlineClassConnection;
   recordingState: ClassFeatureState;
   transcriptionState: ClassFeatureState;
-  studentScreenShareEnabled: boolean;
   recordingAvailable: boolean;
   transcriptionAvailable: boolean;
   onLeave: () => void;
@@ -279,9 +276,6 @@ function RoomBody({
           available={transcriptionAvailable}
           onChanged={onStateChanged}
         />
-        {connection.host && (
-          <StudentScreenShareToggle classId={classId} initiallyEnabled={studentScreenShareEnabled} />
-        )}
         <button type="button" className="online-class-room__videos-toggle" aria-expanded={videosOpen} aria-controls="online-class-videos" onClick={() => setVideosOpen((open) => !open)} title={videosOpen ? 'Скрыть видео участников' : 'Показать видео участников'}>
           {videosOpen ? 'Видео ›' : '‹ Видео'}
         </button>
@@ -422,7 +416,6 @@ export function OnlineClassRoom({
   initialMedia,
   recordingState,
   transcriptionState,
-  studentScreenShareEnabled = false,
   recordingAvailable = false,
   transcriptionAvailable = false,
   onLeave,
@@ -489,7 +482,6 @@ export function OnlineClassRoom({
         connection={connection}
         recordingState={recordingState}
         transcriptionState={transcriptionState}
-        studentScreenShareEnabled={studentScreenShareEnabled}
         recordingAvailable={recordingAvailable}
         transcriptionAvailable={transcriptionAvailable}
         onLeave={onLeave}
