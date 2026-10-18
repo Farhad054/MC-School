@@ -1573,3 +1573,91 @@
     padding:8px 11px;
   }
 }
+
+/* Retractable participant rail; the board remains mounted underneath. */
+.online-class-room__stage {
+  position:relative;
+  display:flex;
+  min-height:0;
+  overflow:hidden;
+}
+.online-class-room__stage > .online-class-room__main {
+  flex:1 1 auto;
+  min-width:0;
+}
+.online-class-room__videos-drawer {
+  position:absolute;
+  z-index:11;
+  top:0;
+  right:0;
+  bottom:0;
+  width:clamp(160px,23vw,250px);
+  background:#101a26;
+  transform:translateX(102%);
+  opacity:0;
+  pointer-events:none;
+  transition:transform .22s ease,opacity .22s ease;
+  overflow:auto;
+}
+.online-class-room__videos-drawer.is-open {
+  transform:translateX(0);
+  opacity:1;
+  pointer-events:auto;
+}
+.online-class-room__videos-toggle {
+  position:absolute;
+  z-index:12;
+  right:10px;
+  top:50%;
+  transform:translateY(-50%);
+  border:1px solid #dce6f3;
+  border-radius:13px;
+  padding:12px 9px;
+  background:rgba(255,255,255,.96);
+  color:#24518c;
+  box-shadow:0 4px 16px rgba(23,50,83,.17);
+  font:inherit;
+  cursor:pointer;
+  touch-action:manipulation;
+}
+.online-class-room__stage--videos-open .online-class-room__videos-toggle {
+  right:clamp(160px,23vw,250px);
+  border-radius:12px 0 0 12px;
+}
+.online-class-room__videos-toggle:focus-visible {
+  outline:2px solid #3977da;
+  outline-offset:2px;
+}
+/* The controls now float ON the lesson canvas. Empty space stays transparent
+   and permits the PDF and annotations to remain visible underneath. */
+.online-class-room {
+  position:relative;
+}
+.online-class-room__controls {
+  position:absolute;
+  z-index:15;
+  left:0;
+  right:0;
+  bottom:0;
+  width:auto;
+  border:0;
+  padding:8px 10px max(10px,env(safe-area-inset-bottom));
+  background:transparent;
+  box-shadow:none;
+  pointer-events:none;
+  scrollbar-width:none;
+}
+.online-class-room__controls::-webkit-scrollbar {display:none}
+.online-class-room__controls > * {pointer-events:auto}
+.online-class-room__controls > .lk-control-bar {
+  background:transparent!important;
+  box-shadow:none!important;
+}
+@media(max-width:640px) {
+  .online-class-room__videos-drawer {width:min(58vw,220px)}
+  .online-class-room__stage--videos-open .online-class-room__videos-toggle {right:min(58vw,220px)}
+  .online-class-room__controls {padding:6px 8px max(8px,env(safe-area-inset-bottom))}
+}
+@media(prefers-reduced-motion:reduce) {
+  .online-class-room__videos-drawer {transition:none}
+}
