@@ -1,4 +1,4 @@
-import { useRef, useState, useLayoutEffect } from 'react';
+import { useRef, useState, useLayoutEffect, useEffect } from 'react';
 import { lessonPreparationApi } from '../../api/lessonPreparation';
 import { usePdf, usePdfPage } from './usePdf';
 import type { PdfDoc } from './pdfDocument';
@@ -32,11 +32,60 @@ export function SolutionsDrawer({ eventId, onClose }: { eventId?: string; onClos
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const pdf = usePdf(eventId ? `solutions:${eventId}:${revision}` : null, async () => {
     if (!eventId) throw new Error('Нет календарного события урока');
     return lessonPreparationApi.answersBytes(eventId);
   });
   const doc = pdf.status === 'ready' ? pdf.doc : null;
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let gesture: { distance: number; zoom: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null = null;
+    const distance = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const start = (event: TouchEvent) => {
+      if (event.touches.length !== 2) { gesture = null; return; }
+      const rect = el.getBoundingClientRect();
+      gesture = {
+        distance: Math.max(1, distance(event.touches[0], event.touches[1])),
+        zoom: zoomRef.current,
+        x: (event.touches[0].clientX + event.touches[1].clientX) / 2 - rect.left,
+        y: (event.touches[0].clientY + event.touches[1].clientY) / 2 - rect.top,
+        scrollLeft: el.scrollLeft, scrollTop: el.scrollTop,
+      };
+      if (event.cancelable) event.preventDefault();
+    };
+    const move = (event: TouchEvent) => {
+      if (event.touches.length !== 2) { gesture = null; return; }
+      if (!gesture) { start(event); return; }
+      if (event.cancelable) event.preventDefault();
+      const next = Math.max(.6, Math.min(3, gesture.zoom *
+        distance(event.touches[0], event.touches[1]) / gesture.distance));
+      if (Math.abs(next - zoomRef.current) < .005) return;
+      const origin = gesture;
+      zoomRef.current = next;
+      setZoom(next);
+      requestAnimationFrame(() => {
+        const scale = next / origin.zoom;
+        el.scrollLeft = (origin.scrollLeft + origin.x) * scale - origin.x;
+        el.scrollTop = (origin.scrollTop + origin.y) * scale - origin.y;
+      });
+    };
+    const end = (event: TouchEvent) => { if (event.touches.length < 2) gesture = null; };
+    el.addEventListener('touchstart', start, { passive: false });
+    el.addEventListener('touchmove', move, { passive: false });
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', end);
+    return () => {
+      el.removeEventListener('touchstart', start);
+      el.removeEventListener('touchmove', move);
+      el.removeEventListener('touchend', end);
+      el.removeEventListener('touchcancel', end);
+    };
+  }, []);
 
   async function upload(file: File) {
     if (!eventId) { setError('Урок не связан с календарём'); return; }
@@ -78,7 +127,7 @@ export function SolutionsDrawer({ eventId, onClose }: { eventId?: string; onClos
       {error && <p role="alert">{error}</p>}
       {pdf.status === 'loading' && <p role="status">Загрузка решений…</p>}
       {pdf.status === 'error' && <p role="alert">Не удалось открыть PDF: {pdf.message}</p>}
-      <div className="classroom-solutions__scroller">
+      <div ref={scrollRef} className="classroom-solutions__scroller">
         {doc && Array.from({ length: doc.pageCount }, (_, index) =>
           <SolutionPage key={index} doc={doc} index={index} zoom={zoom} />)}
       </div>
