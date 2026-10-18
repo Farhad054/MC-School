@@ -125,6 +125,24 @@ function RoomBody({
   onStateChanged?: () => void;
 }) {
   const { t } = useI18n();
+  // Automatically start Soniox transcription when the teacher joins a live lesson.
+  // Never start for a student or if the feature is unavailable, already running,
+  // or deliberately stopped during this room session.
+  const connectionState = useConnectionState();
+  const transcriptionAutoAttempted = useRef(false);
+  const [transcriptionAutoError, setTranscriptionAutoError] = useState(false);
+  useEffect(() => {
+    if (!connection.host || !transcriptionAvailable ||
+        connectionState !== ConnectionState.Connected ||
+        transcriptionState !== 'INACTIVE' || transcriptionAutoAttempted.current) return;
+    transcriptionAutoAttempted.current = true;
+    let alive = true;
+    void onlineClassesApi.startTranscription(classId).then(
+      () => { if (alive) onStateChanged?.(); },
+      () => { if (alive) setTranscriptionAutoError(true); },
+    );
+    return () => { alive = false; };
+  }, [classId, connection.host, connectionState, transcriptionAvailable, transcriptionState, onStateChanged]);
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [videosOpen, setVideosOpen] = useState(true);
   const [homeworkOpen, setHomeworkOpen] = useState(false);
@@ -270,6 +288,7 @@ function RoomBody({
           available={recordingAvailable}
           onChanged={onStateChanged}
         />
+        {transcriptionAutoError && <span role="alert" className="transcription__unavailable">Не удалось автоматически запустить транскрипцию. Запустите её вручную.</span>}
         <TranscriptionControls
           classId={classId}
           isHost={connection.host}
