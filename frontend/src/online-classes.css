@@ -1740,3 +1740,70 @@
     padding-bottom:5px;
   }
 }
+
+/* Teacher-only four-way personal board overview. Each tile is a live,
+   read-only view; opening a tile returns to its normal full-size editor. */
+.online-class-room__student-grid {
+  position:absolute;
+  inset:0;
+  z-index:5;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-rows:repeat(2,minmax(0,1fr));
+  gap:8px;
+  padding:8px 8px 80px;
+  background:#edf3fb;
+}
+.online-class-room__student-tile {
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+  min-height:0;
+  overflow:hidden;
+  background:#fff;
+  border:1px solid #dce6f3;
+  border-radius:13px;
+}
+.online-class-room__student-tile-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+  min-height:35px;
+  padding:4px 9px;
+  color:#294465;
+  font-size:13px;
+  border-bottom:1px solid #e5ebf5;
+}
+.online-class-room__student-tile-header strong {
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.online-class-room__student-tile-header button {
+  border:1px solid #cbdcf2;
+  background:#fff;
+  border-radius:8px;
+  padding:4px 8px;
+  color:#245fc9;
+}
+.online-class-room__student-tile > .whiteboard {
+  flex:1 1 auto;
+  min-height:0;
+}
+.online-class-room__student-tile .whiteboard__topline,
+.online-class-room__student-tile .whiteboard__topline-pages,
+.online-class-room__student-tile .whiteboard__zoom,
+.online-class-room__student-tile .whiteboard__notice {
+  display:none!important;
+}
+.online-class-room__student-grid-empty {
+  padding:15px;
+  color:#536987;
+}
+@media(max-width:600px) {
+  .online-class-room__student-grid {gap:4px;padding:4px 4px 72px}
+  .online-class-room__student-tile-header {padding:3px 5px;font-size:11px}
+  .online-class-room__student-tile-header button {padding:4px;font-size:11px}
+}
