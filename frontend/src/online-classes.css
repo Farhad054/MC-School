@@ -1661,3 +1661,43 @@
 @media(prefers-reduced-motion:reduce) {
   .online-class-room__videos-drawer {transition:none}
 }
+
+/* iPad visual QA: unobstructed page navigation and a clean retractable video tab. */
+.online-class-room__videos-toggle {
+  top:12px;
+  right:12px;
+  transform:none;
+  padding:9px 12px;
+  min-height:44px;
+}
+.online-class-room__stage--videos-open .online-class-room__videos-toggle {
+  right:clamp(160px,23vw,250px);
+}
+.online-class-room__controls {
+  justify-content:flex-start;
+  bottom:0;
+  isolation:isolate;
+  padding-bottom:max(10px,env(safe-area-inset-bottom));
+}
+/* The bottom row floats OVER the canvas; navigation and zoom float just above
+   that row, so no controls share the same hit area. */
+.online-class-room .school-islands-board .whiteboard__topline-pages,
+.online-class-room .school-islands-board .whiteboard__zoom {
+  bottom:calc(75px + env(safe-area-inset-bottom));
+  z-index:12;
+}
+.online-class-room .school-islands-board .whiteboard__stage {
+  padding-bottom:0;
+}
+@media(max-width:900px) {
+  .online-class-room__videos-toggle {top:8px;right:8px}
+  .online-class-room .school-islands-board .whiteboard__topline-pages,
+  .online-class-room .school-islands-board .whiteboard__zoom {
+    bottom:calc(68px + env(safe-area-inset-bottom));
+  }
+}
+@media(max-width:640px) {
+  .online-class-room__stage--videos-open .online-class-room__videos-toggle {
+    right:min(58vw,220px);
+  }
+}
