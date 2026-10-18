@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useI18n } from '../../i18n/I18nContext';
 import {
   COLORS,
@@ -66,7 +67,7 @@ export function BoardToolbar({
   useEffect(() => {
     if (!menuOpen && !colorsOpen) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) { setMenuOpen(false); setColorsOpen(false); }
+      if (!rootRef.current?.contains(event.target as Node) && !(event.target as Element)?.closest?.('.board-toolbar__color-popover')) { setMenuOpen(false); setColorsOpen(false); }
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { setMenuOpen(false); setColorsOpen(false); }
@@ -180,7 +181,7 @@ export function BoardToolbar({
               <span className="board-toolbar__color-preview" style={{ backgroundColor: activeSettings.color }} />
               <span aria-hidden="true">⌄</span>
             </button>
-            {colorsOpen && (
+            {colorsOpen && createPortal(
               <div className="board-toolbar__color-popover" style={{ top: colorMenuPosition.top, left: colorMenuPosition.left }} role="radiogroup" aria-label={t('onlineClass.whiteboard.color')}>
                 {COLORS.map((value) => (
                   <button key={value} type="button" role="radio" aria-checked={activeSettings.color === value}
@@ -188,15 +189,15 @@ export function BoardToolbar({
                     style={{ backgroundColor: value }}
                     onClick={() => { onSettingsChange(tool, { color: value }); setColorsOpen(false); }} />
                 ))}
-              </div>
+              </div>, document.body
             )}
           </div>
         )}
 
-      {(tool === 'pen' || tool === 'highlighter') && (
+      {(tool === 'pen' || tool === 'highlighter' || (tool === 'erase' && eraserMode === 'partial')) && (
         <label className="board-toolbar__size" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#fff', flexShrink: 0, whiteSpace: 'nowrap' }}>
-          Толщина {Math.round(activeSettings.width * 1000)}
-          <input type="range" aria-label="Толщина ручки" min={MIN_WIDTH_PERMILLE}
+          {tool === 'erase' ? 'Размер ластика' : 'Толщина'} {Math.round(activeSettings.width * 1000)}
+          <input type="range" aria-label={tool === 'erase' ? 'Размер ластика' : 'Толщина ручки'} min={MIN_WIDTH_PERMILLE}
             max={MAX_WIDTH_PERMILLE} value={Math.round(activeSettings.width * 1000)}
             onChange={(event) => onSettingsChange(tool, { width: Number(event.target.value) / 1000 })}
             style={{ width: 95 }} />
