@@ -526,3 +526,33 @@
 }
 
 .school-islands-board .board-toolbar__color-popover { position:fixed; }
+
+/* Portal is outside the board's clipping/stacking context on iPad Safari. */
+body > .board-toolbar__color-popover {
+  position:fixed;
+  z-index:9999;
+  display:grid;
+  grid-template-columns:repeat(3,38px);
+  gap:10px;
+  padding:12px;
+  width:max-content;
+  background:#fff;
+  border:1px solid #dce6f3;
+  border-radius:14px;
+  box-shadow:0 12px 32px rgba(31,52,83,.22);
+  touch-action:manipulation;
+}
+body > .board-toolbar__color-popover button {
+  width:38px;
+  height:38px;
+  min-width:38px;
+  min-height:38px;
+  padding:0;
+  border:2px solid rgba(35,56,85,.2);
+  border-radius:50%;
+  cursor:pointer;
+}
+body > .board-toolbar__color-popover button.is-active {
+  outline:2px solid #2563eb;
+  outline-offset:2px;
+}
