@@ -17,15 +17,17 @@ import {
   previousPage,
   viewOf,
   withView,
+  goToPage,
   zoomAbout,
   type BoardPages,
   type PageView,
 } from './boardView';
 import { isPersonalBoard, personalBoardOwner } from './boards';
-import { ANNOTATION_TOPIC, annotationEvent } from './events';
+import { ANNOTATION_TOPIC, annotationEvent, VIEW_TOPIC, viewEvent } from './events';
 import type { InputMode } from './inputPolicy';
 import { navigationLocked } from './followTeacher';
 import { PageNavigator } from './PageNavigator';
+import { describeView } from './followTeacher';
 import type { PdfDoc } from './pdfDocument';
 import { useAnnotationBoard } from './useAnnotationBoard';
 import { useClassEvents } from './useClassEvents';
@@ -81,6 +83,7 @@ export function WhiteboardPanel({
   hostActions,
   overlay,
   active = true,
+  observedPage,
 }: {
   classId: string;
   actorId: string;
@@ -97,6 +100,8 @@ export function WhiteboardPanel({
   overlay?: ReactNode;
   /** False while another board is on screen: pauses polling, keeps state. */
   active?: boolean;
+  /** Page currently being viewed by the student who owns this board. */
+  observedPage?: number;
 }) {
   const { t } = useI18n();
   // A personal board is private: nothing about it is broadcast and it never
@@ -121,6 +126,21 @@ export function WhiteboardPanel({
 
   const hostUserId = useHostUserId(classId);
   const getBoardSize = useCallback(() => canvasRef.current?.getSize() ?? { width: 0, height: 0 }, []);
+
+  // Teacher preview opens on the student's actual page, not always page one.
+  useEffect(() => {
+    if (!isHost || !personal || observedPage === undefined) return;
+    setPages((current) => goToPage(ensurePageCount(current, observedPage + 1), observedPage));
+  }, [isHost, personal, observedPage]);
+
+  const { publish: publishPersonalView } = useClassEvents(classId, VIEW_TOPIC, () => undefined);
+  useEffect(() => {
+    if (isHost || !personal || ownerId !== actorId || !active) return;
+    const send = () => void publishPersonalView(viewEvent(classId, describeView(pages, viewOf(pages), getBoardSize(), targetId, false)), true);
+    send();
+    const timer = window.setInterval(send, 2000);
+    return () => window.clearInterval(timer);
+  }, [isHost, personal, ownerId, actorId, active, classId, pages, targetId, getBoardSize, publishPersonalView]);
 
   const view = viewOf(pages);
   const follow = useFollowTeacher({
