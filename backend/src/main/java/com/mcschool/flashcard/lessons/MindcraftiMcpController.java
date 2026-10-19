@@ -70,6 +70,7 @@ public class MindcraftiMcpController {
     private final SchoolPromptSettingsService schoolPromptSettingsService;
     private final SchoolBrandGuideService schoolBrandGuideService;
     private final LessonPdfDraftService lessonPdfDraftService;
+    private OwnerWorkbookGeneratorService ownerWorkbookGeneratorService;
     private final StoryTemplateMasterService storyTemplateMasterService;
     private final StoryTemplateDownloadLinkService storyTemplateDownloadLinkService;
     private final FunnelAnalyticsService funnelAnalyticsService;
@@ -122,6 +123,11 @@ public class MindcraftiMcpController {
     private SkillMasteryMcpService skillMasteryMcpService;
 
     @Autowired
+    public void setOwnerWorkbookGeneratorService(OwnerWorkbookGeneratorService service) {
+        this.ownerWorkbookGeneratorService = service;
+    }
+
+    @Autowired
     public void setSkillBoardMcpService(SkillBoardMcpService service) {
         this.skillBoardMcpService = service;
     }
@@ -160,7 +166,7 @@ public class MindcraftiMcpController {
                 case "initialize" -> initialize(body, auth.authenticated());
                 case "server/discover" -> discover(auth.authenticated());
                 case "ping" -> Map.of();
-                case "tools/list" -> Map.of("tools", tools(auth.authenticated()));
+                case "tools/list" -> Map.of("tools", tools(auth));
                 case "tools/call" -> callTool(body, auth);
                 default -> null;
             };
@@ -199,15 +205,21 @@ public class MindcraftiMcpController {
         return result;
     }
 
-    private List<Map<String, Object>> tools(boolean authenticated) {
+    private List<Map<String, Object>> tools(AuthContext auth) {
         List<Map<String, Object>> tools = new ArrayList<>();
         tools.add(tool("mindcrafti_status", "Check that the Mindcrafti MCP server is reachable.", schema(Map.of(), List.of()), readOnlyAnnotations()));
-        if (!authenticated) return tools;
+        if (!auth.authenticated()) return tools;
         tools.addAll(SkillBoardMcpService.definitions());
         tools.addAll(SkillMasteryMcpService.definitions());
         tools.addAll(PersonalNutritionMcpService.definitions());
 
         tools.add(tool("get_school_prompt", "Get the current administrator-managed Mindcrafti school prompt. Use this whenever the teacher asks to create a lesson, homework or teaching material 'по промту' / 'по школьному промту' / 'using the prompt'. Choose group for group-lesson logic, individual for one-to-one lesson logic, workbook for creating a lesson workbook/teacher answers, homework for creating homework, diagnostic for a trial/diagnostic lesson, and error_correction for a personalised work-on-mistakes document. Always fetch it fresh instead of relying on a prompt remembered from earlier chat messages. Teacher-specific extra instructions may be applied on top of the returned prompt.", schema(Map.of("lessonType", property("string", "Prompt type: group, individual, workbook, homework, diagnostic or error_correction.")), List.of("lessonType")), readOnlyAnnotations()));
+        if (ownerWorkbookGeneratorService != null && ownerWorkbookGeneratorService.allowed(auth.user(), auth.apiKey())) {
+            tools.add(tool("get_owner_workbook_generator",
+                    "OWNER-ONLY CHATGPT PILOT: Fetch version, source generator, A4 CSS layout, example lesson JSON and QA scripts. Omit file to list manifest; pass an allowed filename to read it. Before creating any real school document fetch current get_school_prompt, get_brand_guide and monthly plan as appropriate. This tool never runs generation or publishes and is not available to other teachers.",
+                    schema(Map.of("file", property("string", "Optional file from the returned manifest; omit to list available source files.")), List.of()),
+                    readOnlyAnnotations()));
+        }
         tools.add(tool("get_brand_guide", "Get the current administrator-managed Mindcrafti Brand Guide, including its searchable rules and the uploaded source PDF as base64 when available. ALWAYS use this before creating or redesigning any Mindcrafti-branded PDF, homework, diagnostic, worksheet, report, presentation, work-on-mistakes document or other visual material. Fetch it fresh instead of relying on a Brand Guide remembered from chat history.", schema(Map.of(), List.of()), readOnlyAnnotations()));
 
         tools.add(tool("get_story_template_info", "Get the current APPROVED Mindcrafti Instagram Stories master PPTX metadata. Always call before producing 3 Mindcrafti Stories. The master has 3 slides and its photo, decoration, logo, graphic positions and typography must stay unchanged. Use the current version and SHA256, never prior chat copies.", schema(Map.of(), List.of()), readOnlyAnnotations()));
@@ -371,7 +383,7 @@ public class MindcraftiMcpController {
             status.put("mode", auth.authenticated() ? "full" : "diagnostic");
             status.put("authentication", auth.apiKey() ? "api_key" : auth.user() != null ? "oauth" : "none");
             if (auth.user() != null) status.put("role", auth.user().getRole().name());
-            List<Map<String, Object>> visibleTools = tools(auth.authenticated());
+            List<Map<String, Object>> visibleTools = tools(auth);
             status.put("availableToolCount", visibleTools.size());
             status.put("availableToolNames", visibleTools.stream().map(tool -> String.valueOf(tool.get("name"))).toList());
             return toolResult(status);
@@ -388,6 +400,11 @@ public class MindcraftiMcpController {
         }
         return switch (name) {
             case "get_school_prompt" -> toolResult(getSchoolPrompt(arguments));
+            case "get_owner_workbook_generator" -> {
+                if (ownerWorkbookGeneratorService == null || !ownerWorkbookGeneratorService.allowed(auth.user(), auth.apiKey()))
+                    throw new IllegalArgumentException("This workbook generator pilot is restricted to the owner account");
+                yield toolResult(ownerWorkbookGeneratorService.source(string(arguments.get("file"))));
+            }
             case "get_brand_guide" -> toolResult(schoolBrandGuideService.readForMcp());
             case "create_lesson_draft" -> toolResult(createLessonDraft(arguments,auth));
             case "get_lesson_draft" -> toolResult(lessonPdfDraftService.info(requireTeacher(arguments,auth),uuid(required(arguments,"draftId"),"draftId")));
