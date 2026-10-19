@@ -42,6 +42,8 @@ import {
 } from './WhiteboardCanvas';
 
 const INPUT_MODE_KEY = 'mc.board.inputMode';
+// Keep the teacher's pen settings while individual student boards mount/unmount.
+const boardToolPreferences = new Map<string, Record<Tool, ToolSettings>>();
 /**
  * After a refresh, further packets within this window collapse into one more
  * refresh, so a burst of strokes costs a couple of replays, not one per packet.
@@ -103,7 +105,9 @@ export function WhiteboardPanel({
   const personal = isPersonalBoard(targetId);
   const ownerId = personalBoardOwner(targetId);
   const [tool, setTool] = useState<Tool>('pen');
-  const [toolSettings, setToolSettings] = useState<Record<Tool, ToolSettings>>(DEFAULT_TOOL_SETTINGS);
+  const [toolSettings, setToolSettings] = useState<Record<Tool, ToolSettings>>(
+    () => boardToolPreferences.get(`${classId}:${actorId}`) ?? DEFAULT_TOOL_SETTINGS,
+  );
   const [eraserMode, setEraserMode] = useState<EraserMode>('partial');
   const [inputMode, setInputModeState] = useState<InputMode>(loadInputMode);
   const [pages, setPages] = useState<BoardPages>(() => initialPages(1));
@@ -311,7 +315,11 @@ export function WhiteboardPanel({
 
   const settingsOf = toolSettings[tool];
   const updateSettings = (target: Tool, patch: Partial<ToolSettings>) =>
-    setToolSettings((current) => ({ ...current, [target]: { ...current[target], ...patch } }));
+    setToolSettings((current) => {
+      const next = { ...current, [target]: { ...current[target], ...patch } };
+      boardToolPreferences.set(`${classId}:${actorId}`, next);
+      return next;
+    });
 
   const hostButtons = isHost ? (
     <>
