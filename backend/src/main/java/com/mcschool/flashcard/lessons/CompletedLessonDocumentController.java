@@ -61,7 +61,7 @@ public class CompletedLessonDocumentController {
                 org.springframework.http.HttpStatus.BAD_REQUEST, "Expected PDF");
         // Prevent saving another teacher's classroom or a foreign event.
         Integer owned = jdbc.queryForObject("""
-            SELECT count(*) FROM online_classes WHERE id = ? AND teacher_id = ? AND calendar_event_id = ?
+            SELECT count(*) FROM online_classes WHERE id = ? AND teacher_id = ? AND event_id = ?
             """, Integer.class, classId, teacher.id(), eventId);
         if (owned == null || owned == 0)
             throw new org.springframework.web.server.ResponseStatusException(
