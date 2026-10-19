@@ -313,7 +313,6 @@ function RoomBody({
         )}
         {materialError && <span role="alert" style={{ color: '#dc2626' }}>{materialError}</span>}
         <ConnectionStatus />
-        {connection.host && eventId && <button type="button" disabled={archiving} onClick={() => void archiveBoards()}>{archiving ? 'Сохраняем все доски…' : 'Сохранить документы урока'}</button>}
         {archiveNotice && <span role="status" style={{fontSize:12}}>{archiveNotice}</span>}
         <RecordingControls
           classId={classId}
@@ -361,6 +360,7 @@ function RoomBody({
                     document={boardDocument}
                     active={visible}
                     observedPage={studentPages[boardId]}
+                    onSaveLessonDocuments={connection.host && eventId && !archiving ? () => { void archiveBoards(); } : undefined}
                     // Answers belong to whichever board the teacher is looking at.
                     hostActions={
                       connection.host && visible ? (
