@@ -432,18 +432,32 @@ export function LessonDetailPage() {
           onEditInChatGpt={() => void editPdfInChatGpt('transcript', transcriptUrl, preparation?.transcriptFilename)}
         />
         <section className="panel" style={{padding:20,margin:0,border:'1px solid #ffdfca'}}>
-          <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}><h2 style={{margin:0}}>Пройденный урок</h2><span style={{color:'#138a48',fontWeight:700}}>{completedDocuments.length ? 'ГОТОВО' : 'НЕТ ФАЙЛОВ'}</span></div>
-          <p className="muted">Сохрани PDF с записями после урока: общую доску или документ конкретного ученика.</p>
-          <label style={{display:'block',fontWeight:650,marginBottom:8}}>Чей документ?</label>
-          <select className="input" value={completedTarget} onChange={e => setCompletedTarget(e.target.value)} style={{width:'100%',marginBottom:12}}>
+          <div style={{display:'flex',gap:12,alignItems:'flex-start',justifyContent:'space-between'}}>
+            <div style={{display:'flex',gap:12,alignItems:'center'}}>
+              <span style={{background:'#fff7ed',borderRadius:12,padding:'14px 9px',fontSize:22}}>PDF</span>
+              <div><h2 style={{margin:0}}>Пройденный урок</h2><div className="muted" style={{fontSize:13,marginTop:4}}>Документы с записями общей доски и каждого ученика</div></div>
+            </div>
+            <span style={{color:completedDocuments.length?'#138a48':'#778399',fontWeight:700,fontSize:12}}>{completedDocuments.length?'ГОТОВО':'НЕТ ФАЙЛОВ'}</span>
+          </div>
+          <label style={{display:'block',fontWeight:650,margin:'16px 0 8px'}}>Чей документ?</label>
+          <select className="input" value={completedTarget} onChange={e=>setCompletedTarget(e.target.value)} style={{width:'100%',marginBottom:12}}>
             <option value="shared">Общий документ группы</option>
-            {lessonStudents.map(student => <option key={student.id} value={student.id}>{student.fullName}</option>)}
+            {lessonStudents.map(student=><option key={student.id} value={student.id}>{student.fullName}</option>)}
           </select>
-          <label className="btn" style={{display:'inline-flex',cursor:uploadingCompleted?'wait':'pointer'}}>
-            {uploadingCompleted ? 'Загружаем…' : 'Загрузить пройденный PDF'}
-            <input type="file" accept=".pdf,application/pdf" disabled={uploadingCompleted} style={{display:'none'}} onChange={e => {const file=e.target.files?.[0];if(file)void uploadCompletedPdf(file);e.currentTarget.value='';}} />
+          {(() => {
+            const boardId = completedTarget === 'shared' ? 'manual-shared' : 'manual-personal-' + completedTarget;
+            const item = completedDocuments.find(doc=>doc.boardId===boardId)
+              ?? (completedTarget==='shared' ? completedDocuments.find(doc=>doc.boardId==='imported-workbook') : undefined);
+            return <div style={{border:'1px solid #e5e7eb',borderRadius:16,padding:16,marginBottom:12}}>
+              <strong style={{overflowWrap:'anywhere'}}>{item?.filename ?? 'PDF ещё не загружен'}</strong>
+              <div className="muted" style={{fontSize:13,marginTop:6}}>{item?'Открывается отдельно — страница урока остаётся на месте.':'Загрузи PDF с результатами урока.'}</div>
+              {item && <button type="button" className="btn" style={{width:'100%',marginTop:12}} onClick={()=>void completedLessonApi.open(eventId,item.id)}>Открыть PDF ↗</button>}
+            </div>;
+          })()}
+          <label className="btn btn--secondary" style={{display:'inline-flex',cursor:uploadingCompleted?'wait':'pointer'}}>
+            {uploadingCompleted?'Загружаем…':completedDocuments.some(doc=>doc.boardId===(completedTarget==='shared'?'manual-shared':'manual-personal-'+completedTarget))?'Заменить PDF':'Загрузить PDF'}
+            <input type="file" accept=".pdf,application/pdf" disabled={uploadingCompleted} style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];if(file)void uploadCompletedPdf(file);e.currentTarget.value='';}}/>
           </label>
-          <div className="muted" style={{fontSize:12,marginTop:10}}>Файл будет доступен ниже в архиве «Пройденный урок».</div>
         </section>
       </div>
 
