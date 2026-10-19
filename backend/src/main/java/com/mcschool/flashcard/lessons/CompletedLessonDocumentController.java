@@ -77,6 +77,49 @@ public class CompletedLessonDocumentController {
         return list(teacher, eventId).stream().filter(item -> item.classId().equals(classId) && item.boardId().equals(boardId)).findFirst().orElseThrow();
     }
 
+    /** Manual upload for a finished lesson, independent of a live video room. */
+    @PostMapping(value = "/manual", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public DocumentInfo uploadManual(@AuthenticationPrincipal AuthenticatedUser teacher,
+                                     @PathVariable String eventId,
+                                     @RequestParam(defaultValue = "shared") String target,
+                                     @RequestParam(value = "studentId", required = false) UUID studentId,
+                                     @RequestParam("file") MultipartFile file) throws Exception {
+        lessons.require(teacher, eventId);
+        if (!"shared".equals(target) && !"student".equals(target))
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid target");
+        if ("student".equals(target)) {
+            if (studentId == null) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "Student required");
+            Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM users WHERE id = ? AND teacher_id = ? AND role = 'STUDENT'
+                """, Integer.class, studentId, teacher.id());
+            if (count == null || count == 0) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.FORBIDDEN, "Student not assigned to teacher");
+        }
+        if (file.getSize() < 5 || file.getSize() > 25 * 1024 * 1024)
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "PDF size out of range");
+        byte[] bytes = file.getBytes();
+        if (bytes[0] != '%' || bytes[1] != 'P' || bytes[2] != 'D' || bytes[3] != 'F' || bytes[4] != '-')
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "Expected PDF");
+        String boardId = studentId != null && "student".equals(target) ? "manual-personal-" + studentId : "manual-shared";
+        UUID classId = UUID.nameUUIDFromBytes(("manual-lesson:" + teacher.id() + ":" + eventId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String filename = file.getOriginalFilename() == null ? "Пройденный-урок.pdf" : file.getOriginalFilename();
+        filename = filename.replaceAll("[\\r\\n\\\\/]", "_");
+        if (filename.length() > 255) filename = filename.substring(filename.length() - 255);
+        jdbc.update("""
+            INSERT INTO completed_lesson_documents(id,teacher_id,event_id,class_id,board_id,filename,pdf)
+            VALUES (?,?,?,?,?,?,?)
+            ON CONFLICT (teacher_id,event_id,class_id,board_id)
+            DO UPDATE SET pdf = EXCLUDED.pdf, filename = EXCLUDED.filename, updated_at = now()
+            """, UUID.randomUUID(), teacher.id(), eventId, classId, boardId, filename, bytes);
+        return list(teacher, eventId).stream()
+            .filter(item -> item.classId().equals(classId) && item.boardId().equals(boardId))
+            .findFirst().orElseThrow();
+    }
+
     @GetMapping("/{documentId}")
     public ResponseEntity<byte[]> download(@AuthenticationPrincipal AuthenticatedUser teacher,
                                             @PathVariable String eventId, @PathVariable UUID documentId) {
