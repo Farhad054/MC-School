@@ -1,6 +1,6 @@
 # Mindcrafti School — Owner Workbook Pilot v1
 
-**Status:** ChatGPT-only pilot; no site button, no background generation, no automatic publication. Other teachers' school prompts and UI are unchanged. This directory is packaged as a resource in the MC-School backend, and an owner-gated MCP tool can provide the current master source to the school's ChatGPT workflow.
+**Status:** ChatGPT-only pilot with SVG graphing + geometry (v2); no changes to the public site or teacher UI. ChatGPT-only pilot; no site button, no background generation, no automatic publication. Other teachers' school prompts and UI are unchanged. This directory is packaged as a resource in the MC-School backend, and an owner-gated MCP tool can provide the current master source to the school's ChatGPT workflow.
 
 ## Roles and intended workflow
 
@@ -13,6 +13,9 @@
 ## Files
 
 - `generate.mjs`: HTML/SVG/print generator; rational math checks (no external npm modules).
+- `diagrams.mjs`: coordinate-grid/function plotting and geometrically consistent SVG for triangle, rectangle, quadrilateral and circle.
+- `diagrams.test.mjs`: no-dependency tests for functions, dimensions, safety, and exact geometry.
+- `examples/graphs-geometry-demo.json`: illustrated test workbook for graphics and geometry; anonymized, not a real lesson.
 - `styles.css`: fixed A4 design (official school colors; answer areas and vector graphics).
 - `lesson.sample.json`: **anonymized** six-page math worksheet and three-page teacher answer plan, using a reusable, typed content structure.
 - `render_pdf.py`: WeasyPrint HTML → A4 PDF rendering.
@@ -25,6 +28,7 @@ Requirements: Node 20+, Python 3.10+, `weasyprint`, `pymupdf`.
 
 ```sh
 python3 -m pip install 'weasyprint>=60' pymupdf
+node diagrams.test.mjs
 node generate.mjs --lesson=lesson.sample.json --basename=Mindcrafti_Pilot_20261019
 python3 verify_pdf.py lesson.sample.json out
 ```
@@ -51,8 +55,35 @@ Use `node generate.mjs --html-only` to inspect/edit source HTML without PDF conv
 
 ## Scope / limitations
 
-Pilot v1 fully supports fractions and fraction bars. Coordinate diagrams, geometric figures, and plotting arbitrary functions are **future components**; do not claim those are already implemented. The generator checks answer chains but does not prove that every verbal problem is mathematically correct, so a human must still approve each lesson.
+Pilot v2 supports fractions and fraction bars, **equal-scale coordinate grids**, function graphs of types `linear`, `quadratic`, `polynomial` (degree ≤ 4), `sine`, and `cosine`, plus coordinate-built `triangle`, `rectangle`, `quadrilateral`, and `circle` figures. The image is precise vector SVG, not a generated bitmap. Geometry side labels and angle arcs are computed from input coordinates, and rectangle constraints are checked. **Not yet supported:** arbitrary expression parsing, 3D graphics, constructions with compasses, advanced geometric theorem validation. The rational-answer checker verifies numeric chains, not free-text or algebraic answers; human review is still required.
 
 ## Backend pilot endpoint
 
-Call the owner-only MCP tool `get_owner_workbook_generator` without parameters for version/file metadata. Then request `file="generate.mjs"`, `file="styles.css"`, and `file="lesson.sample.json"` as needed. The tool does **not** execute code or publish; code runs in ChatGPT's working environment. Fetch current Brand Guide fresh before making new school documents.
+Call the owner-only MCP tool `get_owner_workbook_generator` without parameters for version/file metadata. Then request `file="generate.mjs"`, `file="diagrams.mjs"`, `file="styles.css"`, `file="lesson.sample.json"`, and `file="examples/graphs-geometry-demo.json"` as needed. The tool does **not** execute code or publish; code runs in ChatGPT's working environment. Fetch current Brand Guide fresh before making new school documents.
+
+
+## New SVG component format (v2)
+
+Embed each diagram directly as one `blocks[]` entry (in student or teacher page):
+
+```json
+{
+  "type":"graph", "label":"KOORDINATENSYSTEM", "xRange":[-5,5], "yRange":[-4,6], "gridStep":1,
+  "series":[{"kind":"linear","m":1,"b":1,"label":"f(x) = x + 1"}]
+}
+```
+
+```json
+{
+  "type":"geometry", "figure":"triangle", "unit":"cm", "showSides":true, "showAngles":true,
+  "vertices":[{"label":"A","x":0,"y":0},{"label":"B","x":6,"y":0},{"label":"C","x":0,"y":8}]
+}
+```
+
+See `examples/graphs-geometry-demo.json` for tested quadratic, circle, rectangle and point examples. To generate a preview:
+
+```sh
+node generate.mjs --lesson=examples/graphs-geometry-demo.json --out=/tmp/mindcrafti-diagrams --basename=Mindcrafti_Diagram_Pilot
+```
+
+The function coefficients and geometry vertices are **data**; every rendered path is computed, no unsafe `eval` and no user-supplied SVG markup. Every new PDF gets mandatory page-layout QA. Run diagram unit tests before changing plotting logic. Plot function legends are human-specified strings, so always cross-check them against coefficients before publication. If the user asks for a non-90-minute lesson, adapt pagination/timing conventions with deliberate QA.

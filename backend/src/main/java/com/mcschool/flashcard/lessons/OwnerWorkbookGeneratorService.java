@@ -22,12 +22,13 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class OwnerWorkbookGeneratorService {
-    private static final String VERSION = "2026-10-19-v1";
+    private static final String VERSION = "2026-10-19-v2-graphs-geometry";
     private static final String RESOURCE_PREFIX = "owner-workbook-generator/";
     private static final String REPO_PATH = "backend/src/main/resources/owner-workbook-generator/";
     private static final UUID NICK_TEACHER_ID = UUID.fromString("14e3c7c1-1fc8-41bd-858a-6c20efdd957a");
     private static final List<String> TEXT_FILES = List.of(
-            "README.md", "generate.mjs", "styles.css", "lesson.sample.json",
+            "README.md", "generate.mjs", "diagrams.mjs", "diagrams.test.mjs",
+            "styles.css", "lesson.sample.json", "examples/graphs-geometry-demo.json",
             "render_pdf.py", "verify_pdf.py", "package.json");
     private static final Set<String> ALLOWED_FILES = Set.copyOf(TEXT_FILES);
 
@@ -51,7 +52,8 @@ public class OwnerWorkbookGeneratorService {
             info.put("files", new ArrayList<>(TEXT_FILES));
             info.put("sourceBranch", "integration/railway-and-ux");
             info.put("sourceDirectory", REPO_PATH);
-            info.put("generation", "Use source files inside ChatGPT to create two PDFs; do not expose a UI button.");
+            info.put("generation", "Use generator + diagrams.mjs inside ChatGPT to create two PDFs; no site UI or server-side execution.");
+            info.put("diagrams", "SVG plots: linear, quadratic, polynomial (to degree 4), sine, cosine; geometry: triangle, rectangle, quadrilateral, circle.");
             info.put("publication", "Never publish or assign homework without the user's explicit approval.");
             info.put("branding", "Fetch the current get_brand_guide before generating. Reuse the original M logo.");
             info.put("teacherPrompts", "Unchanged; this tool is not available to other teachers.");

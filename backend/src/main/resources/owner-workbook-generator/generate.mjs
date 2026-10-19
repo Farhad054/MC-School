@@ -12,6 +12,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { renderDiagram } from './diagrams.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -109,6 +110,7 @@ function renderWorkbookBlock(b, idx, pageIndex) {
   switch (b.type) {
     case 'callout': return callout(b, pageIndex === 0 && idx === 0);
     case 'strips': return stripes(b);
+    case 'graph': case 'geometry': return renderDiagram(b);
     case 'example': return example(b);
     case 'exercise': return exercise(b);
     default: throw new TypeError(`Unknown workbook block: ${b.type}`);
@@ -123,6 +125,7 @@ function teacherBlock(b) {
     }
     case 'schedule':
       return `<section class="teacher-block teacher-schedule"><div class="teacher-section-label">${htmlEscape(b.label)}</div><div class="teacher-section-title">${htmlEscape(b.title)}</div>${b.rows.map(([time,text])=> `<div class="schedule-row"><span class="schedule-time">${htmlEscape(time)}</span><span>${htmlEscape(text)}</span></div>`).join('')}</section>`;
+    case 'graph': case 'geometry': return renderDiagram(b);
     case 'solutions': {
       const rows = b.items.map(x => `<div class="solution-row"><span class="solution-label">${htmlEscape(x.label)}</span>${x.math ? math(x.math) : `<span class="solution-text">${htmlEscape(x.text)}</span>`}${x.note ? `<span class="solution-note">${htmlEscape(x.note)}</span>` : ''}</div>`).join('');
       return `<section class="teacher-block solution-group"><div class="teacher-section-label">${htmlEscape(b.section)}</div><div class="teacher-section-title">${htmlEscape(b.title)}</div>${rows}${b.footerNote ? `<div class="solution-footnote">${htmlEscape(b.footerNote)}</div>` : ''}</section>`;

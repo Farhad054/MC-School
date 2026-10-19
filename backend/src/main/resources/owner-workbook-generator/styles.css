@@ -147,3 +147,14 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
   html, body { width:210mm; background:white; }
   .sheet { margin:0; box-shadow:none; }
 }
+
+
+/* Exact, print-ready mathematical diagrams (SVG - vector at any zoom level). */
+.diagram-block { border: .26mm solid var(--border); border-radius: 4.4mm; padding: 3.1mm 5.2mm 2.5mm; background: #fbfcfe; break-inside: avoid; page-break-inside: avoid; }
+.diagram-eyebrow { color: var(--orange); font-size: 10.4px; font-weight: 700; margin: 0 0 2.3mm; }
+.diagram-svg { display: block; width: 100%; height: auto; max-height: 68mm; margin: 0 auto; }
+.graph-legend { display: flex; flex-wrap: wrap; font-size: 11px; color: var(--navy); margin: 0 0 1mm; }
+.graph-legend-item { display: inline-flex; align-items: center; margin: 0 7mm 2mm 0; }
+.graph-legend-swatch { display: inline-block; width: 4mm; height: .8mm; margin-right: 1.9mm; border-radius: 10px; }
+.diagram-caption { font-size: 11px; color: var(--gray-text); margin-top: 0.8mm; line-height: 1.35; }
+.teacher .diagram-block { margin-top: 2.4mm; }
