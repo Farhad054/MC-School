@@ -60,16 +60,27 @@ function callout(b, tall = false) {
 }
 function stripes(b) {
   function strip(f) {
-    const cells = Array.from({ length: f.denominator }, (_, i) => {
-      const x = i * 320 / f.denominator;
-      const w = 320 / f.denominator;
-      const fill = i < f.numerator ? '#fff0e3' : '#ffffff';
-      return `<rect x="${x.toFixed(3)}" y="0.5" width="${w.toFixed(3)}" height="39" fill="${fill}" stroke="#bdc9d8" stroke-width="1.25"/>`;
+    const n = Number(f.numerator);
+    const d = Number(f.denominator);
+    if (!Number.isInteger(n) || !Number.isInteger(d) || d <= 0 || n < 0 || n > d) {
+      throw new TypeError('Fraction strip needs 0 <= numerator <= denominator, with positive integers');
+    }
+    // 25/100 is visually 1/4, not 100 unreadable hair-thin lines.
+    const common = Number(gcd(BigInt(n), BigInt(d)));
+    const simplifiedDenominator = d / common;
+    const divisions = simplifiedDenominator <= 12 ? simplifiedDenominator : 10;
+    const filled = 320 * n / d;
+    const orange = '<rect x="0" y="0.5" width="' + filled.toFixed(3) + '" height="39" fill="#ffead7"/>';
+    const dividers = Array.from({ length: divisions - 1 }, (_, i) => {
+      const x = 320 * (i + 1) / divisions;
+      return `<line x1="${x.toFixed(3)}" y1="0.5" x2="${x.toFixed(3)}" y2="39.5" stroke="#bdc9d8" stroke-width="1.1"/>`;
     }).join('');
-    return `<div class="strip-block"><svg viewBox="0 0 320 40" preserveAspectRatio="none" role="img" aria-label="${f.numerator} von ${f.denominator} Teilen markiert">${cells}</svg>${f.numerator}/${f.denominator}</div>`;
+    const diagram = `<rect x="0.5" y="0.5" width="319" height="39" fill="white" stroke="#bdc9d8" stroke-width="1.1"/>${orange}${dividers}<rect x="0.5" y="0.5" width="319" height="39" fill="none" stroke="#bdc9d8" stroke-width="1.1"/>`;
+    return `<div class="strip-block"><svg viewBox="0 0 320 40" preserveAspectRatio="none" role="img" aria-label="${n} von ${d} Teilen markiert">${diagram}</svg>${n}/${d}</div>`;
   }
   return `<div class="block fraction-strips"><div class="example-eyebrow">${htmlEscape(b.label)}</div><div class="fraction-strip-diagram">${strip(b.left)}<span class="strip-relation">${htmlEscape(b.relation)}</span>${strip(b.right)}</div></div>`;
 }
+
 function example(b) {
   const formulas = `<div class="example-inner">${b.expressions.map(math).join('')}</div>`;
   if (b.text) {
@@ -213,4 +224,15 @@ if(process.argv.includes('--html-only')) {
   if(!chromium)throw Error('Chromium not found. Set CHROMIUM_PATH.');
   for(const target of targets)pdfFromHtml(chromium,target.htmlPath,target.pdfPath);
 } else throw Error('Unknown engine: '+engine);
+if (!process.argv.includes('--html-only')) {
+  // Prevent export of a document with overlapping mathematical symbols or
+  // cropped A4 content. Always verify PDF geometry automatically before success.
+  const check = spawnSync('python3', [join(root, 'verify_pdf.py'), lessonPath, out, `--basename=${base}`], {
+    encoding: 'utf8', timeout: 120000, stdio: 'pipe',
+  });
+  if (check.status !== 0) {
+    throw new Error('Generated PDF failed the mandatory layout check: ' + (check.stderr || check.stdout).slice(-3500));
+  }
+  console.log(check.stdout.trim());
+}
 console.log(`Done. Source: ${lessonPath}. Change lesson JSON for exercises; styles.css controls design.`);
