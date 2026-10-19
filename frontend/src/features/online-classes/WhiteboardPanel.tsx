@@ -84,6 +84,7 @@ export function WhiteboardPanel({
   overlay,
   active = true,
   observedPage,
+  onSaveLessonDocuments,
 }: {
   classId: string;
   actorId: string;
@@ -102,6 +103,7 @@ export function WhiteboardPanel({
   active?: boolean;
   /** Page currently being viewed by the student who owns this board. */
   observedPage?: number;
+  onSaveLessonDocuments?: () => void;
 }) {
   const { t } = useI18n();
   // A personal board is private: nothing about it is broadcast and it never
@@ -353,8 +355,8 @@ export function WhiteboardPanel({
       >
         {t('onlineClass.whiteboard.clearAll')}
       </button>
-      <button type="button" onClick={() => void saveSnapshot()}>
-        {t('onlineClass.whiteboard.saveSnapshot')}
+      <button type="button" onClick={() => onSaveLessonDocuments ? onSaveLessonDocuments() : void saveSnapshot()}>
+        {onSaveLessonDocuments ? 'Сохранить документы урока' : t('onlineClass.whiteboard.saveSnapshot')}
       </button>
       {!personal && (
         <button
