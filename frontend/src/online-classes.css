@@ -1832,3 +1832,20 @@
 }
 .classroom-solutions__sheet small {display:block; padding:5px 8px;color:#506482;}
 .classroom-solutions__sheet canvas {display:block;}
+
+
+/* LiveKit device dropdown must open above the floating bottom toolbar.
+   The toolbar scrolls horizontally, so an ordinary downward absolute menu
+   gets clipped off screen (especially on Samsung tablets and iPad). */
+.online-class-room__controls .lk-device-menu {
+  position: fixed !important;
+  top: auto !important;
+  bottom: calc(78px + env(safe-area-inset-bottom)) !important;
+  left: max(12px, calc(50vw - 160px)) !important;
+  right: auto !important;
+  z-index: 1100 !important;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(50vh, 340px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
