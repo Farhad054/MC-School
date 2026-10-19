@@ -137,6 +137,15 @@ export const completedLessonApi = {
       method: 'POST', headers: authHeaders(), body: form,
     }).then(parse<CompletedLessonDocument>);
   },
+  uploadManual(eventId: string, file: File, studentId?: string): Promise<CompletedLessonDocument> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('target', studentId ? 'student' : 'shared');
+    if (studentId) form.append('studentId', studentId);
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents/manual`, {
+      method: 'POST', headers: authHeaders(), body: form,
+    }).then(parse<CompletedLessonDocument>);
+  },
   async open(eventId: string, id: string): Promise<void> {
     const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents/${encodeURIComponent(id)}`, { headers: authHeaders() });
     if (!response.ok) throw new ApiRequestError(response.status, 'COMPLETED_DOCUMENT', response.statusText);
