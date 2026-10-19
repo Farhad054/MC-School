@@ -597,7 +597,11 @@ public class MindcraftiMcpController {
         if (targetId == null) throw new IllegalArgumentException(
                 "Workbook pilot requires a lesson linked to an actual group or student");
         String month = workbookLocalDate(lesson).withDayOfMonth(1).toString().substring(0, 7);
-        return monthlyPlanService.get(teacher, type, targetId, month);
+        MonthlyPlanResponse result = monthlyPlanService.get(teacher, type, targetId, month);
+        if (result == null || result.planJson() == null || result.planJson().isBlank()) {
+            throw new IllegalArgumentException("No structured monthly plan for this lesson. Create or confirm its monthly plan before generating a workbook.");
+        }
+        return result;
     }
 
     @SuppressWarnings("unchecked")
@@ -805,8 +809,24 @@ public class MindcraftiMcpController {
             throw new IllegalArgumentException("Calendar duration is " + minutes
                     + " minutes but JSON has " + duration.intValue()
                     + ". Only override after explicit teacher approval using confirmDurationOverride=true.");
-        return ownerWorkbookPdfRenderService.create(teacher,lesson.eventId(),lessonJson,
-                string(arguments.get("lessonPlan")),string(arguments.get("difficulties")));
+        // The teacher can supply exercises but cannot accidentally rename this lesson,
+        // its calendar date or the school's brand in the rendered files.
+        Map<String,Object> safeMeta = new LinkedHashMap<>();
+        for (Map.Entry<?,?> entry : meta.entrySet()) {
+            if (entry.getKey() instanceof String key) safeMeta.put(key, entry.getValue());
+        }
+        LocalDate lessonDate = workbookLocalDate(lesson);
+        safeMeta.put("school", "MINDCRAFTI SCHOOL");
+        safeMeta.put("subject", "MATHEMATIK");
+        safeMeta.put("group", lesson.groupName() != null ? lesson.groupName()
+                : lesson.studentName() != null ? lesson.studentName() : lesson.title());
+        safeMeta.put("date", lessonDate.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy")));
+        safeMeta.put("weekday", lessonDate.getDayOfWeek().getDisplayName(
+                java.time.format.TextStyle.FULL, Locale.GERMAN));
+        doc.put("meta", safeMeta);
+        return ownerWorkbookPdfRenderService.create(teacher, lesson.eventId(),
+                objectMapper.writeValueAsString(doc),
+                string(arguments.get("lessonPlan")), string(arguments.get("difficulties")));
     }
 
     private List<Map<String, Object>> findLessons(String query, AuthContext auth) {
