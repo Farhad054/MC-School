@@ -71,6 +71,7 @@ public class MindcraftiMcpController {
     private final SchoolBrandGuideService schoolBrandGuideService;
     private final LessonPdfDraftService lessonPdfDraftService;
     private OwnerWorkbookGeneratorService ownerWorkbookGeneratorService;
+    private OwnerWorkbookPdfRenderService ownerWorkbookPdfRenderService;
     private final StoryTemplateMasterService storyTemplateMasterService;
     private final StoryTemplateDownloadLinkService storyTemplateDownloadLinkService;
     private final FunnelAnalyticsService funnelAnalyticsService;
@@ -121,6 +122,11 @@ public class MindcraftiMcpController {
     private SkillBoardMcpService skillBoardMcpService;
     private PersonalNutritionMcpService personalNutritionMcpService;
     private SkillMasteryMcpService skillMasteryMcpService;
+
+    @Autowired
+    public void setOwnerWorkbookPdfRenderService(OwnerWorkbookPdfRenderService service) {
+        this.ownerWorkbookPdfRenderService = service;
+    }
 
     @Autowired
     public void setOwnerWorkbookGeneratorService(OwnerWorkbookGeneratorService service) {
@@ -219,6 +225,27 @@ public class MindcraftiMcpController {
                     "OWNER-ONLY CHATGPT PILOT: Fetch version, source generator, A4 CSS layout, example lesson JSON and QA scripts. Omit file to list manifest; pass an allowed filename to read it. Before creating any real school document fetch current get_school_prompt, get_brand_guide and monthly plan as appropriate. This tool never runs generation or publishes and is not available to other teachers.",
                     schema(Map.of("file", property("string", "Optional file from the returned manifest; omit to list available source files.")), List.of()),
                     readOnlyAnnotations()));
+        }
+        if (ownerWorkbookGeneratorService != null && ownerWorkbookGeneratorService.allowed(auth.user(), auth.apiKey())
+                && ownerWorkbookPdfRenderService != null) {
+            tools.add(tool("prepare_workbook_context",
+                    "OWNER ONLY (pilot): identify the EXACT calendar lesson and read the current month plan, prior lesson notes, recent homework submissions, missing homework and documented card errors. Returns a contextToken for generate_workbook. Handwritten PDFs are NOT graded: inspect their pages using get_homework_submission_pages before claiming specific handwritten errors. Read school prompts; do not generate homework or publish.",
+                    schema(Map.of(
+                            "teacherId", property("string", "Exact teacher UUID from find_lessons"),
+                            "eventId", property("string", "Exact eventId from find_lessons")),
+                            List.of("teacherId", "eventId")), readOnlyAnnotations()));
+            Map<String,Object> workbookGeneration = new LinkedHashMap<>();
+            workbookGeneration.put("teacherId", property("string", "Exact teacher UUID"));
+            workbookGeneration.put("eventId", property("string", "Exact lesson eventId"));
+            workbookGeneration.put("contextToken", property("string", "Token returned by prepare_workbook_context, bound to the month's current plan"));
+            workbookGeneration.put("lessonJson", property("string", "Structured workbook v3 JSON: meta with actual duration, workbookPages, teacherPages; not a vague AI prompt. School curriculum and evidenced errors must be used."));
+            workbookGeneration.put("confirmDurationOverride", property("boolean", "OPTIONAL. True only when the teacher explicitly requests a duration different from the calendar; defaults false."));
+            workbookGeneration.put("lessonPlan", property("string", "Optional concise lesson planning note for teacher draft metadata."));
+            workbookGeneration.put("difficulties", property("string", "Optional evidenced difficulties, no invented errors."));
+            tools.add(tool("generate_workbook",
+                    "OWNER ONLY (pilot): run the canonical Mindcrafti SVG workbook generator v3, including official Brand Guide logo and mandatory PDF layout/math QA. Saves exactly student/teacher PDFs as an UNPUBLISHED DRAFT under the exact calendar lesson. Download both using download_lesson_draft_pdf; nothing is posted until separately approved via publish_lesson_draft.",
+                    schema(workbookGeneration, List.of("teacherId","eventId","contextToken","lessonJson")),
+                    writeAnnotations()));
         }
         tools.add(tool("get_brand_guide", "Get the current administrator-managed Mindcrafti Brand Guide, including its searchable rules and the uploaded source PDF as base64 when available. ALWAYS use this before creating or redesigning any Mindcrafti-branded PDF, homework, diagnostic, worksheet, report, presentation, work-on-mistakes document or other visual material. Fetch it fresh instead of relying on a Brand Guide remembered from chat history.", schema(Map.of(), List.of()), readOnlyAnnotations()));
 
@@ -406,6 +433,14 @@ public class MindcraftiMcpController {
                 yield toolResult(ownerWorkbookGeneratorService.source(string(arguments.get("file"))));
             }
             case "get_brand_guide" -> toolResult(schoolBrandGuideService.readForMcp());
+            case "prepare_workbook_context" -> {
+                requireWorkbookOwner(auth);
+                yield toolResult(prepareWorkbookContext(arguments, auth));
+            }
+            case "generate_workbook" -> {
+                requireWorkbookOwner(auth);
+                yield toolResult(generateWorkbook(arguments, auth));
+            }
             case "create_lesson_draft" -> toolResult(createLessonDraft(arguments,auth));
             case "get_lesson_draft" -> toolResult(lessonPdfDraftService.info(requireTeacher(arguments,auth),uuid(required(arguments,"draftId"),"draftId")));
             case "download_lesson_draft_pdf" -> toolResult(lessonPdfDraftService.download(requireTeacher(arguments,auth),uuid(required(arguments,"draftId"),"draftId"),required(arguments,"kind")));
@@ -520,6 +555,258 @@ public class MindcraftiMcpController {
         result.put("brandGuide", schoolBrandGuideService.readForMcp());
         result.put("brandGuideUsage", "The embedded Brand Guide is the current visual design standard. Apply it to every generated Mindcrafti document or PDF unless the administrator explicitly says otherwise.");
         return result;
+    }
+
+
+    private void requireWorkbookOwner(AuthContext auth) {
+        if (ownerWorkbookGeneratorService == null || ownerWorkbookPdfRenderService == null
+                || !ownerWorkbookGeneratorService.allowed(auth.user(), auth.apiKey())) {
+            throw new IllegalArgumentException("Workbook v3 is restricted to the owner pilot account");
+        }
+    }
+
+    private static final java.time.ZoneId WORKBOOK_ZONE = java.time.ZoneId.of("Europe/Berlin");
+
+    private LocalDate workbookLocalDate(GroupLessonResponse lesson) {
+        if (lesson.startsAt() == null) throw new IllegalArgumentException("Calendar lesson has no start time");
+        return lesson.startsAt().atZone(WORKBOOK_ZONE).toLocalDate();
+    }
+
+    private String workbookContextToken(AuthenticatedUser teacher, GroupLessonResponse lesson,
+                                        MonthlyPlanResponse plan) {
+        String evidence = teacher.id() + "|" + lesson.eventId() + "|" +
+                plan.version() + "|" + plan.month() + "|" + plan.planJson();
+        try {
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(evidence.getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("Missing SHA-256", ex);
+        }
+    }
+
+    private GroupLessonResponse selectedWorkbookLesson(AuthenticatedUser teacher, String eventId) {
+        return calendarLessonService.listGroupLessons(teacher).stream()
+                .filter(l -> eventId.equals(l.eventId()))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                        "Calendar lesson not found. Use the exact eventId from find_lessons."));
+    }
+
+    private MonthlyPlanResponse selectedWorkbookPlan(AuthenticatedUser teacher, GroupLessonResponse lesson) {
+        String type = lesson.groupId() != null ? "group" : "student";
+        UUID targetId = lesson.groupId() != null ? lesson.groupId() : lesson.studentId();
+        if (targetId == null) throw new IllegalArgumentException(
+                "Workbook pilot requires a lesson linked to an actual group or student");
+        String month = workbookLocalDate(lesson).withDayOfMonth(1).toString().substring(0, 7);
+        return monthlyPlanService.get(teacher, type, targetId, month);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> prepareWorkbookContext(Map<String, Object> arguments, AuthContext auth)
+            throws Exception {
+        AuthenticatedUser teacher = requireTeacher(arguments, auth);
+        GroupLessonResponse lesson = selectedWorkbookLesson(teacher, required(arguments, "eventId"));
+        LocalDate lessonDate = workbookLocalDate(lesson);
+        int durationMinutes = Math.toIntExact(java.time.Duration.between(
+                lesson.startsAt(), lesson.endsAt()).toMinutes());
+        if (durationMinutes <= 0 || durationMinutes > 240)
+            throw new IllegalArgumentException("Invalid calendar lesson duration");
+        MonthlyPlanResponse monthPlan = selectedWorkbookPlan(teacher, lesson);
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("contextVersion", "v1-owner-only");
+        result.put("contextToken", workbookContextToken(teacher, lesson, monthPlan));
+        result.put("teacherId", teacher.id().toString());
+        result.put("eventId", lesson.eventId());
+        result.put("targetType", lesson.groupId() == null ? "student" : "group");
+        result.put("targetId", String.valueOf(lesson.groupId() != null ? lesson.groupId() : lesson.studentId()));
+        result.put("targetName", lesson.groupName() != null ? lesson.groupName()
+                : lesson.studentName() != null ? lesson.studentName() : lesson.title());
+        result.put("lessonTitle", lesson.title());
+        result.put("lessonDate", lessonDate.toString());
+        result.put("startsAt", lesson.startsAt().atZone(WORKBOOK_ZONE).toString());
+        result.put("calendarDurationMinutes", durationMinutes);
+        result.put("month", monthPlan.month());
+        result.put("monthPlanVersion", monthPlan.version());
+        result.put("monthPlanUpdatedAt", monthPlan.updatedAt() == null ? null : monthPlan.updatedAt().toString());
+
+        Map<String,Object> parsedPlan = new LinkedHashMap<>();
+        if (monthPlan.planJson() != null && !monthPlan.planJson().isBlank()) {
+            parsedPlan = objectMapper.readValue(monthPlan.planJson(), Map.class);
+        }
+        result.put("monthPlan", parsedPlan);
+        List<GroupLessonResponse> actualLessons = calendarLessonService.listGroupLessons(teacher).stream()
+                .filter(l -> l.startsAt() != null)
+                .filter(l -> lesson.groupId() != null ? lesson.groupId().equals(l.groupId())
+                        : lesson.studentId().equals(l.studentId()))
+                .filter(l -> workbookLocalDate(l).getYear() == lessonDate.getYear()
+                        && workbookLocalDate(l).getMonth() == lessonDate.getMonth())
+                .sorted(java.util.Comparator.comparing(GroupLessonResponse::startsAt)).toList();
+        int position = -1;
+        for (int i=0; i<actualLessons.size(); i++)
+            if (lesson.eventId().equals(actualLessons.get(i).eventId())) {position = i;break;}
+        result.put("calendarLessonNumberThisMonth", position < 0 ? null : position + 1);
+        Object plannedLessons = parsedPlan.get("lessons");
+        if (position >= 0 && plannedLessons instanceof List<?> list && position < list.size())
+            result.put("candidateMonthLesson", list.get(position));
+        else result.put("candidateMonthLesson", null);
+        result.put("monthLessonSelectionConfidence", "CANDIDATE_BY_CALENDAR_ORDER_ONLY");
+        result.put("monthLessonVerification", "Read preceding lesson/transcript and completed work; planned lesson statuses alone do not prove a topic was taught. Ask the teacher if plan and history disagree.");
+
+        LessonPreparation current = preparationRepository
+                .findByTeacherIdAndEventId(teacher.id(), lesson.eventId()).orElse(null);
+        result.put("currentPreparation", workbookPrepSummary(current));
+        GroupLessonResponse previous = calendarLessonService.listGroupLessons(teacher).stream()
+                .filter(l -> l.startsAt() != null && l.startsAt().isBefore(lesson.startsAt()))
+                .filter(l -> lesson.groupId() != null ? lesson.groupId().equals(l.groupId())
+                        : lesson.studentId().equals(l.studentId()))
+                .max(java.util.Comparator.comparing(GroupLessonResponse::startsAt)).orElse(null);
+        if (previous != null) {
+            Map<String,Object> previousSummary = new LinkedHashMap<>();
+            previousSummary.put("eventId", previous.eventId());
+            previousSummary.put("date", workbookLocalDate(previous).toString());
+            previousSummary.put("preparation", workbookPrepSummary(preparationRepository
+                    .findByTeacherIdAndEventId(teacher.id(), previous.eventId()).orElse(null)));
+            result.put("previousLesson", previousSummary);
+        } else result.put("previousLesson", null);
+
+        List<Map<String,Object>> students = new ArrayList<>();
+        if (lesson.studentId() != null) {
+            students.add(Map.of("id", lesson.studentId().toString(),
+                    "name", lesson.studentName() == null ? "Student" : lesson.studentName()));
+        } else {
+            Map<String,Object> targets = homeworkSeriesService.findTargets(teacher, "");
+            Object raw = targets.get("targets");
+            if (raw instanceof List<?> targetList) for (Object entry : targetList) {
+                if (!(entry instanceof Map<?,?> t) ||
+                    !String.valueOf(lesson.groupId()).equals(String.valueOf(t.get("id"))) ||
+                    !"group".equalsIgnoreCase(String.valueOf(t.get("type")))) continue;
+                Object members = t.get("students");
+                if (members instanceof List<?> memberList) for (Object member : memberList) {
+                    if (member instanceof Map<?,?> m && m.get("id") != null) {
+                        Map<String,Object> item = new LinkedHashMap<>();
+                        item.put("id", String.valueOf(m.get("id")));
+                        item.put("name", String.valueOf(m.get("name")));
+                        students.add(item);
+                    }
+                }
+                break;
+            }
+        }
+        LocalDate activityEnd = lessonDate.isAfter(LocalDate.now(WORKBOOK_ZONE))
+                ? LocalDate.now(WORKBOOK_ZONE) : lessonDate;
+        LocalDate activityStart = activityEnd.minusDays(20);
+        List<Map<String,Object>> studentContexts = new ArrayList<>();
+        for (Map<String,Object> student : students) {
+            UUID studentId = uuid(String.valueOf(student.get("id")), "studentId");
+            Map<String,Object> item = new LinkedHashMap<>(student);
+            Map<String,Object> activity = analyticsService.studentActivity(auth.user(), auth.apiKey(),
+                    studentId, activityStart, activityEnd);
+            item.put("activityTotals", activity.get("totals"));
+            Object rawErrors = activity.get("errors");
+            List<Map<String,Object>> errorEvidence = new ArrayList<>();
+            if (rawErrors instanceof List<?> errorList) for (Object rawError : errorList) {
+                if (!(rawError instanceof Map<?,?> m)) continue;
+                Map<String,Object> evidence = new LinkedHashMap<>();
+                for (String field : List.of("sessionId", "homeworkId", "homeworkDate",
+                        "question", "studentFirstAnswer", "correctAnswer", "correctFirstTry")) {
+                    if (m.containsKey(field)) evidence.put(field,m.get(field));
+                }
+                errorEvidence.add(evidence);
+                if (errorEvidence.size() >= 10) break;
+            }
+            item.put("documentedCardErrors", errorEvidence);
+            Map<String,Object> assigned = homeworkReadService.findStudentHomeworks(
+                    auth.user(),auth.apiKey(),studentId,activityStart,activityEnd);
+            item.put("assignedHomeworkCount", assigned.get("homeworkCount"));
+            item.put("submittedHomeworkCount", assigned.get("submittedCount"));
+            List<Map<String,Object>> recentHomework = new ArrayList<>();
+            Object history = assigned.get("homeworks");
+            if (history instanceof List<?> rows) for (Object row : rows) {
+                if (!(row instanceof Map<?,?> m)) continue;
+                Map<String,Object> h = new LinkedHashMap<>();
+                for (String field : List.of("homeworkId","assignedDate","submitted","submittedAt")) {
+                    if (m.containsKey(field)) h.put(field, m.get(field));
+                }
+                recentHomework.add(h);
+                if (recentHomework.size() >= 10) break;
+            }
+            item.put("recentHomeworkStatus", recentHomework);
+            Map<String,Object> submissions = homeworkReadService.recentSubmissions(
+                    auth.user(), auth.apiKey(), studentId, 3);
+            Object recentRaw = submissions.get("recentSubmissions");
+            List<Map<String,Object>> reviewIds = new ArrayList<>();
+            if (recentRaw instanceof List<?> recent) for (Object one : recent) {
+                if (!(one instanceof Map<?,?> m)) continue;
+                Map<String,Object> detail = new LinkedHashMap<>();
+                for (String field : List.of("homeworkId","assignedDate","submittedAt",
+                        "submittedAfterLatestLesson")) {
+                    if (m.containsKey(field)) detail.put(field,m.get(field));
+                }
+                reviewIds.add(detail);
+            }
+            item.put("submittedPdfHomeworkToInspect", reviewIds);
+            item.put("pdfHomeworkErrorsVerified", false);
+            studentContexts.add(item);
+        }
+        result.put("students", studentContexts);
+        result.put("studentMembershipNeedsTeacherReview", true);
+        var prompts = schoolPromptSettingsService.readForMcp();
+        result.put("teachingPrompt", lesson.groupId() != null ?
+                prompts.groupLessonPrompt() : prompts.individualLessonPrompt());
+        result.put("workbookPrompt", prompts.workbookPrompt());
+        result.put("promptUpdatedAt", prompts.updatedAt() == null ? null : prompts.updatedAt().toString());
+        result.put("rules", List.of(
+                "Use the documented month plan but verify the lesson candidate against actual past work.",
+                "Review submitted handwritten homework via get_homework_submission_pages before claiming errors in PDF solutions.",
+                "Unsumbitted homework is missing evidence, NOT proof of a learning difficulty.",
+                "Generate exactly two PDFs, workbook + teacher answers; do not generate or assign homework or cards.",
+                "Use canonical generator v3 SVG/CSS; download both unpublished draft PDFs and review before publication.",
+                "If pupil level, topic, date or duration is ambiguous, stop and ask the teacher to decide."));
+        result.put("nextStep", "Inspect the indicated homework PDF pages and prior transcript as needed; construct checked lessonJson and call generate_workbook with this contextToken.");
+        return result;
+    }
+
+    private Map<String,Object> workbookPrepSummary(LessonPreparation p) {
+        Map<String,Object> summary = new LinkedHashMap<>();
+        if (p == null) { summary.put("exists", false); return summary; }
+        summary.put("exists", true);
+        summary.put("lessonPlan", p.getLessonPlan());
+        summary.put("difficulties", p.getDifficulties());
+        summary.put("homeworkNotes", p.getHomeworkNotes());
+        summary.put("hasTranscript", p.hasTranscript());
+        summary.put("hasTranscriptPdf", p.hasTranscriptPdf());
+        summary.put("transcriptFilename", p.getTranscriptFilename());
+        summary.put("hasWorkbook", p.hasWorkbook());
+        summary.put("hasAnswers", p.hasAnswers());
+        return summary;
+    }
+
+    private Map<String,Object> generateWorkbook(Map<String,Object> arguments, AuthContext auth)
+            throws Exception {
+        AuthenticatedUser teacher = requireTeacher(arguments, auth);
+        GroupLessonResponse lesson = selectedWorkbookLesson(teacher, required(arguments, "eventId"));
+        MonthlyPlanResponse monthPlan = selectedWorkbookPlan(teacher, lesson);
+        String expectedContext = workbookContextToken(teacher, lesson, monthPlan);
+        String receivedContext = required(arguments, "contextToken");
+        if (!MessageDigest.isEqual(expectedContext.getBytes(StandardCharsets.UTF_8),
+                receivedContext.getBytes(StandardCharsets.UTF_8)))
+            throw new IllegalArgumentException("Workbook context is stale; call prepare_workbook_context again");
+        String lessonJson = required(arguments, "lessonJson");
+        @SuppressWarnings("unchecked")
+        Map<String,Object> doc = objectMapper.readValue(lessonJson, Map.class);
+        Object metaRaw = doc.get("meta");
+        if (!(metaRaw instanceof Map<?,?> meta)) throw new IllegalArgumentException("Missing lessonJson.meta");
+        Object durationRaw = meta.get("durationMinutes");
+        if (!(durationRaw instanceof Number duration))
+            throw new IllegalArgumentException("meta.durationMinutes must be numeric");
+        long minutes = java.time.Duration.between(lesson.startsAt(),lesson.endsAt()).toMinutes();
+        boolean confirmedOverride = arguments.containsKey("confirmDurationOverride")
+                && booleanValue(arguments.get("confirmDurationOverride"), "confirmDurationOverride");
+        if (duration.intValue() != minutes && !confirmedOverride)
+            throw new IllegalArgumentException("Calendar duration is " + minutes
+                    + " minutes but JSON has " + duration.intValue()
+                    + ". Only override after explicit teacher approval using confirmDurationOverride=true.");
+        return ownerWorkbookPdfRenderService.create(teacher,lesson.eventId(),lessonJson,
+                string(arguments.get("lessonPlan")),string(arguments.get("difficulties")));
     }
 
     private List<Map<String, Object>> findLessons(String query, AuthContext auth) {

@@ -42,7 +42,8 @@ lesson_path = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root / 'less
 out = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else root / 'out'
 requested_basename = next((a.split('=', 1)[1] for a in sys.argv[3:] if a.startswith('--basename=')), '')
 data = json.loads(lesson_path.read_text(encoding='utf-8'))
-found = sorted(out.glob(f'{requested_basename}*_Arbeitsheft_90min.pdf')) + sorted(out.glob(f'{requested_basename}*_Lehrerloesungen_90min.pdf'))
+duration = int(data['meta']['durationMinutes'])
+found = sorted(out.glob(f'{requested_basename}*_Arbeitsheft_{duration}min.pdf')) + sorted(out.glob(f'{requested_basename}*_Lehrerloesungen_{duration}min.pdf'))
 if len(found) != 2:
     raise SystemExit(f'Expected exactly two PDF files in {out}, found {len(found)}')
 for path in found:

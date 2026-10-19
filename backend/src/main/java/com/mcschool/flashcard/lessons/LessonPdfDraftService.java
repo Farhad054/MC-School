@@ -115,6 +115,54 @@ public class LessonPdfDraftService {
         return result;
     }
 
+
+    /**
+     * Reuse the existing private draft + approval flow for the branded v3 engine.
+     * The model never sees an arbitrary PDF-upload endpoint and drafts never
+     * touch a lesson until publish_lesson_draft is explicitly confirmed.
+     */
+    public Map<String, Object> createFromRenderer(AuthenticatedUser teacher, String eventId,
+            byte[] workbook, byte[] answers, String plan, String difficulties,
+            int taskCount, BufferedImage originalLogo) throws IOException {
+        if (teacher == null || eventId == null || eventId.isBlank())
+            throw new IllegalArgumentException("Teacher and lesson are required");
+        if (workbook == null || answers == null ||
+                workbook.length > MAX_PDF || answers.length > MAX_PDF)
+            throw new IllegalArgumentException("Renderer PDFs must be at most 15 MB each");
+        int workbookPages = verifyPdf(workbook, originalLogo, "Arbeitsheft");
+        int answerPages = verifyPdf(answers, originalLogo, "Lehrerloesungen");
+        String planText = limited(plan, "", 10_000);
+        String difficultiesText = limited(difficulties, "", 5_000);
+
+        UUID id = UUID.randomUUID();
+        String name = "Mindcrafti_" + id.toString().substring(0, 8);
+        String workbookName = name + "_Arbeitsheft.pdf";
+        String answerName = name + "_Lehrerloesungen.pdf";
+        jdbc.update("""
+                INSERT INTO lesson_pdf_drafts
+                  (id, teacher_id, event_id, workbook_filename, answers_filename,
+                   workbook_pdf, answers_pdf, lesson_plan, difficulties, task_count, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)
+                """, id, teacher.id(), eventId, workbookName, answerName,
+                workbook, answers, planText, difficultiesText, taskCount, Instant.now());
+
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("draftId", id.toString());
+        result.put("status", "DRAFT");
+        result.put("teacherId", teacher.id().toString());
+        result.put("eventId", eventId);
+        result.put("workbookFilename", workbookName);
+        result.put("answersFilename", answerName);
+        result.put("workbookPages", workbookPages);
+        result.put("answersPages", answerPages);
+        result.put("taskCount", taskCount);
+        result.put("homeworkCount", 0);
+        result.put("qaPassed", true);
+        result.put("brandGuideLogo", "extracted from current Mindcrafti Brand Guide");
+        result.put("next", "Download and review both PDFs; explicit publish_lesson_draft approval required");
+        return result;
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Object> info(AuthenticatedUser teacher, UUID draftId) {
         Draft draft = requireDraft(teacher, draftId, false);

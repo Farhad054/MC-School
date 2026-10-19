@@ -151,7 +151,7 @@ function pageChrome({ index, count, title, subtitle, time, teacher }) {
   const subjectLabel = teacher ? 'LEHRERLÖSUNGEN' : 'ARBEITSHEFT';
   const top = `<div class="brandbar"><img src="data:image/png;base64,${logo}" alt="Original Mindcrafti M logo"><div class="brand-lines"><div class="school-name">${htmlEscape(meta.school)}</div><div class="school-kind">${htmlEscape(meta.subject)} &nbsp;/&nbsp; ${subjectLabel}</div></div></div>`;
   const heading = `<div class="page-heading"><h1>${htmlEscape(title)}</h1><p class="page-subtitle">${htmlEscape(subtitle)}</p></div>`;
-  const progress = teacher ? '' : `<div class="progress" aria-hidden="true">${Array.from({length:count}, (_,i) => `<span class="${i === index ? 'current' : i < index ? 'done' : ''}"></span>`).join('')}</div>`;
+  const progress = teacher ? '' : `<div class="progress" style="grid-template-columns:repeat(${Math.max(1,count)},1fr)" aria-hidden="true">${Array.from({length:count}, (_,i) => `<span class="${i === index ? 'current' : i < index ? 'done' : ''}"></span>`).join('')}</div>`;
   const pill = time ? `<div class="time-pill">${htmlEscape(time)}</div>` : '';
   const footer = `<footer class="footer"><span>${htmlEscape(meta.school)} &nbsp;/&nbsp; ${htmlEscape(meta.group)}</span><span class="page-index">${pad2(index+1)} / ${pad2(count)} &nbsp; • &nbsp; ${htmlEscape(meta.date)}</span></footer>`;
   return { top, heading, progress, pill, footer };
@@ -218,9 +218,11 @@ const dateKey = String(lesson.meta.date || 'undated').replace(/[^0-9]/g,'') || '
 const groupKey = String(lesson.meta.group || 'Gruppe').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,50) || 'Gruppe';
 const base = basename(option('basename', `Mindcrafti_${groupKey}_${dateKey}`))
   .replace(/[^A-Za-z0-9_-]/g,'_').slice(0,90);
+const durationMinutes = Number(lesson.meta.durationMinutes);
+if (!Number.isInteger(durationMinutes) || durationMinutes < 30 || durationMinutes > 240) throw Error('Invalid meta.durationMinutes');
 const targets=[
-  {key:'Arbeitsheft_90min',html:doc(lesson.workbookPages.map((p,i)=>workbookPage(p,i,lesson.workbookPages)).join(''),'Mindcrafti / Gruppe 1 / Arbeitsheft')},
-  {key:'Lehrerloesungen_90min',html:doc(lesson.teacherPages.map((p,i)=>teacherPage(p,i,lesson.teacherPages)).join(''),'Mindcrafti / Gruppe 1 / Lehrerloesungen')},
+  {key:`Arbeitsheft_${durationMinutes}min`,html:doc(lesson.workbookPages.map((p,i)=>workbookPage(p,i,lesson.workbookPages)).join(''),'Mindcrafti / Gruppe 1 / Arbeitsheft')},
+  {key:`Lehrerloesungen_${durationMinutes}min`,html:doc(lesson.teacherPages.map((p,i)=>teacherPage(p,i,lesson.teacherPages)).join(''),'Mindcrafti / Gruppe 1 / Lehrerloesungen')},
 ];
 for(const target of targets){target.htmlPath=join(out,`${base}_${target.key}.html`);target.pdfPath=join(out,`${base}_${target.key}.pdf`);await writeFile(target.htmlPath,target.html,'utf8');}
 const engineArg = process.argv.find(v => v.startsWith('--engine='));
