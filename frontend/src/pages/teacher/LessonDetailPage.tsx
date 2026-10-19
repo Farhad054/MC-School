@@ -55,6 +55,8 @@ export function LessonDetailPage() {
   const [answersUrl, setAnswersUrl] = useState<string | null>(null);
   const [transcriptUrl, setTranscriptUrl] = useState<string | null>(null);
   const [completedDocuments, setCompletedDocuments] = useState<CompletedLessonDocument[]>([]);
+  const [completedTarget, setCompletedTarget] = useState('shared');
+  const [uploadingCompleted, setUploadingCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingWorkbook, setUploadingWorkbook] = useState(false);
@@ -208,6 +210,19 @@ export function LessonDetailPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function uploadCompletedPdf(file: File) {
+    if (!eventId || uploadingCompleted) return;
+    if (!file.name.toLowerCase().endsWith('.pdf')) { setError('Нужен PDF-файл.'); return; }
+    setUploadingCompleted(true);
+    setError(null);
+    try {
+      await completedLessonApi.uploadManual(eventId, file, completedTarget === 'shared' ? undefined : completedTarget);
+      setCompletedDocuments(await completedLessonApi.list(eventId));
+      setMessage('Пройденный урок сохранён.');
+    } catch (e) { setError(toErrorMessage(e, t)); }
+    finally { setUploadingCompleted(false); }
   }
 
   async function uploadPdf(kind: MaterialKind, file: File) {
@@ -416,6 +431,20 @@ export function LessonDetailPage() {
           onUpload={(file) => void uploadPdf('transcript', file)}
           onEditInChatGpt={() => void editPdfInChatGpt('transcript', transcriptUrl, preparation?.transcriptFilename)}
         />
+        <section className="panel" style={{padding:20,margin:0,border:'1px solid #ffdfca'}}>
+          <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}><h2 style={{margin:0}}>Пройденный урок</h2><span style={{color:'#138a48',fontWeight:700}}>{completedDocuments.length ? 'ГОТОВО' : 'НЕТ ФАЙЛОВ'}</span></div>
+          <p className="muted">Сохрани PDF с записями после урока: общую доску или документ конкретного ученика.</p>
+          <label style={{display:'block',fontWeight:650,marginBottom:8}}>Чей документ?</label>
+          <select className="input" value={completedTarget} onChange={e => setCompletedTarget(e.target.value)} style={{width:'100%',marginBottom:12}}>
+            <option value="shared">Общий документ группы</option>
+            {lessonStudents.map(student => <option key={student.id} value={student.id}>{student.fullName}</option>)}
+          </select>
+          <label className="btn" style={{display:'inline-flex',cursor:uploadingCompleted?'wait':'pointer'}}>
+            {uploadingCompleted ? 'Загружаем…' : 'Загрузить пройденный PDF'}
+            <input type="file" accept=".pdf,application/pdf" disabled={uploadingCompleted} style={{display:'none'}} onChange={e => {const file=e.target.files?.[0];if(file)void uploadCompletedPdf(file);e.currentTarget.value='';}} />
+          </label>
+          <div className="muted" style={{fontSize:12,marginTop:10}}>Файл будет доступен ниже в архиве «Пройденный урок».</div>
+        </section>
       </div>
 
       <section className="panel" style={{padding:20,marginBottom:18}}>
