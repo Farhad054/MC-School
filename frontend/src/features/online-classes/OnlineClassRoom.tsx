@@ -35,7 +35,7 @@ import { useAnswersPanel } from './useAnswersPanel';
 import { useBoardDocument } from './useBoardDocument';
 import { useHostUserId } from './useHostUserId';
 import { useClassEvents } from './useClassEvents';
-import { DOCUMENT_TOPIC, documentEvent } from './events';
+import { DOCUMENT_TOPIC, documentEvent, VIEW_TOPIC } from './events';
 import type { TranslationKey } from '../../i18n/translations';
 
 // Konva is ~300 kB; the board gets its own lazy boundary inside the already-lazy
@@ -228,6 +228,13 @@ function RoomBody({
   const boardDocument = useBoardDocument(classId);
   const students = useStudentRoster(classId, connection.host);
   const [activeBoard, setActiveBoard] = useState(SHARED_BOARD_ID);
+  const [studentPages, setStudentPages] = useState<Record<string, number>>({});
+  useClassEvents(classId, VIEW_TOPIC, ({ event, senderIdentity }) => {
+    if (!connection.host || event.type !== 'view' || !event.boardId.startsWith('personal-')) return;
+    // A student may announce only their own page; never trust an arbitrary data packet.
+    if (event.boardId !== personalBoardId(senderIdentity?.split('|')[0] ?? '')) return;
+    setStudentPages((current) => current[event.boardId] === event.page ? current : { ...current, [event.boardId]: event.page });
+  });
   // Only the shared board and the one in view are mounted: the shared board
   // keeps its page, zoom and tool while a personal board is open, and a teacher
   // walking through a whole group does not pile up one canvas per student
@@ -326,6 +333,7 @@ function RoomBody({
                     canAnnotate
                     document={boardDocument}
                     active={visible}
+                    observedPage={studentPages[boardId]}
                     // Answers belong to whichever board the teacher is looking at.
                     hostActions={
                       connection.host && visible ? (
@@ -362,6 +370,7 @@ function RoomBody({
                     actorId={currentUserId}
                     isHost={connection.host}
                     targetId={personalBoardId(student.userId)}
+                    observedPage={studentPages[personalBoardId(student.userId)]}
                     canAnnotate={false}
                     document={boardDocument}
                   />
