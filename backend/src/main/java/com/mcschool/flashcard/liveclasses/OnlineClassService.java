@@ -91,10 +91,32 @@ public class OnlineClassService {
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Lesson not found"));
 
-        return classRepository
+        // An ended calendar occurrence cannot be started again. For teacher-led
+        // testing, keep its transcript/attendance untouched and materialize a
+        // separate session with a fresh LiveKit room.
+        OnlineClass scheduled = classRepository
                 .findByTeacherIdAndEventIdAndScheduledStartAt(caller.id(), eventId, lesson.startsAt())
-                .map(existing -> toResponse(existing, caller))
-                .orElseGet(() -> toResponse(create(caller, lesson), caller));
+                .orElse(null);
+        if (scheduled == null) {
+            return toResponse(create(caller, lesson), caller);
+        }
+        if (!scheduled.isTerminal()) {
+            return toResponse(scheduled, caller);
+        }
+        // Reuse an already-created retry if the teacher clicks Start again.
+        Instant cutoff = now().minus(java.time.Duration.ofHours(3));
+        OnlineClass retry = classRepository.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(caller.id(), eventId)
+                .stream()
+                .filter(item -> !item.isTerminal()
+                        && item.getScheduledStartAt().isAfter(lesson.startsAt())
+                        && item.getScheduledStartAt().isAfter(cutoff)
+                        && item.getBindingKey().equals(lesson.bindingKey()))
+                .findFirst()
+                .orElse(null);
+        if (retry != null) {
+            return toResponse(retry, caller);
+        }
+        return toResponse(createRetry(caller, lesson), caller);
     }
 
     private OnlineClass create(AuthenticatedUser caller, GroupLessonResponse lesson) {
@@ -120,6 +142,26 @@ public class OnlineClassService {
         OnlineClass saved = classRepository.save(created);
         log.info("Online class materialized: classId={} status={}", saved.getId(), saved.getStatus());
         return saved;
+    }
+
+    private OnlineClass createRetry(AuthenticatedUser caller, GroupLessonResponse lesson) {
+        User teacher = accessService.requireActiveUser(caller.id());
+        Instant retryStart = now();
+        Instant retryEnd = retryStart.plus(java.time.Duration.between(lesson.startsAt(), lesson.endsAt()));
+        OnlineClass created;
+        if (lesson.groupId() != null) {
+            StudentGroup group = groupRepository.findByIdAndTeacherId(lesson.groupId(), caller.id())
+                    .orElseThrow(() -> new ResourceNotFoundException("Group not found"));
+            created = OnlineClass.forGroup(teacher, lesson.eventId(), lesson.bindingKey(),
+                    lesson.title(), retryStart, retryEnd, group);
+        } else if (lesson.studentId() != null) {
+            User student = accessService.requireActiveUser(lesson.studentId());
+            created = OnlineClass.forStudent(teacher, lesson.eventId(), lesson.bindingKey(),
+                    lesson.title(), retryStart, retryEnd, student);
+        } else {
+            throw new ConflictException("This lesson is not linked to a student or group yet");
+        }
+        return classRepository.save(created);
     }
 
     /**
