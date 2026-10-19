@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import { lessonPreparationApi } from '../../api/lessonPreparation';
+import { lessonPreparationApi, completedLessonApi, type CompletedLessonDocument } from '../../api/lessonPreparation';
 import { aiPilotApi } from '../../api/aiPilot';
 import { useAuth } from '../../auth/AuthContext';
 import type { GroupLesson, Homework, LessonPreparation, StudentListItem } from '../../api/types';
@@ -54,6 +54,7 @@ export function LessonDetailPage() {
   const [workbookUrl, setWorkbookUrl] = useState<string | null>(null);
   const [answersUrl, setAnswersUrl] = useState<string | null>(null);
   const [transcriptUrl, setTranscriptUrl] = useState<string | null>(null);
+  const [completedDocuments, setCompletedDocuments] = useState<CompletedLessonDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingWorkbook, setUploadingWorkbook] = useState(false);
@@ -66,6 +67,13 @@ export function LessonDetailPage() {
   const [aiRunning, setAiRunning] = useState<'prepare' | 'analyze' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!eventId) return;
+    let cancelled = false;
+    void completedLessonApi.list(eventId).then(items => { if (!cancelled) setCompletedDocuments(items); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [eventId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -409,6 +417,19 @@ export function LessonDetailPage() {
           onEditInChatGpt={() => void editPdfInChatGpt('transcript', transcriptUrl, preparation?.transcriptFilename)}
         />
       </div>
+
+      <section className="panel" style={{padding:20,marginBottom:18}}>
+        <h2 style={{marginTop:0}}>Пройденный урок</h2>
+        <p className="muted">Архив общих и личных досок со всеми страницами и записями. Оригинальная рабочая тетрадь не меняется.</p>
+        {completedDocuments.length === 0 ? <p className="muted">Документы ещё не сохранены. В онлайн-уроке нажми «Сохранить документы урока».</p> :
+          <div className="stack" style={{gap:8}}>{completedDocuments.map(item => (
+            <div key={item.id} style={{display:'flex',gap:12,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap'}}>
+              <strong>{item.boardId === 'board-1' ? 'Общая доска' : 'Личная доска ученика'} · {item.filename}</strong>
+              <button type="button" className="btn btn--secondary" onClick={() => void completedLessonApi.open(eventId!, item.id)}>Открыть PDF</button>
+            </div>
+          ))}</div>}
+        <button type="button" className="btn btn--secondary" style={{marginTop:12}} onClick={() => { if(eventId) void completedLessonApi.list(eventId).then(setCompletedDocuments); }}>Обновить список документов</button>
+      </section>
 
       <div className="stack" style={{ gap: 14 }}>
         <section className="panel" style={{ padding: 20, margin: 0 }}>
