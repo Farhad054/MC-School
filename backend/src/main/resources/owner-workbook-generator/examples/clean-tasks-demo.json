@@ -1,0 +1,372 @@
+{
+  "meta": {
+    "school": "MINDCRAFTI SCHOOL",
+    "subject": "MATHEMATIK",
+    "group": "Gruppe 1",
+    "date": "19.10.2026",
+    "weekday": "Montag",
+    "durationMinutes": 90
+  },
+  "workbookPages": [
+    {
+      "title": "Saubere Aufgabenlogik",
+      "subtitle": "Pilot • Grafik sauber, Angaben unten",
+      "time": "00–15 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "PRINZIP",
+          "text": "Zeichnung sauber, Angaben unten."
+        },
+        {
+          "type": "geometry",
+          "label": "GEOMETRIE / DREIECK",
+          "figure": "triangle",
+          "vertices": [
+            {
+              "label": "A",
+              "x": 0,
+              "y": 0
+            },
+            {
+              "label": "B",
+              "x": 7,
+              "y": 0
+            },
+            {
+              "label": "C",
+              "x": 2,
+              "y": 5
+            }
+          ],
+          "showSides": false,
+          "showAngles": false,
+          "caption": "Dreieck ABC: Seiten a, b, c und Winkel α, β, γ. Die Werte stehen unten.",
+          "showVertexLabels": true,
+          "showSideLabels": true,
+          "showAngleLabels": true,
+          "showAngleArcs": true
+        },
+        {
+          "type": "facts",
+          "label": "AUFGABENDATEN",
+          "given": [
+            "AB = 7 cm",
+            "AC ≈ 5,4 cm",
+            "BC ≈ 7,1 cm",
+            "∠A ≈ 68,2°"
+          ],
+          "find": [
+            "Berechne den Umfang.",
+            "Bestimme den größten Winkel."
+          ],
+          "notes": []
+        }
+      ]
+    },
+    {
+      "title": "Dreieck bearbeiten",
+      "subtitle": "Aufgaben zur Zeichnung",
+      "time": "15–20 MIN",
+      "blocks": [
+        {
+          "type": "exercise",
+          "number": "01",
+          "title": "Bearbeite die Fragen.",
+          "subtitle": "",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "U",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "größter Winkel",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 1
+        }
+      ]
+    },
+    {
+      "title": "Funktionen sauber darstellen",
+      "subtitle": "Koordinatensystem • Datenblock statt Text im Diagramm",
+      "time": "20–35 MIN",
+      "blocks": [
+        {
+          "type": "graph",
+          "label": "GRAPH / PARABEL",
+          "xRange": [
+            -4,
+            4
+          ],
+          "yRange": [
+            -5,
+            6
+          ],
+          "gridStep": 1,
+          "series": [
+            {
+              "kind": "quadratic",
+              "a": 1,
+              "b": 0,
+              "c": -4,
+              "label": "f"
+            }
+          ],
+          "caption": "Nur Koordinatensystem und Graph. Die Aufgabenstellung steht darunter."
+        },
+        {
+          "type": "facts",
+          "label": "AUFGABENDATEN",
+          "given": [
+            "f(x) = x² - 4"
+          ],
+          "find": [
+            "Bestimme die Nullstellen.",
+            "Bestimme den Scheitelpunkt."
+          ],
+          "notes": []
+        }
+      ]
+    },
+    {
+      "title": "Funktionen bearbeiten",
+      "subtitle": "Aufgaben zum Graphen",
+      "time": "35–45 MIN",
+      "blocks": [
+        {
+          "type": "exercise",
+          "number": "02",
+          "title": "Bearbeite die Fragen.",
+          "subtitle": "",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "x_1",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "x_2",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 1
+        }
+      ]
+    },
+    {
+      "title": "3D Figur sauber darstellen",
+      "subtitle": "Würfel • Maße im Datenblock",
+      "time": "45–65 MIN",
+      "blocks": [
+        {
+          "type": "geometry",
+          "label": "3D-KÖRPER / WÜRFEL",
+          "figure": "cube",
+          "side": 4,
+          "unit": "cm",
+          "name": "Würfel",
+          "showMeasuresOnFigure": false,
+          "caption": "Saubere 3D-Figur ohne Maßzahlen auf den Kanten."
+        },
+        {
+          "type": "facts",
+          "label": "AUFGABENDATEN",
+          "given": [
+            "Kantenlänge a = 4 cm"
+          ],
+          "find": [
+            "Berechne Volumen und Oberfläche."
+          ],
+          "notes": []
+        },
+        {
+          "type": "exercise",
+          "number": "03",
+          "title": "Rechne mit dem Würfel.",
+          "subtitle": "",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "V",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "O",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 1
+        }
+      ]
+    },
+    {
+      "title": "3D Figur sauber darstellen",
+      "subtitle": "Quader • Maße im Datenblock",
+      "time": "65–90 MIN",
+      "blocks": [
+        {
+          "type": "geometry",
+          "label": "3D-KÖRPER / QUADER",
+          "figure": "cuboid",
+          "width": 6,
+          "depth": 4,
+          "height": 3,
+          "unit": "cm",
+          "name": "Quader",
+          "showMeasuresOnFigure": false,
+          "caption": "Auch beim Quader bleiben Maßzahlen außerhalb der Figur."
+        },
+        {
+          "type": "facts",
+          "label": "AUFGABENDATEN",
+          "given": [
+            "Länge = 6 cm",
+            "Breite = 4 cm",
+            "Höhe = 3 cm"
+          ],
+          "find": [
+            "Berechne Volumen und Oberfläche."
+          ]
+        },
+        {
+          "type": "exercise",
+          "number": "04",
+          "title": "Rechne mit dem Quader.",
+          "subtitle": "",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "V",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "O",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 1
+        }
+      ]
+    }
+  ],
+  "teacherPages": [
+    {
+      "title": "Leitfaden · Saubere Aufgaben",
+      "subtitle": "Interner Pilot",
+      "blocks": [
+        {
+          "type": "teacherNote",
+          "label": "KONZEPT",
+          "title": "Was jetzt anders ist",
+          "paragraphs": [
+            "1. Figuren und Graphen bleiben optisch sauber.",
+            "2. Alle Daten stehen separat in Gegeben/Gesucht-Blöcken.",
+            "3. So entstehen keine Überlagerungen auf Linien, Winkeln oder Kanten."
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Lösungen",
+      "subtitle": "Seiten 1–6",
+      "blocks": [
+        {
+          "type": "solutions",
+          "section": "DREIECK",
+          "title": "Seite 1",
+          "items": [
+            {
+              "label": "1a",
+              "text": "Umfang: 7 cm + 5,4 cm + 7,1 cm ≈ 19,5 cm."
+            },
+            {
+              "label": "1b",
+              "text": "Größter Winkel bei A ≈ 68°. Das Dreieck ist spitzwinklig."
+            }
+          ]
+        },
+        {
+          "type": "solutions",
+          "section": "GRAPH",
+          "title": "Seite 2",
+          "items": [
+            {
+              "label": "2a",
+              "text": "Nullstellen: x₁ = -2 und x₂ = 2."
+            },
+            {
+              "label": "2b",
+              "text": "Scheitelpunkt: S(0|-4)."
+            },
+            {
+              "label": "2c",
+              "text": "y-Achsenabschnitt: -4."
+            }
+          ]
+        },
+        {
+          "type": "solutions",
+          "section": "WÜRFEL & QUADER",
+          "title": "Seiten 3–4",
+          "items": [
+            {
+              "label": "3a",
+              "text": "Würfel: V = 4³ = 64 cm³."
+            },
+            {
+              "label": "3b",
+              "text": "Würfel: O = 6 · 4² = 96 cm²."
+            },
+            {
+              "label": "4a",
+              "text": "Quader: V = 6 · 4 · 3 = 72 cm³."
+            },
+            {
+              "label": "4b",
+              "text": "Quader: O = 2 · (6·4 + 6·3 + 4·3) = 108 cm²."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

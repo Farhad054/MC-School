@@ -92,6 +92,16 @@ function example(b) {
 function studentTaskRow(row) {
   return `<div class="task-row"><span class="item-label">${htmlEscape(row.label)}</span><div class="expression-wrap">${math(row.math)}</div>${row.work ? '<div class="workline"></div>' : ''}</div>`;
 }
+
+function factsBlock(b) {
+  const box = (title, items = [], accent = '') => {
+    const lis = (items || []).map(item => `<li>${htmlEscape(item)}</li>`).join('');
+    return `<div class="facts-card ${accent}"><div class="facts-title">${htmlEscape(title)}</div><ul>${lis}</ul></div>`;
+  };
+  const notes = (b.notes || []).map(x => `<div class="facts-note">${htmlEscape(x)}</div>`).join('');
+  return `<section class="block facts-block">${b.label ? `<div class="diagram-eyebrow">${htmlEscape(b.label)}</div>` : ''}<div class="facts-grid">${box(b.givenTitle || 'GEGEBEN', b.given, 'given')}${box(b.findTitle || 'GESUCHT', b.find, 'find')}</div>${notes}</section>`;
+}
+
 function exercise(b) {
   const isExit = b.variant === 'exit';
   const isError = b.number === '10';
@@ -111,6 +121,7 @@ function renderWorkbookBlock(b, idx, pageIndex) {
     case 'callout': return callout(b, pageIndex === 0 && idx === 0);
     case 'strips': return stripes(b);
     case 'graph': case 'geometry': return renderDiagram(b);
+    case 'facts': return factsBlock(b);
     case 'example': return example(b);
     case 'exercise': return exercise(b);
     default: throw new TypeError(`Unknown workbook block: ${b.type}`);
@@ -126,6 +137,7 @@ function teacherBlock(b) {
     case 'schedule':
       return `<section class="teacher-block teacher-schedule"><div class="teacher-section-label">${htmlEscape(b.label)}</div><div class="teacher-section-title">${htmlEscape(b.title)}</div>${b.rows.map(([time,text])=> `<div class="schedule-row"><span class="schedule-time">${htmlEscape(time)}</span><span>${htmlEscape(text)}</span></div>`).join('')}</section>`;
     case 'graph': case 'geometry': return renderDiagram(b);
+    case 'facts': return factsBlock(b);
     case 'solutions': {
       const rows = b.items.map(x => `<div class="solution-row"><span class="solution-label">${htmlEscape(x.label)}</span>${x.math ? math(x.math) : `<span class="solution-text">${htmlEscape(x.text)}</span>`}${x.note ? `<span class="solution-note">${htmlEscape(x.note)}</span>` : ''}</div>`).join('');
       return `<section class="teacher-block solution-group"><div class="teacher-section-label">${htmlEscape(b.section)}</div><div class="teacher-section-title">${htmlEscape(b.title)}</div>${rows}${b.footerNote ? `<div class="solution-footnote">${htmlEscape(b.footerNote)}</div>` : ''}</section>`;

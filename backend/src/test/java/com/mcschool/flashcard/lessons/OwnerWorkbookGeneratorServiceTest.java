@@ -26,12 +26,15 @@ class OwnerWorkbookGeneratorServiceTest {
         Map<String,Object> metadata = service.source("");
         assertEquals("CHATGPT_OWNER_PILOT", metadata.get("mode"));
         assertTrue(((java.util.List<?>)metadata.get("files")).contains("diagrams.mjs"));
+        assertTrue(((java.util.List<?>)metadata.get("files")).contains("examples/clean-tasks-demo.json"));
         assertEquals("integration/railway-and-ux", metadata.get("sourceBranch"));
         Map<String,Object> js = service.source("generate.mjs");
         assertTrue(((String) js.get("content")).contains("checkAnswerMath"));
         assertEquals(64, ((String) js.get("sha256")).length());
         Map<String,Object> diagrams = service.source("diagrams.mjs");
         assertTrue(((String)diagrams.get("content")).contains("geometrySvg"));
+        assertTrue(((String)diagrams.get("content")).contains("showAngleLabels"));
+        assertTrue(((String)diagrams.get("content")).contains("showSideLabels"));
         Map<String,Object> demo = service.source("examples/graphs-geometry-demo.json");
         assertTrue(((String)demo.get("content")).contains("quadratic"));
         assertThrows(IllegalArgumentException.class, () -> service.source("../application.yml"));

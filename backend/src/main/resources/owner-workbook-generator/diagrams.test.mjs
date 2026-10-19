@@ -23,8 +23,27 @@ assert.ok(svg.includes('90°'));
 assert.ok(svg.includes('10 cm'));
 assert.throws(()=>geometrySvg({...triangle,vertices:[{x:0,y:0},{x:1,y:1},{x:2,y:2}]}),/Degenerate/);
 assert.throws(()=>geometrySvg({type:'geometry',figure:'rectangle',vertices:[{x:0,y:0},{x:8,y:0},{x:7,y:4},{x:0,y:4}]}),/not perpendicular/);
-assert.ok(geometrySvg({type:'geometry',figure:'circle',center:{x:0,y:0},radius:3,unit:'cm'}).includes('r = 3 cm'));
+assert.ok(geometrySvg({type:'geometry',figure:'circle',center:{x:0,y:0},radius:3,unit:'cm'}).includes('>r</text>')); 
 assert.ok(geometrySvg({type:'geometry',figure:'rectangle',vertices:[{x:0,y:0},{x:8,y:0},{x:8,y:4},{x:0,y:4}],showSides:true}).includes('8'));
 const rectErr={type:'geometry',figure:'rectangle',vertices:[{x:0,y:0},{x:8,y:0},{x:7,y:4},{x:0,y:4}]};
 assert.throws(()=>geometrySvg(rectErr));
-console.log('PASS 19 diagram checks: plots, points, escaping, triangle, circle, rectangle, geometry validation');
+
+// Pilot v3: geometry labels are letters and angle symbols, never numeric by default.
+const cleanTriangle={type:'geometry',figure:'triangle',vertices:[
+  {label:'A',x:0,y:0},{label:'B',x:7,y:0},{label:'C',x:2,y:5}
+],unit:'cm'};
+const cleanSvg=geometrySvg(cleanTriangle);
+for(const vertex of ['A','B','C']) assert.ok(cleanSvg.includes(`>${vertex}</text>`),`missing vertex ${vertex}`);
+for(const side of ['a','b','c']) assert.ok(cleanSvg.includes(`>${side}</text>`),`missing side ${side}`);
+for(const angle of ['α','β','γ']) assert.ok(cleanSvg.includes(`>${angle}</text>`),`missing angle ${angle}`);
+assert.ok(!cleanSvg.includes('paint-order'), 'no unsupported white-stroke text paint order');
+assert.ok(!cleanSvg.includes('cm</text>'), 'no numeric sides by default');
+const visible=geometrySvg({...cleanTriangle,showSideLabels:false,showAngleLabels:false});
+assert.ok(!visible.includes('>α</text>') && !visible.includes('>a</text>'));
+const cube=geometrySvg({type:'geometry',figure:'cube',unit:'cm',side:4});
+assert.ok(cube.includes('Würfel') && !cube.includes('4 cm</text>'));
+const circleClean=geometrySvg({type:'geometry',figure:'circle',center:{x:0,y:0},radius:3,unit:'cm'});
+assert.ok(circleClean.includes('>r</text>') && !circleClean.includes('r = 3 cm'));
+assert.ok(geometrySvg({type:'geometry',figure:'circle',center:{x:0,y:0},radius:3,unit:'cm',showRadiusMeasureOnFigure:true}).includes('r = 3 cm'));
+
+console.log('PASS diagrams: curves, validation, standard ABC/abc/αβγ, clean 3D, default numeric-label suppression');

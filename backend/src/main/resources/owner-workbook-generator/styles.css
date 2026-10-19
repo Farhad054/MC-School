@@ -158,3 +158,14 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
 .graph-legend-swatch { display: inline-block; width: 4mm; height: .8mm; margin-right: 1.9mm; border-radius: 10px; }
 .diagram-caption { font-size: 11px; color: var(--gray-text); margin-top: 0.8mm; line-height: 1.35; }
 .teacher .diagram-block { margin-top: 2.4mm; }
+
+
+.facts-block { border: .26mm solid var(--border); border-radius: 4.4mm; padding: 3.4mm 4.6mm 3.2mm; background: white; }
+.facts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; }
+.facts-card { border-radius: 3.8mm; padding: 3.2mm 3.6mm; min-height: 23mm; }
+.facts-card.given { background: #fbfcfe; border: .24mm solid #e3e8ef; }
+.facts-card.find { background: var(--orange-soft); }
+.facts-title { font-size: 10.4px; font-weight: 700; color: var(--orange); margin-bottom: 1.6mm; }
+.facts-card ul { margin: 0; padding-left: 4.3mm; }
+.facts-card li { font-size: 12.5px; line-height: 1.45; margin: 0 0 1.1mm; }
+.facts-note { font-size: 10.8px; color: var(--gray-text); line-height: 1.35; margin-top: 1.8mm; }

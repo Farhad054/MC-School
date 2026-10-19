@@ -1,6 +1,6 @@
-# Mindcrafti School — Owner Workbook Pilot v1
+# Mindcrafti School — Owner Workbook Pilot v3
 
-**Status:** ChatGPT-only pilot with SVG graphing + geometry (v2); no changes to the public site or teacher UI. ChatGPT-only pilot; no site button, no background generation, no automatic publication. Other teachers' school prompts and UI are unchanged. This directory is packaged as a resource in the MC-School backend, and an owner-gated MCP tool can provide the current master source to the school's ChatGPT workflow.
+**Status:** ChatGPT-only pilot with reusable geometry/graph components (v3); no changes to the public site or teacher UI. ChatGPT-only pilot; no site button, no background generation, no automatic publication. Other teachers' school prompts and UI are unchanged. This directory is packaged as a resource in the MC-School backend, and an owner-gated MCP tool can provide the current master source to the school's ChatGPT workflow.
 
 ## Roles and intended workflow
 
@@ -13,9 +13,10 @@
 ## Files
 
 - `generate.mjs`: HTML/SVG/print generator; rational math checks (no external npm modules).
-- `diagrams.mjs`: coordinate-grid/function plotting and geometrically consistent SVG for triangle, rectangle, quadrilateral and circle.
+- `diagrams.mjs`: coordinate-grid/function plotting and geometrically consistent SVG for 2D and 3D figures. Triangle vertices A/B/C, sides a/b/c, angles α/β/γ are the default; values are separate.
 - `diagrams.test.mjs`: no-dependency tests for functions, dimensions, safety, and exact geometry.
-- `examples/graphs-geometry-demo.json`: illustrated test workbook for graphics and geometry; anonymized, not a real lesson.
+- `examples/graphs-geometry-demo.json`: legacy illustrated graph/geometry test.
+- `examples/clean-tasks-demo.json`: current **approved clean-diagram** sample with `Gegeben / Gesucht`, A/B/C, a/b/c, α/β/γ, parabola, cube and cuboid; anonymized.
 - `styles.css`: fixed A4 design (official school colors; answer areas and vector graphics).
 - `lesson.sample.json`: **anonymized** six-page math worksheet and three-page teacher answer plan, using a reusable, typed content structure.
 - `render_pdf.py`: WeasyPrint HTML → A4 PDF rendering.
@@ -55,7 +56,7 @@ Use `node generate.mjs --html-only` to inspect/edit source HTML without PDF conv
 
 ## Scope / limitations
 
-Pilot v2 supports fractions and fraction bars, **equal-scale coordinate grids**, function graphs of types `linear`, `quadratic`, `polynomial` (degree ≤ 4), `sine`, and `cosine`, plus coordinate-built `triangle`, `rectangle`, `quadrilateral`, and `circle` figures. The image is precise vector SVG, not a generated bitmap. Geometry side labels and angle arcs are computed from input coordinates, and rectangle constraints are checked. **Not yet supported:** arbitrary expression parsing, 3D graphics, constructions with compasses, advanced geometric theorem validation. The rational-answer checker verifies numeric chains, not free-text or algebraic answers; human review is still required.
+Pilot v3 supports fractions and fraction bars, **equal-scale coordinate grids**, function graphs of types `linear`, `quadratic`, `polynomial` (degree ≤ 4), `sine`, and `cosine`, plus `triangle`, `rectangle`, `quadrilateral`, `circle`, `cube`, and `cuboid` figures. The image is precise vector SVG, not a generated bitmap. Geometry side labels and angle arcs are computed from input coordinates, and rectangle constraints are checked. **Not yet supported:** arbitrary expression parsing, 3D perspective/measurement validation for arbitrary solids, constructions with compasses, advanced geometric theorem validation. The rational-answer checker verifies numeric chains, not free-text or algebraic answers; human review is still required.
 
 ## Backend pilot endpoint
 
@@ -87,3 +88,33 @@ node generate.mjs --lesson=examples/graphs-geometry-demo.json --out=/tmp/mindcra
 ```
 
 The function coefficients and geometry vertices are **data**; every rendered path is computed, no unsafe `eval` and no user-supplied SVG markup. Every new PDF gets mandatory page-layout QA. Run diagram unit tests before changing plotting logic. Plot function legends are human-specified strings, so always cross-check them against coefficients before publication. If the user asks for a non-90-minute lesson, adapt pagination/timing conventions with deliberate QA.
+
+## Geometry standard (2026-10-19, v3)
+
+**Default rendering**: Use clean vector geometry, vertices A/B/C, conventional side letters `c` on AB, `a` on BC, `b` on CA, and angle labels α/β/γ. No lengths or angle-degree measurements inside the figure. For circle, show the symbolic radius `r` but not its numeric value. For cube/cuboid, never show numeric measures on edges by default. Supply task values separately using a `facts` block with `given` and `find`, displayed as **GEGEBEN** and **GESUCHT** cards below the diagram.
+
+```json
+{
+  "type": "geometry", "figure": "triangle",
+  "vertices": [{"label":"A","x":0,"y":0},{"label":"B","x":7,"y":0},{"label":"C","x":2,"y":5}],
+  "showVertexLabels": true, "showSideLabels": true, "showAngleLabels": true,
+  "showSides": false, "showAngles": false
+}
+```
+
+```json
+{
+  "type": "facts", "label": "AUFGABENDATEN",
+  "given": ["AB = 7 cm", "∠A ≈ 68,2°"],
+  "find": ["Berechne den Umfang."]
+}
+```
+
+Numeric measures can be explicitly requested (`showSides: true`, `showAngles: true`, `showRadiusMeasureOnFigure: true`, `showMeasuresOnFigure: true`) but should be exceptional. Values in `given` and free-text teacher answers are **not** derived or fully validated by the current code: manually review these against coordinates and computed outputs. The verifier catches page overflow but not every possible label collision or erroneous word problem; visual review remains mandatory.
+
+### Permanent source of truth and future teacher rollout
+
+- **Canonical storage:** `Nicklit200/MC-School-fork` → `integration/railway-and-ux` → `backend/src/main/resources/owner-workbook-generator/`. This is a **Git-versioned master**; the ChatGPT container and generated PDFs are temporary outputs, never the source of truth.
+- **Current access:** source retrieval by `get_owner_workbook_generator` is for admin/owner only. Existing teachers still receive normal school prompts. No teacher-visible button, no automatic PDF publication.
+- **Future rollout:** after testing, add a teacher-authorized connector workflow for creating draft workbooks from school lesson data, run the versioned renderer and checks, return student and teacher PDFs separately, and require teacher preview/approval before publication. Add role-based authorization on the backend. Do **not** merely expose the owner's source-fetch endpoint to teachers; that endpoint does not run PDF generation.
+- **Validation gate:** run `node diagrams.test.mjs` and `python3 verify_pdf.py ...`, render and inspect representative A4 pages. Match lesson context with the current school prompt, learning plan and student needs; do not publish if numeric given data disagree with geometry or answers.

@@ -152,13 +152,16 @@ ${grid.join('')}${axes.join('')}<g clip-path="url(#${id})">${curves.join('')}</g
 
 /** geometry figures are built from measured coordinates, not hand-drawn paths. */
 export function geometrySvg(spec) {
-  if(!spec || !['triangle','rectangle','circle','quadrilateral'].includes(spec.figure))
+  if(!spec || !['triangle','rectangle','circle','quadrilateral','cube','cuboid'].includes(spec.figure))
     throw new Error(`Unsupported geometry figure: ${esc(spec?.figure)}`);
   const W=560,H=258;
   let world=[], entries=[];
   const circle = spec.figure==='circle';
+  const is3d = spec.figure==='cube' || spec.figure==='cuboid';
   let center,radius;
-  if(circle){
+  if(is3d){
+    world=[[0,0],[1,1]];
+  } else if(circle){
     center=point(spec.center,'center');radius=finite(spec.radius,'radius');
     if(radius<=0)throw Error('Circle radius must be positive');
     world=[add(center,[-radius,-radius]),add(center,[radius,radius])];
@@ -189,11 +192,46 @@ export function geometrySvg(spec) {
   const s=Math.min(380/dx,172/dy);
   const cx=(xmin+xmax)/2,cy=(ymin+ymax)/2;
   const P=pt=>[W/2+(pt[0]-cx)*s,H/2-(pt[1]-cy)*s];
-  const lab=(x,y,t,color=NAVY)=>`<text x="${fmt(x)}" y="${fmt(y)}" text-anchor="middle" font-size="12.5" font-family="Arial, sans-serif" font-weight="600" fill="${color}">${esc(t)}</text>`;
+  const lab=(x,y,t,color=NAVY,anchor='middle')=>`<text x="${fmt(x)}" y="${fmt(y)}" text-anchor="${anchor}" font-size="15" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" fill="${color}">${esc(t)}</text>`;
   const unitSuffix=String(spec.unit??'');
   if(unitSuffix.length>8)throw Error('unit label too long');
   const shapes=[];
-  if(circle){
+  if(is3d){
+    const dimLine=(x1,y1,x2,y2,label,lx,ly,anchor='middle')=>`<line x1="${fmt(x1)}" y1="${fmt(y1)}" x2="${fmt(x2)}" y2="${fmt(y2)}" stroke="${ORANGE}" stroke-width="2.1"/>
+      <circle cx="${fmt(x1)}" cy="${fmt(y1)}" r="3" fill="${ORANGE}"/><circle cx="${fmt(x2)}" cy="${fmt(y2)}" r="3" fill="${ORANGE}"/>
+      ${lab(lx,ly,label,ORANGE,anchor)}`;
+    const drawBox=(opts)=>{
+      const x=opts.x,y=opts.y,w=opts.w,h=opts.h,d=opts.d,name=opts.name;
+      const dx=d*0.78, dy=-d*0.55;
+      const A=[x,y],B=[x+w,y],C=[x+w,y+h],D=[x,y+h];
+      const E=[x+dx,y+dy],F=[x+w+dx,y+dy],G=[x+w+dx,y+h+dy],H=[x+dx,y+h+dy];
+      const q=(p)=>vec(...p);
+      const out=[];
+      out.push(`<polygon points="${q(A)} ${q(B)} ${q(C)} ${q(D)}" fill="#fff9f4" stroke="${NAVY}" stroke-width="2.4" stroke-linejoin="round"/>`);
+      out.push(`<polygon points="${q(D)} ${q(C)} ${q(G)} ${q(H)}" fill="#fff6ee" stroke="${NAVY}" stroke-width="2.4" stroke-linejoin="round"/>`);
+      out.push(`<polygon points="${q(B)} ${q(C)} ${q(G)} ${q(F)}" fill="#fff3ea" stroke="${NAVY}" stroke-width="2.4" stroke-linejoin="round"/>`);
+      out.push(`<line x1="${fmt(A[0])}" y1="${fmt(A[1])}" x2="${fmt(E[0])}" y2="${fmt(E[1])}" stroke="${NAVY}" stroke-width="2.2"/>`);
+      out.push(`<line x1="${fmt(E[0])}" y1="${fmt(E[1])}" x2="${fmt(F[0])}" y2="${fmt(F[1])}" stroke="${NAVY}" stroke-width="2.2"/>`);
+      out.push(`<line x1="${fmt(F[0])}" y1="${fmt(F[1])}" x2="${fmt(G[0])}" y2="${fmt(G[1])}" stroke="${NAVY}" stroke-width="2.2"/>`);
+      out.push(`<line x1="${fmt(E[0])}" y1="${fmt(E[1])}" x2="${fmt(H[0])}" y2="${fmt(H[1])}" stroke="${NAVY}" stroke-width="1.8" stroke-dasharray="7 5"/>`);
+      out.push(`<line x1="${fmt(H[0])}" y1="${fmt(H[1])}" x2="${fmt(G[0])}" y2="${fmt(G[1])}" stroke="${NAVY}" stroke-width="1.8" stroke-dasharray="7 5"/>`);
+      out.push(`<line x1="${fmt(H[0])}" y1="${fmt(H[1])}" x2="${fmt(D[0])}" y2="${fmt(D[1])}" stroke="${NAVY}" stroke-width="1.8" stroke-dasharray="7 5"/>`);
+      if(opts.showMeasures === true){
+        out.push(dimLine(A[0],A[1]+16,B[0],B[1]+16,`${fmt(opts.widthVal)}${unitSuffix?` ${unitSuffix}`:''}`,(A[0]+B[0])/2,A[1]+34));
+        out.push(dimLine(B[0]+18,B[1]+10,E[0]+18,E[1]+10,`${fmt(opts.depthVal)}${unitSuffix?` ${unitSuffix}`:''}`,(B[0]+E[0])/2+28,(B[1]+E[1])/2+8));
+        out.push(dimLine(C[0]+20,C[1],G[0]+20,G[1],`${fmt(opts.heightVal)}${unitSuffix?` ${unitSuffix}`:''}`,G[0]+42,(C[1]+G[1])/2+4,'start'));
+      }
+      out.push(lab((A[0]+B[0])/2,C[1]+40,name,NAVY));
+      return out.join('');
+    };
+    if(spec.figure==='cube'){
+      const side=finite(spec.side??4,'side');
+      shapes.push(drawBox({x:150,y:120,w:92,h:92,d:42,name:spec.name??'Würfel',widthVal:side,depthVal:side,heightVal:side,showMeasures: spec.showMeasuresOnFigure}));
+    } else {
+      const widthVal=finite(spec.width??6,'width'), depthVal=finite(spec.depth??4,'depth'), heightVal=finite(spec.height??3,'height');
+      shapes.push(drawBox({x:105,y:118,w:172,h:76,d:56,name:spec.name??'Quader',widthVal,depthVal,heightVal,showMeasures: spec.showMeasuresOnFigure}));
+    }
+  } else if(circle){
     const cp=P(center),rad=radius*s;
     shapes.push(`<circle cx="${fmt(cp[0])}" cy="${fmt(cp[1])}" r="${fmt(rad)}" fill="#fff8f2" stroke="${NAVY}" stroke-width="2.4"/>`);
     shapes.push(`<circle cx="${fmt(cp[0])}" cy="${fmt(cp[1])}" r="3.4" fill="${ORANGE}"/>`);
@@ -201,26 +239,45 @@ export function geometrySvg(spec) {
     const rp=[cp[0]+rad*Math.cos(angle),cp[1]-rad*Math.sin(angle)];
     shapes.push(`<line x1="${fmt(cp[0])}" y1="${fmt(cp[1])}" x2="${fmt(rp[0])}" y2="${fmt(rp[1])}" stroke="${ORANGE}" stroke-width="2.2"/>`);
     shapes.push(lab(cp[0]-14,cp[1]+16,spec.centerLabel??'M'));
-    shapes.push(lab((cp[0]+rp[0])/2+4,(cp[1]+rp[1])/2-10,`r = ${fmt(radius)}${unitSuffix?` ${unitSuffix}`:''}`,ORANGE));
+    const radiusLabel=spec.showRadiusMeasureOnFigure===true
+      ? `r = ${fmt(radius)}${unitSuffix?` ${unitSuffix}`:''}` : 'r';
+    shapes.push(lab((cp[0]+rp[0])/2+4,(cp[1]+rp[1])/2-12,radiusLabel,ORANGE));
   }else{
     const points=world.map(P);
     const centroid=points.reduce((acc,p)=>add(acc,p),[0,0]).map(x=>x/points.length);
+    const showVertexLabels = spec.showVertexLabels !== false;
+    const showSideLabels = spec.showSideLabels !== false;
+    const showAngleLabels = spec.showAngleLabels !== false;
+    const showSideMeasures = spec.showSides === true;
+    const showAngleMeasures = spec.showAngles === true;
+    const defaultSideLabels = points.length===3 ? ['c','a','b'] : ['a','b','c','d'];
+    const defaultAngleLabels = points.length===3 ? ['α','β','γ'] : entries.map(e => `∠${e.name}`);
+    const sideLabels = Array.isArray(spec.sideLabels) ? spec.sideLabels : defaultSideLabels;
+    const angleLabels = Array.isArray(spec.angleLabels) ? spec.angleLabels : defaultAngleLabels;
     shapes.push(`<polygon points="${points.map(p=>vec(...p)).join(' ')}" fill="#fff9f4" stroke="${NAVY}" stroke-width="2.5" stroke-linejoin="round"/>`);
     entries.forEach((e,i)=>{
-      const pt=points[i];const dir=unit(sub(pt,centroid));const offset=mul(dir,19);
+      const pt=points[i];const dir=unit(sub(pt,centroid));const offset=mul(dir,15);
       shapes.push(`<circle cx="${fmt(pt[0])}" cy="${fmt(pt[1])}" r="3.5" fill="${ORANGE}"/>`);
-      shapes.push(lab(pt[0]+offset[0],pt[1]+offset[1]+3,e.name));
+      if(showVertexLabels){
+        shapes.push(lab(pt[0]+offset[0],pt[1]+offset[1]+2,e.name));
+      }
     });
-    if(spec.showSides){
+    if(showSideLabels || showSideMeasures){
       points.forEach((pt,i)=>{
         const next=points[(i+1)%points.length];
         const mid=mul(add(pt,next),0.5),normal=unit(sub(mid,centroid));
-        const position=add(mid,mul(normal,17));
-        const d=len(sub(world[i],world[(i+1)%world.length]));
-        shapes.push(lab(position[0],position[1],`${fmt(d)}${unitSuffix?` ${unitSuffix}`:''}`,GREEN));
+        const sidePos=add(mid,mul(normal,18));
+        const measPos=add(mid,mul(normal,34));
+        if(showSideLabels && sideLabels[i]){
+          shapes.push(lab(sidePos[0],sidePos[1],String(sideLabels[i]),GREEN));
+        }
+        if(showSideMeasures){
+          const d=len(sub(world[i],world[(i+1)%world.length]));
+          shapes.push(lab(measPos[0],measPos[1],`${fmt(d)}${unitSuffix?` ${unitSuffix}`:''}`,GREEN));
+        }
       });
     }
-    if(spec.showAngles){
+    if(showAngleLabels || showAngleMeasures){
       points.forEach((p,i)=>{
         const prev=points[(i+points.length-1)%points.length];
         const next=points[(i+1)%points.length];
@@ -235,8 +292,14 @@ export function geometrySvg(spec) {
           const theta=start+sweep*k/16;return add(p,[arcR*Math.cos(theta),arcR*Math.sin(theta)]);
         });
         shapes.push(`<polyline points="${arc.map(pt=>vec(...pt)).join(' ')}" stroke="${ORANGE}" stroke-width="1.6" fill="none"/>`);
-        const lbl=add(p,mul(bis,40));
-        shapes.push(lab(lbl[0],lbl[1]+4,`${fmt(Math.round(angle*180/Math.PI*10)/10)}°`,ORANGE));
+        const baseLbl=add(p,mul(bis,40));
+        const measLbl=add(p,mul(bis,58));
+        if(showAngleLabels && angleLabels[i]){
+          shapes.push(lab(baseLbl[0],baseLbl[1]+3,String(angleLabels[i]),ORANGE));
+        }
+        if(showAngleMeasures){
+          shapes.push(lab(measLbl[0],measLbl[1]+4,`${fmt(Math.round(angle*180/Math.PI*10)/10)}°`,ORANGE));
+        }
       });
     }
   }
