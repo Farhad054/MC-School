@@ -1,4 +1,5 @@
-import { lessonPreparationApi } from '../../api/lessonPreparation';
+import { lessonPreparationApi, completedLessonApi } from '../../api/lessonPreparation';
+import { exportBoardPdf } from './boardExport';
 import { onlineClassesApi } from '../../api/onlineClasses';
 import { buildPdf, dataUrlToBytes } from './pdfWriter';
 import {
@@ -227,6 +228,30 @@ function RoomBody({
   const answers = useAnswersPanel(eventId, connection.host);
   const boardDocument = useBoardDocument(classId);
   const students = useStudentRoster(classId, connection.host);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveNotice, setArchiveNotice] = useState<string | null>(null);
+  const archiveBoards = async () => {
+    if (!eventId || archiving) return;
+    setArchiving(true);
+    setArchiveNotice(null);
+    try {
+      const documents = await onlineClassesApi.listAnnotationDocuments(classId);
+      const boards = [{ id: SHARED_BOARD_ID, name: 'Общая доска' }, ...students.map(student => ({ id: personalBoardId(student.userId), name: student.displayName }))];
+      let saved = 0;
+      const failures: string[] = [];
+      for (const item of boards) {
+        try {
+          const count = Math.max(1, boardDocument?.pageCount ?? 1, ...documents.filter(document => document.targetId === item.id).map(document => document.pageIndex + 1));
+          const pdf = await exportBoardPdf({classId, targetType: 'WHITEBOARD', targetId: item.id, pageCount: count, pdfDocument: boardDocument});
+          await completedLessonApi.save(eventId, classId, item.id, pdf);
+          saved++;
+        } catch { failures.push(item.name); }
+      }
+      setArchiveNotice(failures.length ? `Сохранено ${saved} из ${boards.length}. Не удалось: ${failures.join(', ')}` : `Сохранено ${saved} документов: общая доска и доски учеников.`);
+    } catch {
+      setArchiveNotice('Не удалось сохранить документы. Повтори попытку, оставаясь в уроке.');
+    } finally { setArchiving(false); }
+  };
   const [activeBoard, setActiveBoard] = useState(SHARED_BOARD_ID);
   const [studentPages, setStudentPages] = useState<Record<string, number>>({});
   useClassEvents(classId, VIEW_TOPIC, ({ event, senderIdentity }) => {
@@ -288,6 +313,8 @@ function RoomBody({
         )}
         {materialError && <span role="alert" style={{ color: '#dc2626' }}>{materialError}</span>}
         <ConnectionStatus />
+        {connection.host && eventId && <button type="button" disabled={archiving} onClick={() => void archiveBoards()}>{archiving ? 'Сохраняем все доски…' : 'Сохранить документы урока'}</button>}
+        {archiveNotice && <span role="status" style={{fontSize:12}}>{archiveNotice}</span>}
         <RecordingControls
           classId={classId}
           isHost={connection.host}
