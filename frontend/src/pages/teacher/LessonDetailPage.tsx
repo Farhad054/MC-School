@@ -218,7 +218,7 @@ export function LessonDetailPage() {
     setUploadingCompleted(true);
     setError(null);
     try {
-      await completedLessonApi.uploadManual(eventId, file, completedTarget === 'shared' ? undefined : completedTarget);
+      await completedLessonApi.uploadManual(eventId, file);
       setCompletedDocuments(await completedLessonApi.list(eventId));
       setMessage('Пройденный урок сохранён.');
     } catch (e) { setError(toErrorMessage(e, t)); }
@@ -439,15 +439,10 @@ export function LessonDetailPage() {
             </div>
             <span style={{color:completedDocuments.length?'#138a48':'#778399',fontWeight:700,fontSize:12}}>{completedDocuments.length?'ГОТОВО':'НЕТ ФАЙЛОВ'}</span>
           </div>
-          <label style={{display:'block',fontWeight:650,margin:'16px 0 8px'}}>Чей документ?</label>
-          <select className="input" value={completedTarget} onChange={e=>setCompletedTarget(e.target.value)} style={{width:'100%',marginBottom:12}}>
-            <option value="shared">Общий документ группы</option>
-            {lessonStudents.map(student=><option key={student.id} value={student.id}>{student.fullName}</option>)}
-          </select>
           {(() => {
-            const boardId = completedTarget === 'shared' ? 'manual-shared' : 'manual-personal-' + completedTarget;
+            const boardId = 'manual-shared';
             const item = completedDocuments.find(doc=>doc.boardId===boardId)
-              ?? (completedTarget==='shared' ? completedDocuments.find(doc=>doc.boardId==='imported-workbook') : undefined);
+              ?? completedDocuments.find(doc=>doc.boardId==='imported-workbook');
             return <div style={{border:'1px solid #e5e7eb',borderRadius:16,padding:16,marginBottom:12}}>
               <strong style={{overflowWrap:'anywhere'}}>{item?.filename ?? 'PDF ещё не загружен'}</strong>
               <div className="muted" style={{fontSize:13,marginTop:6}}>{item?'Открывается отдельно — страница урока остаётся на месте.':'Загрузи PDF с результатами урока.'}</div>
@@ -455,7 +450,7 @@ export function LessonDetailPage() {
             </div>;
           })()}
           <label className="btn btn--secondary" style={{display:'inline-flex',cursor:uploadingCompleted?'wait':'pointer'}}>
-            {uploadingCompleted?'Загружаем…':completedDocuments.some(doc=>doc.boardId===(completedTarget==='shared'?'manual-shared':'manual-personal-'+completedTarget))?'Заменить PDF':'Загрузить PDF'}
+            {uploadingCompleted?'Загружаем…':completedDocuments.some(doc=>doc.boardId==='manual-shared')?'Заменить PDF':'Загрузить PDF'}
             <input type="file" accept=".pdf,application/pdf" disabled={uploadingCompleted} style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];if(file)void uploadCompletedPdf(file);e.currentTarget.value='';}}/>
           </label>
         </section>
