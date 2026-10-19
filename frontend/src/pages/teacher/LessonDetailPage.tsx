@@ -55,7 +55,6 @@ export function LessonDetailPage() {
   const [answersUrl, setAnswersUrl] = useState<string | null>(null);
   const [transcriptUrl, setTranscriptUrl] = useState<string | null>(null);
   const [completedDocuments, setCompletedDocuments] = useState<CompletedLessonDocument[]>([]);
-  const [completedTarget, setCompletedTarget] = useState('shared');
   const [uploadingCompleted, setUploadingCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
