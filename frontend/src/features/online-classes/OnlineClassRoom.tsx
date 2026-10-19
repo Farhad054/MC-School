@@ -360,7 +360,7 @@ function RoomBody({
                     document={boardDocument}
                     active={visible}
                     observedPage={studentPages[boardId]}
-                    onSaveLessonDocuments={connection.host && eventId && !archiving ? () => { void archiveBoards(); } : undefined}
+                    onSaveLessonDocuments={connection.host && eventId ? () => { void archiveBoards(); } : undefined}
                     // Answers belong to whichever board the teacher is looking at.
                     hostActions={
                       connection.host && visible ? (
