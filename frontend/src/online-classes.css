@@ -1849,3 +1849,61 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+
+/* Teacher PDF reference is a true sibling of the main board. Neither of the
+   two teacher-only entry points ('Решения' / 'Ответы') floats over its ink.
+   The drawing canvas already uses ResizeObserver + normalized annotations,
+   so resizing the flex main area fits the full page in the remaining width. */
+.online-class-room__stage > .answers-panel,
+.online-class-room__stage > .classroom-solutions {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: clamp(210px, 23vw, 285px);
+  max-width: 40%;
+  flex: 0 0 clamp(210px, 23vw, 285px);
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  z-index: 2;
+  box-shadow: none;
+  border-right: 1px solid #dce6f3;
+  overflow: hidden;
+}
+.online-class-room__stage > .online-class-room__main {
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+}
+.online-class-room__stage > .answers-panel .answers-panel__close {
+  right: 7px;
+  top: 7px;
+}
+.online-class-room__stage > .answers-panel .answers-panel__controls {
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 6px;
+}
+.online-class-room__stage > .classroom-solutions .classroom-solutions__toolbar {
+  flex-wrap: wrap;
+  padding: 6px;
+}
+.online-class-room__stage > .classroom-solutions .classroom-solutions__scroller {
+  min-width: 0;
+}
+@media (max-width: 680px) {
+  .online-class-room__stage > .answers-panel,
+  .online-class-room__stage > .classroom-solutions {
+    width: 40%;
+    flex-basis: 40%;
+    max-width: 40%;
+  }
+  .online-class-room__stage > .answers-panel .page-nav button,
+  .online-class-room__stage > .answers-panel .answers-panel__zoom button {
+    min-width: 34px;
+    min-height: 34px;
+  }
+}
