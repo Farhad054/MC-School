@@ -21,6 +21,7 @@ import {
   type PageView,
   type Point,
   panBy,
+  resizeView,
   screenToBoard,
   zoomAbout,
 } from './boardView';
@@ -174,14 +175,28 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     getSize: () => live.current.viewport,
   }));
 
-  // The surface is responsive; normalized coordinates mean a resize never
-  // moves existing strokes relative to the content.
+  // ResizeObserver updates the canvas dimensions whenever a teacher opens the
+  // answers column. Annotations remain normalized; only pixel pan is rescaled
+  // so no old zoom offset pushes the displayed page outside the new viewport.
+  const previousViewport = useRef<{ width: number; height: number } | null>(null);
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
     const observer = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect;
-      if (box) setViewport({ width: box.width, height: box.height });
+      if (!box || box.width <= 0 || box.height <= 0) return;
+      const next = { width: box.width, height: box.height };
+      const before = previousViewport.current;
+      if (before && (Math.abs(before.width - next.width) >= 2 || Math.abs(before.height - next.height) >= 2)) {
+        // Avoid unnecessary view updates at normal zoom; page already fits.
+        if (live.current.view.zoom > 1) {
+          onViewChangeRef.current?.(resizeView(live.current.view, before, next));
+        }
+      }
+      previousViewport.current = next;
+      setViewport(current =>
+        current.width === next.width && current.height === next.height ? current : next,
+      );
     });
     observer.observe(element);
     return () => observer.disconnect();
