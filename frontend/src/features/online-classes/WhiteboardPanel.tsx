@@ -85,6 +85,9 @@ export function WhiteboardPanel({
   active = true,
   observedPage,
   onSaveLessonDocuments,
+  savingLessonDocuments = false,
+  lessonDocumentsStatus = null,
+  lessonDocumentsError = false,
 }: {
   classId: string;
   actorId: string;
@@ -104,6 +107,9 @@ export function WhiteboardPanel({
   /** Page currently being viewed by the student who owns this board. */
   observedPage?: number;
   onSaveLessonDocuments?: () => void;
+  savingLessonDocuments?: boolean;
+  lessonDocumentsStatus?: string | null;
+  lessonDocumentsError?: boolean;
 }) {
   const { t } = useI18n();
   // A personal board is private: nothing about it is broadcast and it never
@@ -355,8 +361,8 @@ export function WhiteboardPanel({
       >
         {t('onlineClass.whiteboard.clearAll')}
       </button>
-      <button type="button" onClick={() => onSaveLessonDocuments ? onSaveLessonDocuments() : void saveSnapshot()}>
-        {onSaveLessonDocuments ? 'Сохранить документы урока' : t('onlineClass.whiteboard.saveSnapshot')}
+      <button type="button" disabled={savingLessonDocuments} onClick={() => onSaveLessonDocuments ? onSaveLessonDocuments() : void saveSnapshot()}>
+        {onSaveLessonDocuments ? (savingLessonDocuments ? 'Сохраняем документы…' : 'Сохранить документы урока') : t('onlineClass.whiteboard.saveSnapshot')}
       </button>
       {!personal && (
         <button
@@ -407,6 +413,7 @@ export function WhiteboardPanel({
 
       </div>
       <div role="status" aria-live="polite" className="whiteboard__notice">
+        {lessonDocumentsStatus && <span role={lessonDocumentsError ? 'alert' : 'status'} style={lessonDocumentsError ? {color:'#dc2626'} : undefined}>{lessonDocumentsStatus}</span>}
         {saved && <span>{t('onlineClass.whiteboard.saved')}</span>}
         {saveError === 'unavailable' && (
           <span className="whiteboard__error">{t('onlineClass.whiteboard.saveUnavailable')}</span>
