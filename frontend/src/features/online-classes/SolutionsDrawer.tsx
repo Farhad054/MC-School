@@ -2,6 +2,7 @@ import { useRef, useState, useLayoutEffect } from 'react';
 import { lessonPreparationApi } from '../../api/lessonPreparation';
 import { usePdf, usePdfPage } from './usePdf';
 import type { PdfDoc } from './pdfDocument';
+import { usePinchZoom } from './usePinchZoom';
 
 /** Render each solution sheet separately to keep React hooks stable. */
 function SolutionPage({ doc, index, zoom }: {
@@ -32,6 +33,8 @@ export function SolutionsDrawer({ eventId, onClose }: { eventId?: string; onClos
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  usePinchZoom(scrollRef, zoom, setZoom, .6, 3);
   const pdf = usePdf(eventId ? `solutions:${eventId}:${revision}` : null, async () => {
     if (!eventId) throw new Error('Нет календарного события урока');
     return lessonPreparationApi.answersBytes(eventId);
@@ -78,7 +81,7 @@ export function SolutionsDrawer({ eventId, onClose }: { eventId?: string; onClos
       {error && <p role="alert">{error}</p>}
       {pdf.status === 'loading' && <p role="status">Загрузка решений…</p>}
       {pdf.status === 'error' && <p role="alert">Не удалось открыть PDF: {pdf.message}</p>}
-      <div className="classroom-solutions__scroller">
+      <div ref={scrollRef} className="classroom-solutions__scroller">
         {doc && Array.from({ length: doc.pageCount }, (_, index) =>
           <SolutionPage key={index} doc={doc} index={index} zoom={zoom} />)}
       </div>
