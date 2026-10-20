@@ -257,7 +257,7 @@ describe('OnlineClassRoom', () => {
       const board = await screen.findByTestId('board-board-1');
       const button = await within(board).findByRole('button', { name: 'Ответы' });
       await userEvent.click(button);
-      const sidebar = screen.getByRole('complementary', { name: 'Ответы' });
+      const sidebar = screen.getByRole('complementary', { name: 'Панель ответов' });
       expect(sidebar.parentElement).toHaveClass('online-class-room__stage');
       expect(sidebar.nextElementSibling).toHaveClass('online-class-room__main');
       expect(boardProps.at(-1)?.overlay).toBeUndefined();
