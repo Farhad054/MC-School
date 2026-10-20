@@ -19,6 +19,7 @@ import {
   withView,
   goToPage,
   zoomAbout,
+  resizeView,
   type BoardPages,
   type PageView,
 } from './boardView';
@@ -100,7 +101,7 @@ export function WhiteboardPanel({
   document?: PdfDoc | null;
   /** Extra teacher-only buttons next to "clear all" (e.g. Answers). */
   hostActions?: ReactNode;
-  /** Floats over the board area, below the toolbar. */
+  /** Teacher-only side panel alongside the canvas; never covers its strokes. */
   overlay?: ReactNode;
   /** False while another board is on screen: pauses polling, keeps state. */
   active?: boolean;
@@ -131,6 +132,7 @@ export function WhiteboardPanel({
   const [stageWidth, setStageWidth] = useState(0);
   const canvasRef = useRef<WhiteboardCanvasHandle | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const stageSizeRef = useRef<{ width: number; height: number } | null>(null);
 
   const hostUserId = useHostUserId(classId);
   const getBoardSize = useCallback(() => canvasRef.current?.getSize() ?? { width: 0, height: 0 }, []);
@@ -275,7 +277,18 @@ export function WhiteboardPanel({
     if (!element) return;
     const observer = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect;
-      if (box) setStageWidth(box.width);
+      if (box && box.width > 0 && box.height > 0) {
+        const next = { width: box.width, height: box.height };
+        const old = stageSizeRef.current;
+        stageSizeRef.current = next;
+        if (old && (Math.abs(old.width - next.width) > 1 || Math.abs(old.height - next.height) > 1)) {
+          // Pan is pixel-based; resize it with the viewport so existing marks stay visible.
+          setPages(current => ({ ...current, views: Object.fromEntries(
+            Object.entries(current.views).map(([page, view]) => [page, resizeView(view, old, next)]),
+          ) }));
+        }
+        setStageWidth(box.width);
+      }
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -426,6 +439,8 @@ export function WhiteboardPanel({
         {locked && <span>{t('onlineClass.board.follow.student')}</span>}
       </div>
 
+      <div className={`whiteboard__workspace${overlay ? " whiteboard__workspace--with-answers" : ""}`}>
+        {overlay}
       <div ref={stageRef} className="whiteboard__stage">
       <div className="whiteboard__topline-pages">
         <PageNavigator current={pages.current} count={pages.count} disabled={locked}
@@ -482,7 +497,7 @@ export function WhiteboardPanel({
           </button>
         </div>
 
-        {overlay}
+      </div>
       </div>
     </section>
   );
