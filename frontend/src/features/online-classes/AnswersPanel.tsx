@@ -5,16 +5,15 @@ import { PageNavigator } from './PageNavigator';
 import { MAX_ANSWERS_ZOOM, MIN_ANSWERS_ZOOM, type AnswersView } from './useAnswersPanel';
 import type { PdfState } from './usePdf';
 import { usePdfPage } from './usePdf';
+import { usePinchZoom } from './usePinchZoom';
 
 const ZOOM_STEP = 0.25;
 
 /**
- * Fixed-width answers panel pinned to the left, over the board.
+ * Teacher answers are a separate side column beside the lesson board.
  *
- * It floats above the board without resizing it, so the board's page, zoom,
- * tool and marks are untouched by opening or closing. The close "×" sits on the
- * panel's right border. Page, zoom and scroll are owned by the parent so they
- * survive close/reopen.
+ * Page, zoom and scroll stay independent of the board and survive reopening.
+ * Teacher can pinch-zoom on iPad without zooming the classroom canvas.
  */
 export function AnswersPanel({
   pdf,
@@ -36,6 +35,7 @@ export function AnswersPanel({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [width, setWidth] = useState(0);
   const doc = pdf.status === 'ready' ? pdf.doc : null;
+  usePinchZoom(scrollRef, view.zoom, (zoom) => onViewChange({ zoom }), MIN_ANSWERS_ZOOM, MAX_ANSWERS_ZOOM);
 
   useEffect(() => {
     const element = scrollRef.current;
