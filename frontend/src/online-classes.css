@@ -1907,3 +1907,12 @@
     min-height: 34px;
   }
 }
+
+/* Single-finger PDF scrolling stays native; two-finger pinch belongs only to
+   the PDF reference pane and never scales the entire classroom. */
+.online-class-room__stage > .answers-panel .answers-panel__scroll,
+.online-class-room__stage > .classroom-solutions .classroom-solutions__scroller {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
