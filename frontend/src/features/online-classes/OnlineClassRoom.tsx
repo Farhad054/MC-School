@@ -382,6 +382,21 @@ function RoomBody({
       </div>
 
       <div className={`online-class-room__stage${videosOpen ? " online-class-room__stage--videos-open" : ""}`}>
+          {/* Teacher-only answer PDF has its own column. It must not cover the shared
+              canvas: the sibling board reflows to the remaining available width. */}
+          {connection.host && answers.open && answers.status === 'available' && !homeworkOpen && (
+            <AnswersPanel
+              pdf={answers.pdf}
+              view={answers.view}
+              getView={answers.getView}
+              onViewChange={answers.setView}
+              onScroll={answers.rememberScroll}
+              onClose={answers.close}
+            />
+          )}
+          {connection.host && homeworkOpen && (
+            <SolutionsDrawer eventId={eventId} onClose={() => setHomeworkOpen(false)} />
+          )}
         <div className="online-class-room__main">
           {/* The board stays mounted while a screen is shown, so switching back
               returns to the same page, zoom, tool and marks. */}
@@ -408,18 +423,6 @@ function RoomBody({
                     hostActions={
                       connection.host && visible ? (
                         <AnswersButton status={answers.status} open={answers.open} onToggle={answers.toggle} />
-                      ) : undefined
-                    }
-                    overlay={
-                      connection.host && visible && answers.open && answers.status === 'available' ? (
-                        <AnswersPanel
-                          pdf={answers.pdf}
-                          view={answers.view}
-                          getView={answers.getView}
-                          onViewChange={answers.setView}
-                          onScroll={answers.rememberScroll}
-                          onClose={answers.close}
-                        />
                       ) : undefined
                     }
                   />
@@ -455,8 +458,8 @@ function RoomBody({
             </div>
           )}
 
-          {homeworkOpen && (
-            connection.host ? <SolutionsDrawer eventId={eventId} onClose={() => setHomeworkOpen(false)} /> : <HomeworkDrawer classId={classId} onClose={() => setHomeworkOpen(false)} />
+          {homeworkOpen && !connection.host && (
+            <HomeworkDrawer classId={classId} onClose={() => setHomeworkOpen(false)} />
           )}
 
           {/* Kept mounted (just hidden) so chat history, the roster and the
