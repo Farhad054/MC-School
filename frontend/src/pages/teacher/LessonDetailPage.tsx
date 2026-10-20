@@ -56,6 +56,8 @@ export function LessonDetailPage() {
   const [transcriptUrl, setTranscriptUrl] = useState<string | null>(null);
   const [completedDocuments, setCompletedDocuments] = useState<CompletedLessonDocument[]>([]);
   const [uploadingCompleted, setUploadingCompleted] = useState(false);
+  const [completedUploadError, setCompletedUploadError] = useState<string | null>(null);
+  const [completedUploadSuccess, setCompletedUploadSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingWorkbook, setUploadingWorkbook] = useState(false);
@@ -72,7 +74,9 @@ export function LessonDetailPage() {
   useEffect(() => {
     if (!eventId) return;
     let cancelled = false;
-    void completedLessonApi.list(eventId).then(items => { if (!cancelled) setCompletedDocuments(items); }).catch(() => undefined);
+    void completedLessonApi.list(eventId)
+      .then(items => { if (!cancelled) setCompletedDocuments(items); })
+      .catch(() => { if (!cancelled) setCompletedUploadError('Не удалось получить список сохранённых документов. Обновите страницу.'); });
     return () => { cancelled = true; };
   }, [eventId]);
 
@@ -213,15 +217,32 @@ export function LessonDetailPage() {
 
   async function uploadCompletedPdf(file: File) {
     if (!eventId || uploadingCompleted) return;
-    if (!file.name.toLowerCase().endsWith('.pdf')) { setError('Нужен PDF-файл.'); return; }
-    setUploadingCompleted(true);
+    setCompletedUploadError(null);
+    setCompletedUploadSuccess(null);
     setError(null);
+    setMessage(null);
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setCompletedUploadError('Выберите файл PDF.');
+      return;
+    }
+    if (!file.size || file.size > 25 * 1024 * 1024) {
+      setCompletedUploadError('PDF пустой или больше 25 МБ. Выберите файл размером до 25 МБ.');
+      return;
+    }
+    setUploadingCompleted(true);
     try {
-      await completedLessonApi.uploadManual(eventId, file);
-      setCompletedDocuments(await completedLessonApi.list(eventId));
-      setMessage('Пройденный урок сохранён.');
-    } catch (e) { setError(toErrorMessage(e, t)); }
-    finally { setUploadingCompleted(false); }
+      const uploaded = await completedLessonApi.uploadManual(eventId, file);
+      const verified = await completedLessonApi.list(eventId);
+      const present = verified.some(item => item.id === uploaded.id && item.boardId === 'manual-shared');
+      if (!present) throw new Error('Сервер не подтвердил сохранение PDF. Пожалуйста, повторите попытку.');
+      setCompletedDocuments(verified);
+      setCompletedUploadSuccess(`Файл «${uploaded.filename}» сохранён в пройденном уроке.`);
+    } catch (e) {
+      const detail = toErrorMessage(e, t);
+      setCompletedUploadError(`Не удалось загрузить PDF: ${detail}`);
+    } finally {
+      setUploadingCompleted(false);
+    }
   }
 
   async function uploadPdf(kind: MaterialKind, file: File) {
@@ -441,10 +462,11 @@ export function LessonDetailPage() {
           {(() => {
             const boardId = 'manual-shared';
             const item = completedDocuments.find(doc=>doc.boardId===boardId)
+              ?? completedDocuments.find(doc=>doc.boardId==='board-1')
               ?? completedDocuments.find(doc=>doc.boardId==='imported-workbook');
             return <div style={{border:'1px solid #e5e7eb',borderRadius:16,padding:16,marginBottom:12}}>
               <strong style={{overflowWrap:'anywhere'}}>{item?.filename ?? 'PDF ещё не загружен'}</strong>
-              <div className="muted" style={{fontSize:13,marginTop:6}}>{item?'Открывается отдельно — страница урока остаётся на месте.':'Загрузи PDF с результатами урока.'}</div>
+              <div className="muted" style={{fontSize:13,marginTop:6}}>{item ? (item.boardId === 'board-1' ? 'Автоматически сохранённая общая доска. Открывается отдельно.' : 'Открывается отдельно — страница урока остаётся на месте.') : 'Загрузи PDF с результатами урока.'}</div>
               {item && <button type="button" className="btn" style={{width:'100%',marginTop:12}} onClick={()=>void completedLessonApi.open(eventId,item.id)}>Открыть PDF ↗</button>}
             </div>;
           })()}
@@ -452,6 +474,8 @@ export function LessonDetailPage() {
             {uploadingCompleted?'Загружаем…':completedDocuments.some(doc=>doc.boardId==='manual-shared')?'Заменить PDF':'Загрузить PDF'}
             <input type="file" accept=".pdf,application/pdf" disabled={uploadingCompleted} style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];if(file)void uploadCompletedPdf(file);e.currentTarget.value='';}}/>
           </label>
+          {completedUploadError && <p role="alert" style={{color:'#b91c1c',marginTop:10,fontSize:13}}>{completedUploadError}</p>}
+          {completedUploadSuccess && <p role="status" style={{color:'#138a48',marginTop:10,fontSize:13}}>{completedUploadSuccess}</p>}
         </section>
       </div>
 
@@ -461,11 +485,11 @@ export function LessonDetailPage() {
         {completedDocuments.length === 0 ? <p className="muted">Документы ещё не сохранены. В онлайн-уроке нажми «Сохранить документы урока».</p> :
           <div className="stack" style={{gap:8}}>{completedDocuments.map(item => (
             <div key={item.id} style={{display:'flex',gap:12,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap'}}>
-              <strong>{item.boardId === 'board-1' ? 'Общая доска' : 'Личная доска ученика'} · {item.filename}</strong>
+              <strong>{item.boardId === 'board-1' || item.boardId === 'manual-shared' ? 'Общая доска' : item.boardId === 'imported-workbook' ? 'Материал урока' : 'Личная доска ученика'} · {item.filename}</strong>
               <button type="button" className="btn btn--secondary" onClick={() => void completedLessonApi.open(eventId!, item.id)}>Открыть PDF</button>
             </div>
           ))}</div>}
-        <button type="button" className="btn btn--secondary" style={{marginTop:12}} onClick={() => { if(eventId) void completedLessonApi.list(eventId).then(setCompletedDocuments); }}>Обновить список документов</button>
+        <button type="button" className="btn btn--secondary" style={{marginTop:12}} onClick={() => { if(eventId) void completedLessonApi.list(eventId).then(setCompletedDocuments).catch(e => setCompletedUploadError(toErrorMessage(e, t))); }}>Обновить список документов</button>
       </section>
 
       <div className="stack" style={{ gap: 14 }}>
