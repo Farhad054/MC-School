@@ -230,27 +230,67 @@ function RoomBody({
   const students = useStudentRoster(classId, connection.host);
   const [archiving, setArchiving] = useState(false);
   const [archiveNotice, setArchiveNotice] = useState<string | null>(null);
-  const archiveBoards = async () => {
-    if (!eventId || archiving) return;
+  const [archiveError, setArchiveError] = useState(false);
+  const archiveBoards = async (): Promise<void> => {
+    if (archiving) return;
+    if (!eventId) {
+      setArchiveError(true);
+      setArchiveNotice('Нельзя сохранить: доска не связана с календарным уроком.');
+      return;
+    }
     setArchiving(true);
-    setArchiveNotice(null);
+    setArchiveError(false);
+    setArchiveNotice('Подготавливаем документы досок…');
     try {
       const documents = await onlineClassesApi.listAnnotationDocuments(classId);
-      const boards = [{ id: SHARED_BOARD_ID, name: 'Общая доска' }, ...students.map(student => ({ id: personalBoardId(student.userId), name: student.displayName }))];
-      let saved = 0;
-      const failures: string[] = [];
-      for (const item of boards) {
-        try {
-          const count = Math.max(1, boardDocument?.pageCount ?? 1, ...documents.filter(document => document.targetId === item.id).map(document => document.pageIndex + 1));
-          const pdf = await exportBoardPdf({classId, targetType: 'WHITEBOARD', targetId: item.id, pageCount: count, pdfDocument: boardDocument});
-          await completedLessonApi.save(eventId, classId, item.id, pdf);
-          saved++;
-        } catch { failures.push(item.name); }
+      // A student can leave the call before the teacher saves the boards.
+      const boardNames = new Map<string, string>([[SHARED_BOARD_ID, 'Общая доска']]);
+      for (const student of students) boardNames.set(personalBoardId(student.userId), student.displayName);
+      for (const document of documents) {
+        if (document.targetType === 'WHITEBOARD' && /^personal-[0-9a-fA-F-]{36}$/.test(document.targetId)) {
+          if (!boardNames.has(document.targetId)) boardNames.set(document.targetId, 'Личная доска ученика');
+        }
       }
-      setArchiveNotice(failures.length ? `Сохранено ${saved} из ${boards.length}. Не удалось: ${failures.join(', ')}` : `Сохранено ${saved} документов: общая доска и доски учеников.`);
-    } catch {
-      setArchiveNotice('Не удалось сохранить документы. Повтори попытку, оставаясь в уроке.');
-    } finally { setArchiving(false); }
+      const boards = Array.from(boardNames, ([id, name]) => ({ id, name }));
+      const saved: Array<{ id: string; boardId: string; classId: string; name: string }> = [];
+      const failures: string[] = [];
+      for (const [index, item] of boards.entries()) {
+        setArchiveNotice(`Сохраняем ${item.name} (${index + 1}/${boards.length})…`);
+        try {
+          const count = Math.max(1, boardDocument?.pageCount ?? 1, ...documents
+            .filter(document => document.targetType === 'WHITEBOARD' && document.targetId === item.id)
+            .map(document => document.pageIndex + 1));
+          const pdf = await exportBoardPdf({
+            classId, targetType: 'WHITEBOARD', targetId: item.id, pageCount: count, pdfDocument: boardDocument,
+          });
+          if (pdf.size < 5 || pdf.size > 25 * 1024 * 1024) throw new Error('PDF пустой или больше 25 МБ');
+          const result = await completedLessonApi.save(eventId, classId, item.id, pdf);
+          if (!result?.id || result.classId !== classId || result.boardId !== item.id) {
+            throw new Error('Сервер не подтвердил запись PDF');
+          }
+          saved.push({ id: result.id, classId, boardId: item.id, name: item.name });
+        } catch (error) {
+          failures.push(`${item.name}: ${error instanceof Error ? error.message : 'ошибка загрузки'}`);
+        }
+      }
+      setArchiveNotice('Проверяем сохранённые PDF на сервере…');
+      const verified = await completedLessonApi.list(eventId);
+      const confirmed = saved.filter(item => verified.some(doc =>
+        doc.id === item.id && doc.classId === item.classId && doc.boardId === item.boardId));
+      const unconfirmed = saved.filter(item => !confirmed.includes(item));
+      failures.push(...unconfirmed.map(item => `${item.name}: нет подтверждения на сервере`));
+      if (failures.length) {
+        setArchiveError(true);
+        setArchiveNotice(`Подтверждено ${confirmed.length} из ${boards.length} PDF. Ошибки: ${failures.join('; ')}. Можно повторить без удаления других файлов.`);
+      } else {
+        setArchiveNotice(`Готово: все ${confirmed.length} PDF сохранены и проверены. Они доступны в разделе «Пройденный урок».`);
+      }
+    } catch (error) {
+      setArchiveError(true);
+      setArchiveNotice(`Не удалось подтвердить сохранение: ${error instanceof Error ? error.message : 'ошибка сервера'}. Попробуйте снова, оставаясь в уроке.`);
+    } finally {
+      setArchiving(false);
+    }
   };
   const [activeBoard, setActiveBoard] = useState(SHARED_BOARD_ID);
   const [studentPages, setStudentPages] = useState<Record<string, number>>({});
@@ -313,7 +353,7 @@ function RoomBody({
         )}
         {materialError && <span role="alert" style={{ color: '#dc2626' }}>{materialError}</span>}
         <ConnectionStatus />
-        {archiveNotice && <span role="status" style={{fontSize:12}}>{archiveNotice}</span>}
+        {archiveNotice && <span role={archiveError ? 'alert' : 'status'} style={{fontSize:12,color:archiveError?'#dc2626':undefined}}>{archiveNotice}</span>}
         <RecordingControls
           classId={classId}
           isHost={connection.host}
@@ -360,7 +400,10 @@ function RoomBody({
                     document={boardDocument}
                     active={visible}
                     observedPage={studentPages[boardId]}
-                    onSaveLessonDocuments={connection.host && eventId ? () => { void archiveBoards(); } : undefined}
+                    onSaveLessonDocuments={connection.host ? archiveBoards : undefined}
+                    savingLessonDocuments={archiving}
+                    lessonDocumentsStatus={archiveNotice}
+                    lessonDocumentsError={archiveError}
                     // Answers belong to whichever board the teacher is looking at.
                     hostActions={
                       connection.host && visible ? (
