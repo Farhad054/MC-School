@@ -232,6 +232,41 @@ describe('OnlineClassRoom', () => {
     expect(lessonPreparationApi.answersBytes).not.toHaveBeenCalled();
   });
 
+  it('opens top-row teacher solutions as a sibling of the resizable main board', async () => {
+    const view = mount(true);
+    await screen.findByTestId('board-board-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Решения' }));
+    const sidebar = screen.getByRole('complementary', { name: 'Решения' });
+    expect(sidebar.parentElement).toHaveClass('online-class-room__stage');
+    expect(sidebar.nextElementSibling).toHaveClass('online-class-room__main');
+    expect(view.container.querySelector('.online-class-room__board')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Закрыть решения' }));
+    expect(screen.queryByRole('complementary', { name: 'Решения' })).not.toBeInTheDocument();
+  });
+
+  it('opens board toolbar answers in the same separate teacher sidebar', async () => {
+    const previous = globalThis.ResizeObserver;
+    class FakeResizeObserver {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    try {
+      mount(true);
+      const board = await screen.findByTestId('board-board-1');
+      const button = await within(board).findByRole('button', { name: 'Ответы' });
+      await userEvent.click(button);
+      const sidebar = screen.getByRole('complementary', { name: 'Ответы' });
+      expect(sidebar.parentElement).toHaveClass('online-class-room__stage');
+      expect(sidebar.nextElementSibling).toHaveClass('online-class-room__main');
+      expect(boardProps.at(-1)?.overlay).toBeUndefined();
+    } finally {
+      if (previous) vi.stubGlobal('ResizeObserver', previous);
+      else vi.unstubAllGlobals();
+    }
+  });
+
   it('gives the teacher the answers button on the board they are looking at', async () => {
     mount(true);
     const board = await screen.findByTestId('board-board-1');
