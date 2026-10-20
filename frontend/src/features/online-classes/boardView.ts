@@ -86,28 +86,6 @@ export function clampView(view: PageView, board: { width: number; height: number
   };
 }
 
-/**
- * Keep the same visible portion of a zoomed page when its container changes
- * size (e.g. when the teacher opens the answers sidebar).
- *
- * Pan is stored in pixels rather than normalized coordinates. Scaling the pan
- * with the viewport prevents an old, too-large pixel offset from pushing
- * writing beyond the narrower board. At zoom 1, the whole page always fits.
- */
-export function resizeView(
-  view: PageView,
-  previous: { width: number; height: number },
-  next: { width: number; height: number },
-): PageView {
-  if (next.width <= 0 || next.height <= 0) return view;
-  if (previous.width <= 0 || previous.height <= 0) return clampView(view, next);
-  return clampView({
-    zoom: view.zoom,
-    panX: view.panX * (next.width / previous.width),
-    panY: view.panY * (next.height / previous.height),
-  }, next);
-}
-
 export interface Point {
   x: number;
   y: number;

@@ -3,7 +3,6 @@ import {
   addPage,
   clampPage,
   clampView,
-  resizeView,
   DEFAULT_VIEW,
   ensurePageCount,
   goToPage,
@@ -70,26 +69,6 @@ describe('view clamping', () => {
   it('limits zoom to the supported range and survives garbage', () => {
     expect(clampView({ zoom: 99, panX: 0, panY: 0 }, board).zoom).toBe(5);
     expect(clampView({ zoom: Number.NaN, panX: Number.NaN, panY: 0 }, board)).toEqual(DEFAULT_VIEW);
-  });
-});
-
-describe('resizing the board for a teacher answers sidebar', () => {
-  it('keeps the entire page visible at normal zoom when answers open', () => {
-    expect(resizeView({ zoom: 1, panX: 0, panY: 0 }, { width: 1200, height: 700 }, { width: 860, height: 700 }))
-      .toEqual({ zoom: 1, panX: 0, panY: 0 });
-  });
-
-  it('scales an existing zoomed pan to the smaller width and back again', () => {
-    const original = { zoom: 2, panX: -420, panY: -70 };
-    const smaller = resizeView(original, { width: 1200, height: 700 }, { width: 840, height: 700 });
-    expect(smaller).toEqual({ zoom: 2, panX: -294, panY: -70 });
-    expect(resizeView(smaller, { width: 840, height: 700 }, { width: 1200, height: 700 })).toEqual(original);
-  });
-
-  it('clamps previous offscreen pan instead of hiding the lesson when resizing', () => {
-    expect(resizeView({ zoom: 2, panX: -9000, panY: -9000 },
-      { width: 1200, height: 700 }, { width: 700, height: 500 }))
-      .toEqual({ zoom: 2, panX: -700, panY: -500 });
   });
 });
 
