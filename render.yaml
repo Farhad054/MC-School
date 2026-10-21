@@ -5,7 +5,7 @@ services:
     name: mindcrafti-backup-api
     runtime: docker
     region: frankfurt
-    plan: 1c-2g
+    plan: standard
     branch: integration/railway-and-ux
     autoDeployTrigger: commit
     dockerContext: ./backend
@@ -60,12 +60,12 @@ services:
     name: mindcrafti-backup-web
     runtime: docker
     region: frankfurt
-    plan: 0.5c-512mb
+    plan: starter
     branch: integration/railway-and-ux
     autoDeployTrigger: commit
     dockerContext: ./frontend
     dockerfilePath: ./frontend/Dockerfile
-    healthCheckPath: /
+    healthCheckPath: /actuator/health
     envVars:
       - key: PORT
         value: "80"
@@ -82,6 +82,6 @@ databases:
   - name: mindcrafti-backup-db
     postgresMajorVersion: "18"
     region: frankfurt
-    plan: 0.1c-256mb
-    diskSizeGB: 1
+    plan: basic-1gb
+    diskSizeGB: 5
     ipAllowList: []
