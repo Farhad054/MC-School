@@ -53,6 +53,7 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
   const { language, t } = useI18n();
   const [homework, setHomework] = useState<Homework | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
+  const [downloading, setDownloading] = useState(false);
   const [pageUrls, setPageUrls] = useState<Record<number, string>>({});
   const drawingsRef = useRef<Record<number, PageDrawing>>({});
   const [tool, setTool] = useState<Tool>('pen');
@@ -169,6 +170,30 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
     }
   }
 
+  async function downloadWorksheet() {
+    if (!homework?.hasWorksheet || downloading) return;
+    setDownloading(true);
+    setError(null);
+    try {
+      // Request with the student's bearer token. Do not place tokens in URLs.
+      const pdf = await api.study.worksheet(homeworkId);
+      const url = URL.createObjectURL(pdf);
+      const link = document.createElement('a');
+      const originalName = (homework.worksheetFilename || 'hausaufgabe.pdf').split(/[\\/]/).pop() || 'hausaufgabe.pdf';
+      link.href = url;
+      link.download = originalName.toLowerCase().endsWith('.pdf') ? originalName : `${originalName}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Keep the blob URL alive while mobile browsers hand the file to Files or a PDF app.
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   if (!homework) {
     return <div>{error ? <div className="banner banner--error">{error}</div> : t('common.loading')}</div>;
   }
@@ -195,7 +220,14 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
           <h1 style={{ margin: '8px 0 2px' }}>{language === 'DE' ? 'Hausaufgabe' : 'Домашка'}</h1>
           <div className="muted" style={{ overflowWrap: 'anywhere' }}>{homework.worksheetFilename}</div>
         </div>
-        {homework.submitted && <span className="pill pill--learned">{language === 'DE' ? 'Abgegeben' : 'Сдано'}</span>}
+        <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn--secondary" onClick={() => void downloadWorksheet()} disabled={downloading}>
+            {downloading
+              ? (language === 'DE' ? 'PDF wird geladen…' : 'Скачиваем PDF…')
+              : (language === 'DE' ? '↓ PDF herunterladen' : '↓ Скачать PDF')}
+          </button>
+          {homework.submitted && <span className="pill pill--learned">{language === 'DE' ? 'Abgegeben' : 'Сдано'}</span>}
+        </div>
       </div>
 
       {error && <div className="banner banner--error">{error}</div>}

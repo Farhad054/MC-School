@@ -159,8 +159,8 @@ export function PdfHomeworkWithSubmissionPage() {
             </h2>
             <p className="muted" style={{ marginBottom: 0 }}>
               {language === 'DE'
-                ? 'Wähle mehrere Fotos deiner Lösung oder PDF-Dateien aus.'
-                : 'Выбери сразу несколько фотографий решения или PDF-файлов.'}
+                ? 'Lade die PDF oben herunter, bearbeite sie in Goodnotes oder einer anderen App und lade die fertige PDF hier hoch. Fotos sind auch möglich.'
+                : 'Скачай PDF кнопкой выше, заполни его в GoodNotes или другом приложении и загрузи готовый PDF сюда. Можно также прикрепить фотографии.'}
             </p>
           </div>
 

@@ -143,6 +143,22 @@ public class HomeworkController {
                 .body(png);
     }
 
+    @GetMapping(value = "/study/homeworks/{homeworkId}/worksheet", produces = MediaType.APPLICATION_PDF_VALUE)
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<byte[]> downloadStudentWorksheet(@AuthenticationPrincipal AuthenticatedUser caller,
+                                                            @PathVariable UUID homeworkId) {
+        HomeworkPdfService.WorksheetDownload worksheet = homeworkPdfService.studentWorksheet(caller, homeworkId);
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(worksheet.filename(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .contentType(MediaType.APPLICATION_PDF)
+                .contentLength(worksheet.bytes().length)
+                .body(worksheet.bytes());
+    }
+
     @GetMapping(value = "/study/homeworks/{homeworkId}/worksheet/pages/{pageIndex}", produces = MediaType.IMAGE_PNG_VALUE)
     @PreAuthorize("hasRole('STUDENT')")
     public ResponseEntity<byte[]> worksheetPage(@AuthenticationPrincipal AuthenticatedUser caller,
