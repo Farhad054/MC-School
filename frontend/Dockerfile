@@ -24,7 +24,11 @@ FROM nginx:1.29-alpine
 # Rendered at container start by the image's envsubst entrypoint. The filter
 # restricts substitution to LIVEKIT_* so nginx's own $uri/$scheme/$remote_addr
 # are left untouched.
-ENV NGINX_ENVSUBST_FILTER=LIVEKIT_
+ENV NGINX_ENVSUBST_FILTER='LIVEKIT_|API_PROXY_'
+# The Railway host remains the default; backups override these variables.
+ENV API_PROXY_SCHEME=https
+ENV API_PROXY_HOST=mindcrafti-school-production.up.railway.app
+ENV API_PROXY_PORT=443
 # Empty by default: with online classes disabled the CSP is byte-for-byte the
 # strict policy that shipped before the feature.
 ENV LIVEKIT_CSP_ORIGINS=""
