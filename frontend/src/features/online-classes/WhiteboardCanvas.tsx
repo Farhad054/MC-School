@@ -1098,7 +1098,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
           <span>Не сохранено / Nicht gespeichert</span>
           <button type="button" onClick={(event) => {
             event.stopPropagation();
-            for (const entry of pendingOnPage.filter((item) => item.status === 'failed')) retryInk(item);
+            for (const entry of pendingOnPage.filter((item) => item.status === 'failed')) retryInk(entry);
           }}>Повторить / Erneut</button>
         </div>
       )}
