@@ -45,6 +45,7 @@ import {
   paintNotebookProjection,
   type NotebookCameraGeometry,
 } from './notebookCameraGeometry';
+import { notebookStagePresentation } from './notebookStagePresentation';
 
 export type Tool =
   | 'pen'
@@ -206,6 +207,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   projectionRef.current = projection;
   const sceneViewport = projection?.rawSize ?? viewport;
   const sceneAspect = projection ? notebookView!.rawWidth / notebookView!.rawHeight : sourceAspect;
+  const notebookPresentation = useMemo(() => notebookStagePresentation(projection, viewport, view, sceneAspect ?? 1),
+    [projection, sceneAspect, viewport.width, viewport.height, view.zoom, view.panX, view.panY]);
   const boundLayerBacking = (size: { width: number; height: number }, onlyReduce = false) => {
     // Set lower ratios before React resizes the stage, so zooming the document
     // never temporarily allocates a full-resolution, multi-megapixel layer.
@@ -227,7 +230,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   const projectedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const projectorRef = useRef<{ renderer: DocumentRenderer; renderFrame: () => void } | null>(null);
   const projectionPainted = useRef(false);
-  const [projectionReady, setProjectionReady] = useState(false);
   const [projectionError, setProjectionError] = useState(false);
   const [projectionAttempt, setProjectionAttempt] = useState(0);
   const [draft, setDraft] = useState<Shape | null>(null);
@@ -248,7 +250,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   const dragDeltaRef = useRef<{ dx: number; dy: number } | null>(null);
 
   // Latest values for the long-lived gesture controller and its callbacks.
-  const effectiveReadOnly = readOnly || Boolean(notebookView && (!projection || !projectionReady || projectionError));
+  // Snapshot/export failure must not disable the shared pen controller.
+  const effectiveReadOnly = readOnly || Boolean(notebookView && !notebookPresentation);
   const live = useRef({ tool, color, strokeWidth, eraserMode, readOnly: effectiveReadOnly, view, viewport, sourceAspect, shapes, actorId, projection });
   live.current = { tool, color, strokeWidth, eraserMode, readOnly: effectiveReadOnly, view, viewport, sourceAspect, shapes, actorId, projection };
 
@@ -276,7 +279,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
 
   useEffect(() => {
     const layer = backgroundLayerRef.current;
-    if (projection || !active || !backgroundLive || !background || !layer) return;
+    // A camera is just the normal board's animated background. Never redraw
+    // the marks layer from a video tick, even when the paper is rectified.
+    if (!active || !backgroundLive || !background || !layer) return;
     const animation = new Konva.Animation(() => {}, layer);
     animation.start();
     return () => { animation.stop(); };
@@ -286,14 +291,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     boundLayerBacking(sceneViewport);
   }, [sceneViewport.width, sceneViewport.height, Boolean(projection), active, Boolean(onDocumentGesture)]);
 
-  // The Konva scene remains in canonical raw-camera space. The display canvas
-  // is the single projective warp of its complete video/marks/selection layers.
+  // Keep the existing raster projection ONLY for snapshots/exports. The live
+  // board displays its ordinary layers directly via notebookPresentation;
+  // Pencil input and ink painting never pass through this image processor.
   useLayoutEffect(() => {
     const currentProjection = projectionRef.current;
     const output = projectedCanvasRef.current;
     const stage = stageRef.current;
     projectionPainted.current = false;
-    setProjectionReady(false);
     setProjectionError(false);
     if (!currentProjection || !notebookView || !output || !stage) return;
     let disposed = false;
@@ -302,7 +307,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     const context = raw.getContext('2d');
     const fail = () => {
       if (disposed) return;
-      projectionPainted.current = false; setProjectionReady(false); setProjectionError(true);
+      projectionPainted.current = false; setProjectionError(true);
       output.getContext('2d')?.clearRect(0, 0, output.width, output.height);
     };
     if (!context) { fail(); return; }
@@ -320,7 +325,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
           if (disposed || !mapping) return;
           try {
             if (paintNotebookProjection(output, canvas, live.current.viewport, live.current.view, mapping.aspect)) {
-              projectionPainted.current = true; setProjectionReady(true); setProjectionError(false);
+              projectionPainted.current = true; setProjectionError(false);
             }
           } catch { fail(); }
         },
@@ -358,22 +363,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
 
   useLayoutEffect(() => {
     projectorRef.current?.renderFrame();
-  }, [projection, shapes, draft, pendingInk, remoteDrafts, ownLaser, lasers, selectedId, dragDelta,
-    viewport.width, viewport.height, view.zoom, view.panX, view.panY, background, paperColor]);
-
-  useEffect(() => {
-    if (!projection || !active) return;
-    let job = 0, previous = 0;
-    const tick = (time: number) => {
-      const current = projectorRef.current;
-      const runtime = current?.renderer as (DocumentRenderer & { gl?: unknown; renderMs?: number }) | undefined;
-      const interval = !runtime?.gl && projectionRef.current?.view.corners ? Math.max(100, (runtime?.renderMs ?? 0) * 1.6) : 30;
-      if (time - previous >= interval) { previous = time; current?.renderFrame(); }
-      job = requestAnimationFrame(tick);
-    };
-    job = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(job);
-  }, [Boolean(projection), active]);
+  // Prepare export geometry when the view changes, not on every pen sample.
+  // toDataURL explicitly refreshes the complete scene before saving.
+  }, [projection, viewport.width, viewport.height, view.zoom, view.panX, view.panY, background, paperColor]);
 
   // ResizeObserver updates the canvas dimensions whenever a teacher opens the
   // answers column. Annotations remain normalized; only pixel pan is rescaled
@@ -1026,8 +1018,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       onContextMenu={(event) => event.preventDefault()}
       style={{ touchAction: 'none', overflow: projection ? 'hidden' : undefined }}
     >
+      {/* Export-only canvas: never cover the ordinary live ink layers. */}
       {projection && <canvas ref={projectedCanvasRef} aria-hidden="true" data-notebook-projection=""
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />}
+        hidden style={{ display: 'none' }} />}
       <Stage
         ref={stageRef}
         width={sceneViewport.width}
@@ -1036,7 +1029,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
         y={projection ? 0 : view.panY}
         scaleX={projection ? 1 : view.zoom}
         scaleY={projection ? 1 : view.zoom}
-        style={projection ? { position: 'absolute', visibility: 'hidden', pointerEvents: 'none' } : undefined}
+        style={projection ? notebookPresentation ?? { position: 'absolute', visibility: 'hidden', pointerEvents: 'none' } : undefined}
         listening={false}
       >
         {/* The page sits on its own layer: partial-erase marks cut through the
@@ -1093,7 +1086,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
 
       {projectionError && <div className="whiteboard__ink-save-alert" role="alert" data-tablet-no-ink=""
         onPointerDown={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}>
-        <span>Не удалось обработать тетрадь. Повторите загрузку кадра.</span>
+        <span>Не удалось подготовить снимок тетради. Рисование доступно.</span>
         <button type="button" onClick={event => { event.stopPropagation(); setProjectionAttempt(current => current + 1); }}>Повторить</button>
       </div>}
 
