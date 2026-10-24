@@ -7,6 +7,9 @@ import { onlineClassesApi } from '../../api/onlineClasses';
 import { OnlineClassRoom } from '../../features/online-classes/OnlineClassRoom';
 import { PrejoinPanel, type PrejoinChoice } from '../../features/online-classes/PrejoinPanel';
 import { useClassSession } from '../../features/online-classes/useClassSession';
+import { LessonEntryAction } from '../../features/online-classes/LessonEntryAction';
+import { lessonEntry } from '../../features/online-classes/lessonEntry';
+import { useLessonEntryClock } from '../../features/online-classes/useLessonEntryClock';
 import type { LiveKitErrorCategory } from '../../features/online-classes/livekitDiagnostics';
 
 /**
@@ -23,6 +26,7 @@ export function OnlineClassPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const session = useClassSession(classId);
+  const now = useLessonEntryClock(session.onlineClass?.serverNow);
   const [hasDisconnected, setHasDisconnected] = useState(false);
   const [disconnectReason, setDisconnectReason] = useState<string | null>(null);
   const [mediaApiStatus, setMediaApiStatus] = useState<MediaApiStatus>('idle');
@@ -48,15 +52,15 @@ export function OnlineClassPage() {
     return <p role="alert">{t('onlineClass.unavailable')}</p>;
   }
 
-  if (!session.connection && session.onlineClass?.viewerIsHost && !session.onlineClass.joinWindowOpen
-      && (session.onlineClass.status === 'LIVE' || session.onlineClass.status === 'LOBBY_OPEN')) {
+  const entry = session.onlineClass ? lessonEntry(session.onlineClass, session.onlineClass.scheduledStartAt, now) : null;
+  if (session.onlineClass && (session.onlineClass.status === 'ENDED' || session.onlineClass.status === 'CANCELLED'
+      || (!session.connection && entry && !entry.canJoin))) {
     return <section className="panel">
-      <p role="status">{language === 'DE'
-        ? 'Diese Sitzung ist abgelaufen. Starten Sie den Unterricht erneut, damit der Schüler beitreten kann.'
-        : 'Время этой сессии истекло. Запустите урок заново, чтобы ученик мог подключиться.'}</p>
-      <Link className="btn" to={`/teacher/lessons/${encodeURIComponent(session.onlineClass.eventId)}`}>
+      <h1>{session.onlineClass.title}</h1>
+      <LessonEntryAction room={session.onlineClass} startsAt={session.onlineClass.scheduledStartAt} language={language} now={now} />
+      {session.onlineClass.viewerIsHost && <Link className="btn" to={`/teacher/lessons/${encodeURIComponent(session.onlineClass.eventId)}`}>
         {language === 'DE' ? 'Zum Unterricht' : 'Открыть карточку урока'}
-      </Link>
+      </Link>}
     </section>;
   }
 

@@ -5,6 +5,9 @@ import { api, ApiRequestError } from '../../api/client';
 import type { StudentLesson } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
+import { LessonEntryAction } from '../../features/online-classes/LessonEntryAction';
+import { lessonEntry } from '../../features/online-classes/lessonEntry';
+import { useLessonEntryClock } from '../../features/online-classes/useLessonEntryClock';
 
 type ScheduleDay = {
   key: string;
@@ -17,7 +20,9 @@ type ViewMode = 'week' | 'month';
 export function StudentLessonsCalendarPage() {
   const { language, t } = useI18n();
   const [lessons, setLessons] = useState<StudentLesson[]>([]);
-  const [liveOnlineClasses, setLiveOnlineClasses] = useState<OnlineClass[]>([]);
+  const [onlineClasses, setOnlineClasses] = useState<OnlineClass[]>([]);
+  const now = useLessonEntryClock(onlineClasses[0]?.serverNow);
+  const liveOnlineClasses = onlineClasses.filter(room => lessonEntry(room, room.scheduledStartAt, now).canJoin);
   const [onlineClassesAvailable, setOnlineClassesAvailable] = useState(false);
   const [onlineError, setOnlineError] = useState(false);
   const [onlineRefresh, setOnlineRefresh] = useState(0);
@@ -28,7 +33,7 @@ export function StudentLessonsCalendarPage() {
   const [selectedWeekDayKey, setSelectedWeekDayKey] = useState(() => berlinDateKey(new Date().toISOString()));
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(dateFromKey(berlinDateKey(new Date().toISOString()))));
   const [selectedMonthDayKey, setSelectedMonthDayKey] = useState<string | null>(null);
-  const todayKey = berlinDateKey(new Date().toISOString());
+  const todayKey = berlinDateKey(new Date(now).toISOString());
 
   useEffect(() => {
     let cancelled = false;
@@ -59,12 +64,11 @@ export function StudentLessonsCalendarPage() {
         if (!cancelled) {
           setOnlineClassesAvailable(true);
           setOnlineError(false);
-          setLiveOnlineClasses(classes.filter(item => item.joinWindowOpen &&
-            (item.status === 'LIVE' || item.status === 'LOBBY_OPEN')));
+          setOnlineClasses(classes);
         }
       } catch (e) {
         if (!cancelled) {
-          setLiveOnlineClasses([]);
+          setOnlineClasses([]);
           unavailable = e instanceof ApiRequestError && (e.status === 403 || e.status === 404);
           setOnlineClassesAvailable(!unavailable);
           setOnlineError(!unavailable);
@@ -85,8 +89,10 @@ export function StudentLessonsCalendarPage() {
     };
   }, [onlineRefresh]);
 
-  function liveRoomFor(eventId: string): OnlineClass | undefined {
-    return liveOnlineClasses.find(item => item.eventId === eventId);
+  function roomFor(lesson: StudentLesson): OnlineClass | undefined {
+    return onlineClasses.filter(item => item.eventId === lesson.eventId
+      && berlinDateKey(item.scheduledStartAt) === berlinDateKey(lesson.startsAt))
+      .sort((a, b) => Date.parse(b.scheduledStartAt) - Date.parse(a.scheduledStartAt))[0];
   }
 
   const scheduleDays = useMemo<ScheduleDay[]>(() => {
@@ -175,7 +181,7 @@ export function StudentLessonsCalendarPage() {
   function renderLessonCard(lesson: StudentLesson) {
     const started = new Date(lesson.startsAt).getTime() <= Date.now();
     const ended = new Date(lesson.endsAt).getTime() < Date.now();
-    const room = liveRoomFor(lesson.eventId);
+    const room = roomFor(lesson);
     return <article className="panel student-lesson" key={lesson.eventId}>
       <div className="student-lesson__time"><strong>{lesson.eventId.startsWith('local-') ? nativeLessonDuration(lesson, language) : formatStartTime(lesson.startsAt, language)}</strong><small>{lesson.eventId.startsWith('local-') ? (language === 'DE' ? 'Dauer' : 'Длительность') : formatLessonTime(lesson.startsAt, lesson.endsAt, language)}</small></div>
       <div className="student-lesson__body"><h3>{lesson.title}</h3>
@@ -187,7 +193,7 @@ export function StudentLessonsCalendarPage() {
             : lesson.hasSharedDocument ? (language === 'DE' ? 'Gemeinsames Dokument' : 'Общий документ')
               : (language === 'DE' ? 'Dokument noch nicht bereit' : 'Документ ещё не готов')}
         </button>
-        {room && <Link className="btn btn--secondary" to={`/online-classes/${room.id}`}>{language === 'DE' ? 'Mindcrafti Online – beitreten' : 'Mindcrafti Online — подключиться'}</Link>}
+        {onlineClassesAvailable && !onlineError && <LessonEntryAction room={room} startsAt={lesson.startsAt} language={language} now={now} />}
         <Link className="btn btn--secondary" to={`/lesson-notebook/${encodeURIComponent(lesson.eventId)}`}>{language === 'DE' ? 'Heftkamera' : 'Камера тетради'}</Link>
         {lesson.meetUrl ? <a className="btn" href={lesson.meetUrl} target="_blank" rel="noreferrer">
           {ended ? (language === 'DE' ? 'Meet-Link öffnen' : 'Открыть ссылку урока')
@@ -223,9 +229,7 @@ export function StudentLessonsCalendarPage() {
         <div className="stack">
           {liveOnlineClasses.map(room => <div key={room.id} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <strong>{room.title}</strong>
-            <Link className="btn" to={`/online-classes/${room.id}`}>
-              {language === 'DE' ? 'Mindcrafti Online – beitreten' : 'Mindcrafti Online — подключиться'}
-            </Link>
+            <LessonEntryAction room={room} startsAt={room.scheduledStartAt} language={language} now={now} />
           </div>)}
         </div>
       </section>}

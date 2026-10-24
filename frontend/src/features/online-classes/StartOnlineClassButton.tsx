@@ -15,9 +15,11 @@ import { useI18n } from '../../i18n/I18nContext';
  * Meet action stays the only option during rollout.
  */
 export function StartOnlineClassButton({ eventId }: { eventId: string }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [policyMessage, setPolicyMessage] = useState<string | null>(null);
+  const [ended, setEnded] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [failed, setFailed] = useState(false);
   const [failureKind, setFailureKind] = useState<'generic' | 'credentials' | 'unreachable'>('generic');
@@ -34,17 +36,27 @@ export function StartOnlineClassButton({ eventId }: { eventId: string }) {
     if (busy) return;
     setBusy(true);
     setFailed(false);
+    setPolicyMessage(null);
     setFailureKind('generic');
     let classId: string | null = null;
     try {
       const onlineClass = await onlineClassesApi.materializeFromCalendar(eventId);
       classId = onlineClass.id;
+      if (onlineClass.status === 'ENDED' || onlineClass.status === 'CANCELLED') {
+        setEnded(true);
+        setPolicyMessage(language === 'DE' ? 'Der Unterricht ist beendet. Erstellen Sie einen neuen Unterricht für eine weitere Sitzung.'
+          : 'Урок завершён. Для нового занятия создайте новый урок.');
+        return;
+      }
       await onlineClassesApi.start(onlineClass.id);
       navigate(`/online-classes/${onlineClass.id}`);
     } catch (error) {
       // A disabled or misconfigured feature is reported precisely rather than
       // as a generic failure, and never exposes which setting is missing.
-      if (error instanceof ApiRequestError && error.status === 404) {
+      if (error instanceof ApiRequestError && error.status === 409 && /lesson day|has ended|ten minutes|reconnect window/i.test(error.message)) {
+        setPolicyMessage(language === 'DE' ? 'Beitritt nur am Unterrichtstag (Berlin), nach dem Öffnen. Ein beendeter Unterricht bleibt geschlossen.'
+          : 'Вход возможен только в день урока по Берлину после открытия учителем. Завершённый урок остаётся закрытым.');
+      } else if (error instanceof ApiRequestError && error.status === 404) {
         setUnavailable(true);
       } else {
         // Room-start conflicts often wrap a rejected LiveKit RoomService API
@@ -71,9 +83,10 @@ export function StartOnlineClassButton({ eventId }: { eventId: string }) {
 
   return (
     <div className="online-class-start">
-      <button type="button" className="btn btn--primary" onClick={() => void start()} disabled={busy}>
-        {t('onlineClass.start')}
+      <button type="button" className="btn btn--primary" onClick={() => void start()} disabled={busy || ended}>
+        {ended ? (language === 'DE' ? 'Unterricht beendet' : 'Урок завершён') : t('onlineClass.start')}
       </button>
+      {policyMessage && <p role="status">{policyMessage}</p>}
       {failed && (
         <p role="alert" className="online-class-error">
           {failureKind === 'credentials'

@@ -19,6 +19,14 @@ public interface OnlineClassRepository extends JpaRepository<OnlineClass, UUID> 
 
     Optional<OnlineClass> findByRoomName(String roomName);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM OnlineClass c WHERE c.id = :id")
+    Optional<OnlineClass> findForUpdate(@Param("id") UUID id);
+
+    List<OnlineClass> findAllByStatusIn(List<OnlineClassStatus> statuses);
+
+    List<OnlineClass> findAllByMediaClosePendingTrue();
+
     /** Retention sweep: classes that ended before a cutoff. */
     List<OnlineClass> findAllByStatusAndActualEndAtBefore(OnlineClassStatus status, Instant cutoff);
 
@@ -39,7 +47,13 @@ public interface OnlineClassRepository extends JpaRepository<OnlineClass, UUID> 
      */
     @Query("""
             SELECT c FROM OnlineClass c
-            WHERE (c.scheduledEndAt >= :from OR c.studentJoinUntil >= :now)
+            WHERE (c.scheduledStartAt >= :from OR (
+                    c.status IN :openStatuses AND EXISTS (
+                        SELECT p.id FROM OnlineClassParticipant p
+                        WHERE p.onlineClass.id = c.id AND p.user.id = :studentId
+                          AND p.firstJoinedAt IS NOT NULL
+                    )
+                  ))
               AND c.status IN :statuses
               AND (
                     c.student.id = :studentId
@@ -51,6 +65,6 @@ public interface OnlineClassRepository extends JpaRepository<OnlineClass, UUID> 
             """)
     List<OnlineClass> findVisibleToStudent(@Param("studentId") UUID studentId,
                                            @Param("from") Instant from,
-                                           @Param("now") Instant now,
+                                           @Param("openStatuses") List<OnlineClassStatus> openStatuses,
                                            @Param("statuses") List<OnlineClassStatus> statuses);
 }

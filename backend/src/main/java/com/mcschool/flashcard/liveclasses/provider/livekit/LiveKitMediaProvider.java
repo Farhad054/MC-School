@@ -192,12 +192,32 @@ public class LiveKitMediaProvider implements LiveClassMediaProvider {
 
     @Override
     public List<String> listParticipantIdentities(String roomName) {
-        List<LivekitModels.ParticipantInfo> participants =
-                execute(roomServiceClient.listParticipants(roomName));
-        if (participants == null) {
-            return List.of();
+        try {
+            Response<List<LivekitModels.ParticipantInfo>> response =
+                    roomServiceClient.listParticipants(roomName).execute();
+            if (response.isSuccessful() && response.body() != null) {
+                return response.body().stream().map(LivekitModels.ParticipantInfo::getIdentity).toList();
+            }
+            // A reverse-proxy 404 or a malformed response is not proof that
+            // the room is empty. Only the provider's explicit Twirp code is.
+            if (response.code() == 404 && isMissingRoom(response.errorBody())) return List.of();
+            throw new MediaProviderException("LiveKit presence check failed with HTTP " + response.code());
+        } catch (java.io.IOException e) {
+            throw new MediaProviderException("LiveKit presence check failed", e);
         }
-        return participants.stream().map(LivekitModels.ParticipantInfo::getIdentity).toList();
+    }
+
+    private static boolean isMissingRoom(okhttp3.ResponseBody body) {
+        if (body == null) return false;
+        try (body) {
+            byte[] bytes = body.byteStream().readNBytes(4097);
+            if (bytes.length > 4096) return false;
+            tools.jackson.databind.JsonNode error =
+                    new tools.jackson.databind.ObjectMapper().readTree(bytes);
+            return error != null && "not_found".equals(error.path("code").asText());
+        } catch (java.io.IOException | RuntimeException ignored) {
+            return false;
+        }
     }
 
     @Override

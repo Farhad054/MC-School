@@ -99,6 +99,14 @@ public class OnlineClass {
     @Column(name = "student_join_until")
     private Instant studentJoinUntil;
 
+    /** First successful provider observation of an empty open room. */
+    @Column(name = "empty_since")
+    private Instant emptySince;
+
+    /** Retry room teardown after a provider outage; ending locally is final. */
+    @Column(name = "media_close_pending", nullable = false)
+    private boolean mediaClosePending;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -173,6 +181,18 @@ public class OnlineClass {
         }
         requireNonTerminal("open the lobby for");
         this.status = OnlineClassStatus.LOBBY_OPEN;
+    }
+
+    public void observeEmpty(Instant now) {
+        if (emptySince == null) emptySince = now;
+    }
+
+    public void observeOccupied() {
+        emptySince = null;
+    }
+
+    public void setMediaClosePending(boolean pending) {
+        mediaClosePending = pending;
     }
 
     public void allowStudentJoiningUntil(Instant expiresAt) {

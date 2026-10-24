@@ -30,6 +30,13 @@ export interface OnlineClass {
   /** Whether this server can record / transcribe at all; hides the buttons when not. */
   recordingAvailable: boolean;
   transcriptionAvailable: boolean;
+  /** Authoritative server admission state, separate from room transport status. */
+  entryState?: 'WAITING_FOR_TEACHER' | 'OPEN' | 'RECONNECT' | 'DAY_CLOSED' | 'CLOSED' | 'ENDED';
+  entryDate?: string;
+  entryOpensAt?: string;
+  entryClosesAt?: string;
+  viewerHasJoined?: boolean;
+  serverNow?: string;
 }
 
 /**

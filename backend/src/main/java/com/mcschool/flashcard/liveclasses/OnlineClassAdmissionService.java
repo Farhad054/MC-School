@@ -47,7 +47,7 @@ public class OnlineClassAdmissionService {
      */
     @Transactional
     public JoinRequestResponse knock(AuthenticatedUser caller, UUID classId) {
-        OnlineClass onlineClass = accessService.requireParticipant(caller, classId);
+        OnlineClass onlineClass = accessService.requireParticipantForUpdate(caller, classId);
         if (!onlineClass.isConnectable()) {
             throw new ConflictException("This class is not open");
         }
@@ -66,6 +66,7 @@ public class OnlineClassAdmissionService {
             throw new ConflictException("You have been removed from this class");
         }
 
+        requireEntry(onlineClass, participant);
         return joinRequestRepository
                 .findByOnlineClassIdAndUserIdAndState(classId, caller.id(), JoinRequestState.PENDING)
                 .map(JoinRequestResponse::from)
@@ -73,7 +74,7 @@ public class OnlineClassAdmissionService {
                     OnlineClassJoinRequest request = OnlineClassJoinRequest.knock(onlineClass, user, now());
                     // Without a waiting room the request is created already
                     // approved, so the client has one consistent shape to read.
-                    if (!onlineClass.isWaitingRoomEnabled() || participant.isHost()) {
+                    if (!onlineClass.isWaitingRoomEnabled() || participant.isAdmitted()) {
                         request.approve(user, now());
                         participant.admit();
                     }
@@ -104,13 +105,15 @@ public class OnlineClassAdmissionService {
     /** Admits everyone currently waiting, in one transaction. */
     @Transactional
     public List<JoinRequestResponse> approveAll(AuthenticatedUser caller, UUID classId) {
-        OnlineClass onlineClass = accessService.requireHost(caller, classId);
+        OnlineClass onlineClass = accessService.requireHostForUpdate(caller, classId);
         User decider = accessService.requireActiveUser(caller.id());
 
         return joinRequestRepository
                 .findAllByOnlineClassIdAndStateOrderByRequestedAtAsc(classId, JoinRequestState.PENDING)
                 .stream()
                 .map(request -> {
+                    requireEntry(onlineClass, participantRepository
+                            .findByOnlineClassIdAndUserId(classId, request.getUser().getId()).orElse(null));
                     request.approve(decider, now());
                     applyDecision(onlineClass, request, true);
                     return JoinRequestResponse.from(request);
@@ -120,7 +123,7 @@ public class OnlineClassAdmissionService {
 
     private JoinRequestResponse decide(AuthenticatedUser caller, UUID classId,
                                        UUID requestId, boolean approved) {
-        OnlineClass onlineClass = accessService.requireHost(caller, classId);
+        OnlineClass onlineClass = accessService.requireHostForUpdate(caller, classId);
         OnlineClassJoinRequest request = joinRequestRepository
                 .findByIdAndOnlineClassId(requestId, classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Join request not found"));
@@ -133,6 +136,8 @@ public class OnlineClassAdmissionService {
 
         User decider = accessService.requireActiveUser(caller.id());
         if (approved) {
+            requireEntry(onlineClass, participantRepository
+                    .findByOnlineClassIdAndUserId(classId, request.getUser().getId()).orElse(null));
             request.approve(decider, now());
         } else {
             request.reject(decider, now());
@@ -152,6 +157,12 @@ public class OnlineClassAdmissionService {
             participant.admit();
         } else {
             participant.reject();
+        }
+    }
+
+    private void requireEntry(OnlineClass room, OnlineClassParticipant participant) {
+        if (!LessonEntryPolicy.canEnter(room, participant, now())) {
+            throw new ConflictException("This class is not open for joining: lesson day or reconnect window is closed");
         }
     }
 

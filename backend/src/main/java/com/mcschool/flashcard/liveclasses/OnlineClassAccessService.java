@@ -85,6 +85,22 @@ public class OnlineClassAccessService {
         return onlineClass;
     }
 
+    /** Serialize admission/token issuance with End and idle-room cleanup. */
+    @Transactional
+    public OnlineClass requireParticipantForUpdate(AuthenticatedUser caller, UUID classId) {
+        OnlineClass onlineClass = classRepository.findForUpdate(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Online class not found"));
+        if (!canParticipate(caller, onlineClass)) throw new ResourceNotFoundException("Online class not found");
+        return onlineClass;
+    }
+
+    @Transactional
+    public OnlineClass requireHostForUpdate(AuthenticatedUser caller, UUID classId) {
+        OnlineClass onlineClass = requireParticipantForUpdate(caller, classId);
+        if (!isHost(caller, onlineClass)) throw new ResourceNotFoundException("Online class not found");
+        return onlineClass;
+    }
+
     /** Host or participant; used for read-only class detail. */
     @Transactional(readOnly = true)
     public OnlineClass requireViewer(AuthenticatedUser caller, UUID classId) {

@@ -3,6 +3,7 @@ package com.mcschool.flashcard.liveclasses.dto;
 import com.mcschool.flashcard.liveclasses.ClassFeatureState;
 import com.mcschool.flashcard.liveclasses.OnlineClass;
 import com.mcschool.flashcard.liveclasses.OnlineClassStatus;
+import com.mcschool.flashcard.liveclasses.LessonEntryPolicy;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -33,11 +34,24 @@ public record OnlineClassResponse(
         /** Whether this server can record at all (provider and storage configured). */
         boolean recordingAvailable,
         /** Whether this server can transcribe at all. */
-        boolean transcriptionAvailable
+        boolean transcriptionAvailable,
+        String entryState,
+        java.time.LocalDate entryDate,
+        Instant entryOpensAt,
+        Instant entryClosesAt,
+        boolean viewerHasJoined,
+        Instant serverNow
 ) {
 
     public static OnlineClassResponse from(OnlineClass source, boolean viewerIsHost, boolean joinWindowOpen,
                                            boolean recordingAvailable, boolean transcriptionAvailable) {
+        return from(source, viewerIsHost, joinWindowOpen, recordingAvailable, transcriptionAvailable,
+                source.isTerminal() ? "ENDED" : joinWindowOpen ? "OPEN" : "WAITING_FOR_TEACHER", false, Instant.now());
+    }
+
+    public static OnlineClassResponse from(OnlineClass source, boolean viewerIsHost, boolean joinWindowOpen,
+                                           boolean recordingAvailable, boolean transcriptionAvailable,
+                                           String entryState, boolean viewerHasJoined, Instant serverNow) {
         return new OnlineClassResponse(
                 source.getId(),
                 source.getEventId(),
@@ -57,6 +71,9 @@ public record OnlineClassResponse(
                 viewerIsHost,
                 joinWindowOpen,
                 recordingAvailable,
-                transcriptionAvailable);
+                transcriptionAvailable, entryState,
+                LessonEntryPolicy.lessonDate(source.getScheduledStartAt()),
+                LessonEntryPolicy.dayStart(source.getScheduledStartAt()),
+                LessonEntryPolicy.dayEnd(source.getScheduledStartAt()), viewerHasJoined, serverNow);
     }
 }

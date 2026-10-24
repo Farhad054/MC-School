@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../i18n/I18nContext';
 import { onlineClassesApi, type OnlineClass } from '../../api/onlineClasses';
+import { LessonEntryAction } from '../../features/online-classes/LessonEntryAction';
+import { useLessonEntryClock } from '../../features/online-classes/useLessonEntryClock';
 
 /**
  * Entry point listing the caller's upcoming and live classes. The backend
@@ -11,20 +13,23 @@ export function UpcomingOnlineClassesPage() {
   const { t, language } = useI18n();
   const [classes, setClasses] = useState<OnlineClass[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const now = useLessonEntryClock(classes?.[0]?.serverNow);
 
   useEffect(() => {
     let active = true;
-    onlineClassesApi
-      .listUpcoming()
-      .then((loaded) => {
-        if (active) setClasses(loaded);
-      })
-      .catch(() => {
-        if (active) setFailed(true);
-      });
-    return () => {
-      active = false;
+    let pending = false;
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const loaded = await onlineClassesApi.listUpcoming();
+        if (active) { setClasses(loaded); setFailed(false); }
+      } catch { if (active) setFailed(true); }
+      finally { pending = false; }
     };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 10_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
 
   if (failed) return <p role="alert">{t('onlineClass.unavailable')}</p>;
@@ -41,13 +46,10 @@ export function UpcomingOnlineClassesPage() {
         <ul>
           {classes.map((item) => (
             <li key={item.id}>
-              <Link to={item.viewerIsHost && !item.joinWindowOpen && (item.status === 'LIVE' || item.status === 'LOBBY_OPEN')
-                ? `/teacher/lessons/${encodeURIComponent(item.eventId)}` : `/online-classes/${item.id}`}>
-                {item.title} — {new Date(item.scheduledStartAt).toLocaleString(locale, { timeZone: 'Europe/Berlin' })}
+              <Link to={`/online-classes/${item.id}`}>
+                {item.title} - {new Date(item.scheduledStartAt).toLocaleString(locale, { timeZone: 'Europe/Berlin' })}
               </Link>
-              {!item.joinWindowOpen && (item.status === 'LIVE' || item.status === 'LOBBY_OPEN')
-                ? <span className="badge">{language === 'DE' ? 'Neue Sitzung über den Unterricht starten' : 'Запустите новую сессию из урока'}</span>
-                : item.status === 'LIVE' && <span className="badge">{t('onlineClass.live')}</span>}
+              <LessonEntryAction room={item} startsAt={item.scheduledStartAt} language={language} now={now} />
             </li>
           ))}
         </ul>

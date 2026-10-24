@@ -18,7 +18,8 @@ const room = (overrides: Partial<OnlineClass> = {}): OnlineClass => ({
   scheduledStartAt: '2026-10-23T10:00:00Z', scheduledEndAt: '2026-10-23T11:00:00Z',
   studentId: 'pupil-1', groupId: null, status: 'LIVE', waitingRoomEnabled: true,
   studentScreenShareEnabled: false, recordingState: 'INACTIVE', transcriptionState: 'INACTIVE',
-  actualStartAt: '2026-10-24T16:00:00Z', actualEndAt: null, viewerIsHost: false,
+  actualStartAt: '2026-10-23T10:00:00Z', actualEndAt: null, viewerIsHost: false,
+  viewerHasJoined: true, entryState: 'RECONNECT',
   joinWindowOpen: true, recordingAvailable: false, transcriptionAvailable: false, ...overrides,
 });
 const scheduledLessons = [
@@ -43,7 +44,7 @@ describe('student online lesson discovery', () => {
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
-  it('shows a late room automatically, including lessons outside the visible calendar week', async () => {
+  it('shows an ongoing previous-day room only for its returning participant', async () => {
     list.mockResolvedValueOnce([]).mockResolvedValue([room()]);
     const view = mount();
     await settle();
@@ -55,6 +56,22 @@ describe('student online lesson discovery', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     window.dispatchEvent(new Event('focus'));
     expect(list).toHaveBeenCalledTimes(calls);
+  });
+
+  it('does not advertise a legacy previous-day grant to someone who never entered', async () => {
+    list.mockResolvedValue([room({ viewerHasJoined: false, entryState: undefined })]);
+    mount(); await settle();
+    expect(screen.queryByRole('link', { name: /Mindcrafti Online/ })).not.toBeInTheDocument();
+  });
+
+  it('shows waiting and the entry date for a lesson the teacher has not opened', async () => {
+    vi.mocked(api.studentLessons.list).mockResolvedValue([{
+      ...scheduledLessons[0], eventId: 'today', startsAt: '2026-10-24T16:00:00Z', endsAt: '2026-10-24T17:00:00Z',
+    }]);
+    mount(); await settle();
+    const card = within(screen.getByRole('heading', { name: scheduledLessons[0].title }).closest('article')!);
+    expect(card.queryByRole('link', { name: /Mindcrafti Online/ })).not.toBeInTheDocument();
+    expect(card.getByRole('status')).toHaveTextContent('Ожидаем учителя');
   });
 
   it('refreshes on focus and removes a room after it ends', async () => {
@@ -102,9 +119,11 @@ describe('student online lesson discovery', () => {
     expect(screen.queryByText('00:00')).not.toBeInTheDocument();
   });
 
-  it('selects one of seven days and keeps document, Meet, notebook and server-authorized room actions', async () => {
+  it('keeps document and notebook actions but blocks first entry for a future lesson', async () => {
     vi.mocked(api.studentLessons.list).mockResolvedValue(scheduledLessons);
-    list.mockResolvedValue([room({ id: 'available-room', eventId: 'available', title: 'Уравнения' })]);
+    list.mockResolvedValue([room({ id: 'available-room', eventId: 'available', title: 'Уравнения',
+      scheduledStartAt: scheduledLessons[0].startsAt, scheduledEndAt: scheduledLessons[0].endsAt,
+      viewerHasJoined: false, entryState: 'DAY_CLOSED', joinWindowOpen: false })]);
     mount(); await settle();
     const picker = screen.getByRole('group', { name: 'Выбери день недели' });
     expect(within(picker).getAllByRole('button')).toHaveLength(7);
@@ -114,7 +133,8 @@ describe('student online lesson discovery', () => {
     const card = within(screen.getByRole('heading', { name: 'Уравнения' }).closest('article')!);
     expect(card.getByRole('button', { name: 'Общий документ' })).toBeEnabled();
     expect(card.getByRole('link', { name: 'Подключиться к уроку' })).toHaveAttribute('href', scheduledLessons[0].meetUrl);
-    expect(card.getByRole('link', { name: /Mindcrafti Online.*подключиться/ })).toHaveAttribute('href', '/online-classes/available-room');
+    expect(card.queryByRole('link', { name: /Mindcrafti Online/ })).not.toBeInTheDocument();
+    expect(card.getByText(/Вход доступен только/)).toBeInTheDocument();
     expect(card.getByRole('link', { name: 'Камера тетради' })).toHaveAttribute('href', '/lesson-notebook/available');
     // The older package used a client flag. The server remains authoritative.
     expect(list).toHaveBeenCalledTimes(1);

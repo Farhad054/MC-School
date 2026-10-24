@@ -1,6 +1,8 @@
 package com.mcschool.flashcard.liveclasses;
 
 import io.livekit.server.WebhookReceiver;
+import com.mcschool.flashcard.liveclasses.provider.LiveClassMediaProvider;
+import com.mcschool.flashcard.liveclasses.provider.MediaProviderException;
 import java.util.Optional;
 import java.util.UUID;
 import livekit.LivekitEgress;
@@ -27,17 +29,19 @@ public class OnlineClassWebhookService {
     private final OnlineClassRepository classRepository;
     private final OnlineClassParticipantRepository participantRepository;
     private final java.time.Clock clock;
+    private final LiveClassMediaProvider mediaProvider;
 
     public OnlineClassWebhookService(OnlineClassProperties properties,
                                      OnlineClassRecordingService recordingService,
                                      OnlineClassRepository classRepository,
                                      OnlineClassParticipantRepository participantRepository,
-                                     java.time.Clock clock) {
+                                     java.time.Clock clock, LiveClassMediaProvider mediaProvider) {
         this.properties = properties;
         this.recordingService = recordingService;
         this.classRepository = classRepository;
         this.participantRepository = participantRepository;
         this.clock = clock;
+        this.mediaProvider = mediaProvider;
     }
 
     /**
@@ -140,12 +144,27 @@ public class OnlineClassWebhookService {
         if (onlineClass.isEmpty() || userId.isEmpty()) {
             return;
         }
+        OnlineClass room = classRepository.findForUpdate(onlineClass.get().getId()).orElse(null);
+        if (room == null) return;
+        if (room.isTerminal()) {
+            if (joined) {
+                // A cached token must not resurrect a room closed by End.
+                room.setMediaClosePending(true);
+                try { mediaProvider.removeParticipant(room.getRoomName(), event.getParticipant().getIdentity()); }
+                catch (MediaProviderException ex) { log.warn("Terminal room disconnect will be retried: classId={}", room.getId()); }
+            }
+            return;
+        }
         participantRepository
-                .findByOnlineClassIdAndUserId(onlineClass.get().getId(), userId.get())
+                .findByOnlineClassIdAndUserId(room.getId(), userId.get())
                 .ifPresent(participant -> {
-                    if (joined) {
-                        participant.markJoined(clock.instant());
-                    } else {
+                    if (joined && participant.isAdmitted()) {
+                        java.time.Instant occurredAt = event.getCreatedAt() > 0
+                                ? java.time.Instant.ofEpochSecond(event.getCreatedAt()) : clock.instant();
+                        if (occurredAt.isAfter(clock.instant())) occurredAt = clock.instant();
+                        if (room.getEmptySince() == null || !occurredAt.isBefore(room.getEmptySince())) room.observeOccupied();
+                        if (!participant.isConnected()) participant.markJoined(occurredAt);
+                    } else if (!joined) {
                         // markLeft ignores an unmatched leave, so a duplicate or
                         // out-of-order event cannot inflate attendance.
                         participant.markLeft(clock.instant());
