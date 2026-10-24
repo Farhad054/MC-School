@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
+import { isNativeLesson, lessonDurationLabel } from '../../lib/lessonSchedule';
 import { lessonPreparationApi, completedLessonApi, type CompletedLessonDocument } from '../../api/lessonPreparation';
 import { aiPilotApi } from '../../api/aiPilot';
 import { useAuth } from '../../auth/AuthContext';
@@ -39,12 +40,14 @@ const NICK_AI_PILOT_TEACHER_ID = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
 
 export function LessonDetailPage() {
   const { eventId = '' } = useParams();
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const { user } = useAuth();
   const isNickAiPilot = user?.id === NICK_AI_PILOT_TEACHER_ID;
   const [lesson, setLesson] = useState<GroupLesson | null>(null);
+  const hasLessonAudience = Boolean(lesson?.studentId || lesson?.groupId);
   const [lessonStudents, setLessonStudents] = useState<LessonStudent[]>([]);
   const [preparation, setPreparation] = useState<LessonPreparation | null>(null);
+  const [coveredMaterial, setCoveredMaterial] = useState('');
   const [homeworkNotes, setHomeworkNotes] = useState('');
   const [difficulties, setDifficulties] = useState('');
   const [lessonPlan, setLessonPlan] = useState('');
@@ -95,6 +98,7 @@ export function LessonDetailPage() {
         const currentLesson = lessons.find((item) => item.eventId === eventId) ?? null;
         setLesson(currentLesson);
         setPreparation(prep);
+        setCoveredMaterial(prep.coveredMaterial ?? '');
         setHomeworkNotes(prep.homeworkNotes ?? '');
         setDifficulties(prep.difficulties ?? '');
         setLessonPlan(prep.lessonPlan ?? '');
@@ -164,13 +168,19 @@ export function LessonDetailPage() {
 
   const dateText = useMemo(() => {
     if (!lesson) return '';
+    if (isNativeLesson(lesson)) {
+      return new Intl.DateTimeFormat('ru-RU', {
+        weekday: 'long', day: '2-digit', month: 'long', timeZone: 'Europe/Berlin',
+      }).format(new Date(lesson.startsAt)) + ' · ' + lessonDurationLabel(lesson, 'RU');
+    }
     return new Intl.DateTimeFormat('ru-RU', {
-      weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit',
+      weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin',
     }).format(new Date(lesson.startsAt));
   }, [lesson]);
 
   function applyPreparation(updated: LessonPreparation) {
     setPreparation(updated);
+    setCoveredMaterial(updated.coveredMaterial ?? '');
     setHomeworkNotes(updated.homeworkNotes ?? '');
     setDifficulties(updated.difficulties ?? '');
     setLessonPlan(updated.lessonPlan ?? '');
@@ -183,7 +193,7 @@ export function LessonDetailPage() {
     setError(null);
     setMessage(null);
     try {
-      const saved = await lessonPreparationApi.update(eventId, { homeworkNotes, difficulties, lessonPlan, transcriptText });
+      const saved = await lessonPreparationApi.update(eventId, { coveredMaterial, homeworkNotes, difficulties, lessonPlan, transcriptText });
       applyPreparation(saved);
       const updated = action === 'prepare'
         ? await aiPilotApi.prepareLesson(eventId)
@@ -205,7 +215,7 @@ export function LessonDetailPage() {
     setError(null);
     setMessage(null);
     try {
-      const updated = await lessonPreparationApi.update(eventId, { homeworkNotes, difficulties, lessonPlan, transcriptText });
+      const updated = await lessonPreparationApi.update(eventId, { coveredMaterial, homeworkNotes, difficulties, lessonPlan, transcriptText });
       setPreparation(updated);
       setMessage('Информация для урока сохранена.');
     } catch (e) {
@@ -344,7 +354,7 @@ export function LessonDetailPage() {
           <h1 style={{ margin: '10px 0 4px' }}>{lesson?.title ?? 'Урок'}</h1>
           <div className="muted">{dateText || 'Событие Google Calendar'}</div>
           {(lesson?.groupName || lesson?.studentName) && (
-            <div style={{ marginTop: 8, fontWeight: 800, color: '#d94f00' }}>
+            <div style={{ marginTop: 8, fontWeight: 800, color: 'var(--teacher-selected-text, #d94f00)' }}>
               {lesson?.groupName ? `Группа: ${lesson.groupName}` : `Ученик: ${lesson?.studentName}`}
             </div>
           )}
@@ -357,13 +367,18 @@ export function LessonDetailPage() {
           )}
           {lesson?.calendarUrl && <a className="btn btn--ghost" href={lesson.calendarUrl} target="_blank" rel="noreferrer">Google Calendar</a>}
           {lesson?.meetUrl && <a className="btn" href={lesson.meetUrl} target="_blank" rel="noreferrer">Google Meet</a>}
-          {isNickAiPilot && lesson && import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true' && (
+          {isNickAiPilot && lesson && hasLessonAudience && import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true' && (
             <StartOnlineClassButton eventId={lesson.eventId} />
+          )}
+          {isNickAiPilot && lesson && !hasLessonAudience && import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true' && (
+            <p className="muted" style={{ maxWidth: 340, fontSize: 13 }}>{language === 'DE'
+              ? 'Ordnen Sie diesem Unterricht einen Schüler zu, damit er teilnehmen kann.'
+              : 'Для подключения ученика назначьте его этому уроку'}</p>
           )}
           {/* Mindcrafti Online will be enabled only after the live-classes API,
               migrations and LiveKit provider have passed staging acceptance tests.
               Keep the Google Meet action functional independently. */}
-          {isNickAiPilot && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED !== 'true' && (
+          {isNickAiPilot && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && (import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED !== 'true' || !hasLessonAudience) && (
             <Link className="btn btn--secondary" to={`/lesson-board/${encodeURIComponent(eventId)}`}>
               Mindcrafti доска (тест)
             </Link>
@@ -378,10 +393,10 @@ export function LessonDetailPage() {
         <LessonClassArtifacts eventId={lesson.eventId} />
       )}
             {isNickAiPilot && (
-        <section className="panel" style={{ padding: 18, margin: '0 0 18px', border: '1px solid #f0c7ad', background: '#fffaf7' }}>
+        <section className="panel" style={{ padding: 18, margin: '0 0 18px', border: '1px solid var(--teacher-selected-border, #f0c7ad)', background: 'var(--teacher-selected, #fffaf7)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>
-              <p style={{ margin: 0, fontSize: 12, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.06em', color: '#d94f00' }}>AI пилот Николая</p>
+              <p style={{ margin: 0, fontSize: 12, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--teacher-selected-text, #d94f00)' }}>AI пилот Николая</p>
               <h2 style={{ margin: '5px 0 4px' }}>Автоподготовка урока</h2>
               <div className="muted" style={{ fontSize: 13, maxWidth: 760 }}>
                 Доступно только вашему аккаунту. AI использует план на месяц, школьный промт, прошлый урок и сохранённую транскрипцию. Ничего ученикам автоматически не отправляется.
@@ -494,6 +509,13 @@ export function LessonDetailPage() {
 
       <div className="stack" style={{ gap: 14 }}>
         <section className="panel" style={{ padding: 20, margin: 0 }}>
+          <h2 style={{ margin: '0 0 8px' }}><label htmlFor="lesson-covered-material">Пройденный материал</label></h2>
+          <p className="muted" style={{ margin: '0 0 12px', fontSize: 13 }}>Что разобрали на занятии и к чему вернуться в следующий раз</p>
+          <textarea id="lesson-covered-material" className="input" rows={5} maxLength={100000}
+            value={coveredMaterial} onChange={event => setCoveredMaterial(event.target.value)}
+            placeholder="Темы, задания и результаты урока" style={{ width: '100%', resize: 'vertical' }} />
+        </section>
+        <section className="panel" style={{ padding: 20, margin: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>
               <h2 style={{ margin: 0 }}>Домашняя работа</h2>
@@ -511,7 +533,7 @@ export function LessonDetailPage() {
               {homeworkSummary.students.length > 1 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8, marginTop: 12 }}>
                   {homeworkSummary.students.map((student) => (
-                    <div key={student.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', background: '#fff' }}>
+                    <div key={student.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', background: 'var(--teacher-surface, #fff)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                         <strong>{student.name}</strong>
                         <span style={{ fontWeight: 800 }}>{student.submitted} / {student.assigned}</span>
@@ -530,7 +552,7 @@ export function LessonDetailPage() {
                 <Link
                   key={`${studentId}-${homework.id}`}
                   to={`/teacher/students/${studentId}/homeworks/${homework.id}`}
-                  style={{ textDecoration: 'none', color: 'inherit', border: '1px solid var(--border)', borderRadius: 12, padding: '11px 12px', background: '#fff', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}
+                  style={{ textDecoration: 'none', color: 'inherit', border: '1px solid var(--border)', borderRadius: 12, padding: '11px 12px', background: 'var(--teacher-surface, #fff)', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}
                 >
                   <div>
                     <strong>{studentName}</strong>
@@ -630,7 +652,7 @@ function MaterialPanel({ title, subtitle, filename, url, emptyText, uploading, e
   return (
     <section className="panel" style={{ padding: 20, margin: 0, minHeight: 210 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <div aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 12, display: 'grid', placeItems: 'center', background: '#fff7ed', fontSize: 22, flex: '0 0 auto' }}>PDF</div>
+        <div aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 12, display: 'grid', placeItems: 'center', background: 'var(--teacher-selected, #fff7ed)', fontSize: 22, flex: '0 0 auto' }}>PDF</div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>
           <div className="muted" style={{ marginTop: 3, fontSize: 12 }}>{subtitle}</div>
@@ -639,7 +661,7 @@ function MaterialPanel({ title, subtitle, filename, url, emptyText, uploading, e
       </div>
 
       {hasPdf ? (
-        <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 14, padding: 14, background: '#fff' }}>
+        <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 14, padding: 14, background: 'var(--teacher-surface, #fff)' }}>
           <div style={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{filename || 'PDF-файл'}</div>
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Открывается отдельно — страница урока остаётся на месте.</div>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
@@ -650,7 +672,7 @@ function MaterialPanel({ title, subtitle, filename, url, emptyText, uploading, e
           </div>
         </div>
       ) : (
-        <div style={{ marginTop: 16, border: '2px dashed #f0c7ad', borderRadius: 14, padding: 20, background: '#fffaf7' }}>
+        <div style={{ marginTop: 16, border: '2px dashed var(--teacher-selected-border, #f0c7ad)', borderRadius: 14, padding: 20, background: 'var(--teacher-selected, #fffaf7)' }}>
           <strong>{emptyText}</strong>
           <div className="muted" style={{ marginTop: 5, fontSize: 12 }}>Выберите PDF с компьютера или из Google Drive.</div>
         </div>
@@ -709,9 +731,9 @@ function StudentNotesPreview({ value, students }: { value: string; students: Les
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
       {groups.map((group) => (
-        <article key={group.key} style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 14, background: group.student ? '#fff' : '#fffaf7' }}>
+        <article key={group.key} style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 14, background: group.student ? 'var(--teacher-surface, #fff)' : 'var(--teacher-selected, #fffaf7)' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 9 }}>
-            <div aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 999, display: 'grid', placeItems: 'center', background: group.student ? '#fff7ed' : '#f8fafc', fontWeight: 900 }}>
+            <div aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 999, display: 'grid', placeItems: 'center', background: group.student ? 'var(--teacher-selected, #fff7ed)' : 'var(--teacher-surface, #f8fafc)', fontWeight: 900 }}>
               {group.student ? studentInitial(group.title) : '•'}
             </div>
             <strong style={{ fontSize: 16 }}>{group.title}</strong>
@@ -732,7 +754,7 @@ function PlanPreview({ value }: { value: string }) {
   return (
     <div>
       {parsed.intro && (
-        <div style={{ borderRadius: 14, padding: 14, background: '#fffaf7', border: '1px solid #f0c7ad', lineHeight: 1.5, marginBottom: 12 }}>
+        <div style={{ borderRadius: 14, padding: 14, background: 'var(--teacher-selected, #fffaf7)', border: '1px solid var(--teacher-selected-border, #f0c7ad)', lineHeight: 1.5, marginBottom: 12 }}>
           <strong>Цель и основа урока</strong>
           <div style={{ marginTop: 5 }}>{parsed.intro}</div>
         </div>
@@ -740,8 +762,8 @@ function PlanPreview({ value }: { value: string }) {
       {parsed.steps.length > 0 ? (
         <div style={{ display: 'grid', gap: 9 }}>
           {parsed.steps.map((step, index) => (
-            <div key={`${step.time}-${index}`} style={{ display: 'grid', gridTemplateColumns: '95px minmax(0, 1fr)', gap: 12, alignItems: 'start', border: '1px solid var(--border)', borderRadius: 13, padding: 12, background: '#fff' }}>
-              <div style={{ fontWeight: 900, color: '#d94f00' }}>{step.time}</div>
+            <div key={`${step.time}-${index}`} style={{ display: 'grid', gridTemplateColumns: '95px minmax(0, 1fr)', gap: 12, alignItems: 'start', border: '1px solid var(--border)', borderRadius: 13, padding: 12, background: 'var(--teacher-surface, #fff)' }}>
+              <div style={{ fontWeight: 900, color: 'var(--teacher-selected-text, #d94f00)' }}>{step.time}</div>
               <div style={{ lineHeight: 1.48 }}>{step.text}</div>
             </div>
           ))}
@@ -890,7 +912,7 @@ function downloadObjectUrl(url: string, filename: string) {
 }
 
 function Stat({ value, label }: { value: number; label: string }) {
-  return <div style={{ background: '#fff7ed', borderRadius: 12, padding: '11px 8px', textAlign: 'center' }}><div style={{ fontSize: 23, fontWeight: 900 }}>{value}</div><div className="muted" style={{ fontSize: 11 }}>{label}</div></div>;
+  return <div style={{ background: 'var(--teacher-selected, #fff7ed)', borderRadius: 12, padding: '11px 8px', textAlign: 'center' }}><div style={{ fontSize: 23, fontWeight: 900 }}>{value}</div><div className="muted" style={{ fontSize: 11 }}>{label}</div></div>;
 }
 
 async function resolveLessonStudents(lesson: GroupLesson, allStudents: StudentListItem[]): Promise<LessonStudent[]> {
