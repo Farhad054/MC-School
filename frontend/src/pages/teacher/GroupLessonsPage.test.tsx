@@ -86,7 +86,7 @@ describe('native lesson schedule', () => {
     } finally { confirm.mockRestore(); }
   });
 
-  it('shows the selected-day agenda and week controls without Google' async () => {
+  it('shows the selected-day agenda and week controls without Google', async () => {
     lessonApi.groupLessons.mockResolvedValue([lesson()]);
     renderPage();
     expect(await screen.findByText('Математика без Google')).toBeInTheDocument();
