@@ -6,6 +6,8 @@ import static org.mockito.Mockito.when;
 
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.lessons.dto.CreateLessonRequest;
+import com.mcschool.flashcard.liveclasses.OnlineClass;
+import com.mcschool.flashcard.liveclasses.OnlineClassRepository;
 import com.mcschool.flashcard.lessons.dto.CreateLessonSeriesRequest;
 import com.mcschool.flashcard.lessons.dto.GroupLessonResponse;
 import com.mcschool.flashcard.lessons.dto.UpdateLessonPreparationRequest;
@@ -39,6 +41,7 @@ class ManualLessonPersistenceIntegrationTest {
     @Autowired private GoogleCalendarLessonService calendar;
     @Autowired private LessonPreparationService preparations;
     @Autowired private LessonHistoryRepository history;
+    @Autowired private OnlineClassRepository onlineClasses;
     @Autowired private UserRepository users;
     @Autowired private JdbcTemplate jdbc;
     @MockitoBean private GoogleCalendarOAuthService oauth;
@@ -90,6 +93,33 @@ class ManualLessonPersistenceIntegrationTest {
                 String.class, teacher.getId(), lesson.eventId())).isEqualTo("Fractions 1–5");
         assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_name in ('completed_lesson_documents','notebook_cameras')",
                 Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void editingPastLessonKeepsOriginalRoomIdAndHistory() {
+        User teacher = teacher();
+        User student = users.save(User.managedStudent("Pupil", teacher));
+        var caller = caller(teacher);
+        Instant oldStart = Instant.parse("2026-10-17T10:00:00Z");
+        GroupLessonResponse lesson = service.create(caller, new CreateLessonRequest("History",
+                oldStart, oldStart.plusSeconds(2700), null, student.getId()));
+        OnlineClass original = onlineClasses.save(OnlineClass.forStudent(teacher, lesson.eventId(),
+                lesson.bindingKey(), lesson.title(), oldStart, oldStart.plusSeconds(2700), student));
+        original.start(oldStart);
+        onlineClasses.save(original);
+        Instant moved = Instant.parse("2026-10-15T14:00:00Z");
+        var updated = service.reschedule(caller, lesson.eventId(), moved, moved.plusSeconds(3600));
+        assertThat(updated.startsAt()).isEqualTo(moved);
+        assertThat(updated.endsAt()).isEqualTo(moved.plusSeconds(3600));
+        OnlineClass room = onlineClasses.findById(original.getId()).orElseThrow();
+        assertThat(room.getId()).isEqualTo(original.getId());
+        assertThat(room.getStatus()).isEqualTo(original.getStatus());
+        assertThat(room.getScheduledStartAt()).isEqualTo(moved);
+        assertThat(room.getScheduledEndAt()).isEqualTo(moved.plusSeconds(3600));
+        assertThat(history.findByTeacherIdAndEventId(teacher.getId(), lesson.eventId()).orElseThrow()
+                .toResponse().startsAt()).isEqualTo(moved);
+        assertThat(history.findAllByTeacherIdOrderByStartsAtAsc(teacher.getId())).extracting(LessonHistoryEntry::getEventId)
+                .contains(lesson.eventId());
     }
 
     @Test

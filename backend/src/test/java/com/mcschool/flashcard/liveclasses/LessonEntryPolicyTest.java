@@ -55,12 +55,13 @@ class LessonEntryPolicyTest {
         assertThat(LessonEntryPolicy.canEnter(room, null, DAY)).isFalse();
         room.cancel(); assertThat(LessonEntryPolicy.canEnter(room, null, DAY)).isFalse();
     }
-    @Test void emptyGraceClosesAtExactlyTenMinutesAndOccupiedResetsIt() {
-        OnlineClass room = room(DAY); room.observeEmpty(DAY); room.observeEmpty(DAY.plusSeconds(30));
-        assertThat(room.getEmptySince()).isEqualTo(DAY);
-        assertThat(LessonEntryPolicy.canEnter(room, null, DAY.plusSeconds(599))).isTrue();
-        assertThat(LessonEntryPolicy.canEnter(room, null, DAY.plusSeconds(600))).isFalse();
-        room.observeOccupied(); assertThat(LessonEntryPolicy.canEnter(room, null, DAY.plusSeconds(600))).isTrue();
+    @Test void emptyRoomsStayOpenUntilNextMondayEvenAfterTenMinutes() {
+        OnlineClass room = room(DAY); room.observeEmpty(DAY.minusSeconds(7200));
+        OnlineClassParticipant participant = returning(room);
+        assertThat(LessonEntryPolicy.canEnter(room, participant, LessonEntryPolicy.weekEnd(DAY).minusNanos(1))).isTrue();
+        assertThat(LessonEntryPolicy.weekExpired(room, LessonEntryPolicy.weekEnd(DAY).minusNanos(1))).isFalse();
+        assertThat(LessonEntryPolicy.canEnter(room, participant, LessonEntryPolicy.weekEnd(DAY))).isFalse();
+        assertThat(LessonEntryPolicy.state(room, participant, LessonEntryPolicy.weekEnd(DAY))).isEqualTo("ENDED");
     }
     @Test void removedAndRejectedAttendeesCannotUseReconnect() {
         OnlineClass room = room(DAY); OnlineClassParticipant p = returning(room); p.remove();
@@ -69,12 +70,24 @@ class LessonEntryPolicyTest {
         OnlineClassParticipant rejected = returning(room); rejected.reject();
         assertThat(LessonEntryPolicy.canEnter(room, rejected, DAY)).isFalse();
     }
-    @Test void firstEntryTokenCannotCrossMidnightOrAnIdleDeadline() {
+    @Test void tokensExpireAtDayBoundaryForFirstEntryAndMondayForReturning() {
         OnlineClass room = room(DAY); Instant nearEnd = LessonEntryPolicy.dayEnd(DAY).minusSeconds(10);
-        assertThat(LessonEntryPolicy.tokenTtl(room, null, nearEnd, Duration.ofMinutes(5))).isEqualTo(Duration.ofSeconds(10));
+        assertThat(LessonEntryPolicy.tokenTtl(room, null, nearEnd, Duration.ofMinutes(5)))
+                .isEqualTo(Duration.ofSeconds(10));
         OnlineClassParticipant p = returning(room);
-        assertThat(LessonEntryPolicy.tokenTtl(room, p, nearEnd, Duration.ofMinutes(5))).isEqualTo(Duration.ofMinutes(5));
-        room.observeEmpty(DAY);
-        assertThat(LessonEntryPolicy.tokenTtl(room, p, DAY.plusSeconds(590), Duration.ofMinutes(5))).isEqualTo(Duration.ofSeconds(10));
+        assertThat(LessonEntryPolicy.tokenTtl(room, p, nearEnd, Duration.ofMinutes(5)))
+                .isEqualTo(Duration.ofMinutes(5));
+        Instant lastSecond = LessonEntryPolicy.weekEnd(DAY).minusSeconds(10);
+        assertThat(LessonEntryPolicy.tokenTtl(room, p, lastSecond, Duration.ofMinutes(5)))
+                .isEqualTo(Duration.ofSeconds(10));
+    }
+    @Test void mondayBoundaryHandlesDaylightSavingAndHostReconnect() {
+        Instant sunday = Instant.parse("2026-10-25T12:00:00Z");
+        assertThat(LessonEntryPolicy.weekEnd(sunday)).isEqualTo(Instant.parse("2026-10-25T23:00:00Z"));
+        assertThat(LessonEntryPolicy.weekEnd(Instant.parse("2026-03-29T12:00:00Z")))
+                .isEqualTo(Instant.parse("2026-03-29T22:00:00Z"));
+        OnlineClass room = room(DAY);
+        OnlineClassParticipant teacher = OnlineClassParticipant.host(room, mock(User.class));
+        assertThat(LessonEntryPolicy.canEnter(room, teacher, LessonEntryPolicy.dayEnd(DAY).plusSeconds(1))).isTrue();
     }
 }

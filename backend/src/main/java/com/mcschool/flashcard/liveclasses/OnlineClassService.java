@@ -487,15 +487,14 @@ public class OnlineClassService {
 
     private void initializeOpening(OnlineClass onlineClass) {
         onlineClass.allowStudentJoiningUntil(LessonEntryPolicy.dayEnd(onlineClass.getScheduledStartAt()));
-        onlineClass.observeEmpty(now());
     }
 
     private void requireCurrentSession(OnlineClass onlineClass) {
         if (onlineClass.isTerminal()) {
             throw new ConflictException("This lesson has ended; create a new lesson to start another class");
         }
-        if (LessonEntryPolicy.idleExpired(onlineClass, now())) {
-            throw new ConflictException("This class closed after ten minutes without participants");
+        if (LessonEntryPolicy.weekExpired(onlineClass, now())) {
+            throw new ConflictException("This room has reached the weekly Monday deadline");
         }
         if (!onlineClass.isConnectable() && !isWithinJoinWindow(onlineClass)) {
             throw new ConflictException("Entry is only available on the lesson day in Europe/Berlin");
@@ -528,34 +527,22 @@ public class OnlineClassService {
     }
 
     /**
-     * Called by the scheduler in its own transaction. A successful provider
-     * snapshot, not token issuance, webhooks or browser unload, owns emptiness.
-     * A failed snapshot never counts as an empty room. The row lock serializes
-     * this decision with Start, End, admission and connection-token issuance.
+     * The room stays available when empty. Only a teacher or the Monday 00:00
+     * Berlin weekly deadline can finish it. Never infer termination from an
+     * empty LiveKit presence snapshot, a tab closing or a network failure.
      */
     @Transactional
     public void reconcileIdleSession(UUID classId) {
-        if (!properties.enabled() || !mediaProvider.isConfigured()) return;
+        if (!properties.enabled()) return;
         OnlineClass room = classRepository.findForUpdate(classId).orElse(null);
         if (room == null) return;
         if (room.isTerminal()) {
-            if (room.isMediaClosePending()) closeProviderRoom(room);
+            if (room.isMediaClosePending() && mediaProvider.isConfigured()) closeProviderRoom(room);
             return;
         }
-        if (!room.isConnectable()) return;
-        List<String> identities = mediaProvider.listParticipantIdentities(room.getRoomName());
-        if (identities == null) return; // no successful presence snapshot
-        java.util.Set<UUID> connectedUsers = identities.stream()
-                .map(ParticipantIdentity::userId).flatMap(java.util.Optional::stream)
-                .collect(java.util.stream.Collectors.toSet());
-        boolean occupied = participantRepository.findAllByOnlineClassIdOrderByCreatedAtAsc(classId).stream()
-                .anyMatch(person -> person.isAdmitted() && connectedUsers.contains(person.getUser().getId()));
-        if (occupied) {
-            room.observeOccupied();
-            return;
+        if (room.isConnectable() && LessonEntryPolicy.weekExpired(room, now())) {
+            finishSession(room, now());
         }
-        room.observeEmpty(now());
-        if (LessonEntryPolicy.idleExpired(room, now())) finishSession(room, now());
     }
 
     private void ensureHostParticipant(OnlineClass onlineClass) {

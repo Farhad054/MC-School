@@ -32,10 +32,14 @@ describe('lesson entry calendar policy', () => {
     expect(lessonEntry(returning, start, at('2026-10-25T12:00:00Z')).state).toBe('RECONNECT');
     expect(lessonEntry({ ...returning, joinWindowOpen: false }, start, at('2026-10-25T12:00:00Z')).canJoin).toBe(false);
   });
+  it('ends an open room at Monday midnight, even without a teacher ending it', () => {
+    expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T22:59:59Z')).canJoin).toBe(true);
+    expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T23:00:00Z')).state).toBe('ENDED');
+  });
   it.each(['ENDED', 'CANCELLED'] as const)('never reconnects a %s room', status => {
     expect(lessonEntry(room({ status, viewerHasJoined: true }), start, at(start)).state).toBe('ENDED');
   });
-  it('closes stale grants after the idle deadline is reported', () => {
+  it('closes stale grants after the weekly deadline is reported', () => {
     expect(lessonEntry(room({ entryState: 'CLOSED' }), start, at(start)).canJoin).toBe(false);
   });
   it.each([

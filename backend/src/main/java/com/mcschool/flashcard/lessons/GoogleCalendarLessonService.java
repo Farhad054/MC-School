@@ -175,7 +175,7 @@ public class GoogleCalendarLessonService {
         for (GroupLessonResponse lesson : result) {
             LessonHistoryEntry history = historyRepository.findByTeacherIdAndEventId(teacher.id(), lesson.eventId())
                     .orElseGet(() -> LessonHistoryEntry.create(teacherEntity, lesson));
-            history.sync(lesson);
+            history.sync(lesson); // Manual date/duration overrides survive Google refresh.
             historyRepository.save(history);
         }
         return archivedLessons(teacher.id());

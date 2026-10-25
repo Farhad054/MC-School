@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Persisted ten-minute reconnect grace. Midnight never ends an occupied lesson. */
+/** Weekly Monday 00:00 Berlin cleanup; empty rooms remain open for reconnects. */
 @Component
 public class OnlineClassIdleScheduler {
     private static final Logger log = LoggerFactory.getLogger(OnlineClassIdleScheduler.class);

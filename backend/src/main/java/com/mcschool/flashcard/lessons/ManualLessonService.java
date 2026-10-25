@@ -5,6 +5,8 @@ import com.mcschool.flashcard.common.ResourceNotFoundException;
 import com.mcschool.flashcard.groups.StudentGroupMemberRepository;
 import com.mcschool.flashcard.groups.StudentGroupRepository;
 import com.mcschool.flashcard.lessons.dto.CreateLessonRequest;
+import com.mcschool.flashcard.liveclasses.OnlineClassRepository;
+import com.mcschool.flashcard.liveclasses.OnlineClass;
 import com.mcschool.flashcard.lessons.dto.CreateLessonSeriesRequest;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -29,13 +31,16 @@ public class ManualLessonService {
     private final StudentGroupRepository groups;
     private final StudentGroupMemberRepository members;
     private final LessonHistoryRepository history;
+    private final OnlineClassRepository onlineClasses;
 
     public ManualLessonService(UserRepository users, StudentGroupRepository groups,
-                               StudentGroupMemberRepository members, LessonHistoryRepository history) {
+                               StudentGroupMemberRepository members, LessonHistoryRepository history,
+                               OnlineClassRepository onlineClasses) {
         this.users = users;
         this.groups = groups;
         this.members = members;
         this.history = history;
+        this.onlineClasses = onlineClasses;
     }
 
     @Transactional
@@ -80,6 +85,30 @@ public class ManualLessonService {
         }
         if (created.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No lesson dates selected");
         return List.copyOf(created);
+    }
+
+    @Transactional
+    public GroupLessonResponse reschedule(AuthenticatedUser caller, String eventId, java.time.Instant startsAt, java.time.Instant endsAt) {
+        requireTeacher(caller);
+        if (startsAt == null || endsAt == null || !endsAt.isAfter(startsAt)
+                || java.time.Duration.between(startsAt, endsAt).toMinutes() > 1440) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid lesson date or duration");
+        }
+        LessonHistoryEntry entry = history.findLockedByTeacherIdAndEventId(caller.id(), eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Lesson not found"));
+        entry.reschedule(startsAt, endsAt);
+        GroupLessonResponse changed = history.save(entry).toResponse();
+        // Reuse the same room and annotation archive when a lesson moves.
+        // Do not recreate or reopen an already-ended room.
+        for (OnlineClass room : onlineClasses.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(
+                caller.id(), eventId)) {
+            if (java.util.Objects.equals(changed.studentId(), room.getStudent() == null ? null : room.getStudent().getId())
+                    && java.util.Objects.equals(changed.groupId(), room.getGroup() == null ? null : room.getGroup().getId())) {
+                onlineClasses.findForUpdate(room.getId()).ifPresent(locked -> locked.reschedule(startsAt, endsAt));
+                break;
+            }
+        }
+        return changed;
     }
 
     @Transactional

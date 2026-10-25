@@ -614,37 +614,31 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void anEmptyRoomEndsAtThePersistedTenMinuteDeadline() {
+    void anEmptyRoomDoesNotEndAfterTenMinutes() {
         OnlineClass room = materialize(); service.start(teacherPrincipal, room.getId());
         room = classRepository.findById(room.getId()).orElseThrow();
-        room.observeOccupied(); room.observeEmpty(NOW.minusSeconds(600)); classRepository.save(room);
-        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        room.observeEmpty(NOW.minusSeconds(3600)); classRepository.save(room);
+        service.reconcileIdleSession(room.getId());
+        assertThat(service.get(teacherPrincipal, room.getId()).status()).isEqualTo(OnlineClassStatus.LIVE);
+    }
+
+    @Test
+    void weekEndAutomaticallyClosesAnOpenRoomWithoutPresenceChecks() {
+        Instant old = NOW.minus(8, ChronoUnit.DAYS);
+        OnlineClass room = classRepository.save(OnlineClass.forStudent(teacher, "weekly-old",
+                "weekly-old", "Maths", old, old.plus(1, ChronoUnit.HOURS), student));
+        room.start(old); classRepository.save(room);
         service.reconcileIdleSession(room.getId());
         assertThat(service.get(teacherPrincipal, room.getId()).status()).isEqualTo(OnlineClassStatus.ENDED);
-        assertThat(service.get(studentPrincipal, room.getId()).joinWindowOpen()).isFalse();
     }
 
     @Test
-    void anOccupiedRoomSurvivesAnOldIdleMarkerAndAnotherDeviceLeaving() {
+    void mediaProviderFailureDoesNotEndAnActiveRoomBeforeMonday() {
         OnlineClass room = materialize(); service.start(teacherPrincipal, room.getId());
         room = classRepository.findById(room.getId()).orElseThrow();
-        room.observeOccupied(); room.observeEmpty(NOW.minusSeconds(700)); classRepository.save(room);
-        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(ParticipantIdentity.of(teacher.getId(), "second-device")));
-        service.reconcileIdleSession(room.getId());
-        OnlineClass saved = classRepository.findById(room.getId()).orElseThrow();
-        assertThat(saved.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
-        assertThat(saved.getEmptySince()).isNull();
-    }
-
-    @Test
-    void anUnreachableProviderIsNeverTreatedAsAnEmptyRoom() {
-        OnlineClass room = materialize(); service.start(teacherPrincipal, room.getId());
-        room = classRepository.findById(room.getId()).orElseThrow();
-        room.observeOccupied(); room.observeEmpty(NOW.minusSeconds(700)); classRepository.save(room);
         when(mediaProvider.listParticipantIdentities(anyString())).thenThrow(new MediaProviderException("unavailable"));
-        final UUID id = room.getId();
-        assertThatThrownBy(() -> service.reconcileIdleSession(id)).isInstanceOf(MediaProviderException.class);
-        assertThat(classRepository.findById(id).orElseThrow().getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        service.reconcileIdleSession(room.getId());
+        assertThat(classRepository.findById(room.getId()).orElseThrow().getStatus()).isEqualTo(OnlineClassStatus.LIVE);
     }
 
     @Test

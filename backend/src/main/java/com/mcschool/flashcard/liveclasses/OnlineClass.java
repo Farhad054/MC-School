@@ -157,6 +157,16 @@ public class OnlineClass {
                 null, group);
     }
 
+    /** Updating the lesson schedule must never change room ID or recorded attendance. */
+    public void reschedule(java.time.Instant start, java.time.Instant end) {
+        if (start == null || end == null || !end.isAfter(start)) {
+            throw new IllegalArgumentException("Invalid classroom schedule");
+        }
+        scheduledStartAt = start;
+        scheduledEndAt = end;
+        studentJoinUntil = com.mcschool.flashcard.liveclasses.LessonEntryPolicy.dayEnd(start);
+    }
+
     public boolean isGroupClass() {
         return group != null;
     }
