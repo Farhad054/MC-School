@@ -83,6 +83,19 @@ public class ManualLessonService {
     }
 
     @Transactional
+    public GroupLessonResponse reschedule(AuthenticatedUser caller, String eventId, java.time.Instant startsAt, java.time.Instant endsAt) {
+        requireTeacher(caller);
+        if (startsAt == null || endsAt == null || !endsAt.isAfter(startsAt)
+                || java.time.Duration.between(startsAt, endsAt).toMinutes() > 1440) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid lesson date or duration");
+        }
+        LessonHistoryEntry entry = history.findLockedByTeacherIdAndEventId(caller.id(), eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Lesson not found"));
+        entry.reschedule(startsAt, endsAt);
+        return history.save(entry).toResponse();
+    }
+
+    @Transactional
     public void bindStudent(AuthenticatedUser caller, String eventId, UUID studentId) {
         rebind(caller, eventId, null, studentId);
     }

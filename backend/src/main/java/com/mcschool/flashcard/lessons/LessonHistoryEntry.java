@@ -112,6 +112,15 @@ public class LessonHistoryEntry {
         this.calendarUrl = lesson.calendarUrl();
     }
 
+    /** Teacher correction to the scheduled date/time, including a past lesson. */
+    public void reschedule(java.time.Instant start, java.time.Instant end) {
+        if (start == null || end == null || !end.isAfter(start)) {
+            throw new IllegalArgumentException("Invalid lesson schedule");
+        }
+        this.startsAt = start;
+        this.endsAt = end;
+    }
+
     /** Explicit reassignment replaces the enrollment snapshot for a native lesson. */
     public void reassign(GroupLessonResponse lesson) {
         sync(lesson);

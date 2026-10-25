@@ -42,6 +42,10 @@ export function GroupLessonsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createdLesson, setCreatedLesson] = useState<GroupLesson | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [editDuration, setEditDuration] = useState(60);
+  const [editBusy, setEditBusy] = useState(false);
   const [createdCount, setCreatedCount] = useState(1);
   const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
   const [startReminderLessonId, setStartReminderLessonId] = useState<string | null>(null);
@@ -263,6 +267,46 @@ export function GroupLessonsPage() {
     void closeSonioxBrowserNotification(lesson.eventId);
   }
 
+  function toBerlinParts(iso: string) {
+    const parts = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit',
+      day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso));
+    const value = (type: string) => parts.find(item => item.type === type)?.value ?? '';
+    return { date: `${value('year')}-${value('month')}-${value('day')}`, time: `${value('hour')}:${value('minute')}` };
+  }
+
+  function openTimeEditor(lesson: GroupLesson) {
+    const fields = toBerlinParts(lesson.startsAt);
+    setEditDate(fields.date);
+    setEditTime(fields.time);
+    setEditDuration(Math.max(1, Math.round((Date.parse(lesson.endsAt) - Date.parse(lesson.startsAt)) / 60000)));
+    setExpandedLessonId(lesson.eventId);
+  }
+
+  async function saveTime(lesson: GroupLesson) {
+    const value = new Date(`${editDate}T${editTime}:00`);
+    if (!editDate || !editTime || !Number.isFinite(value.getTime()) || editDuration < 1 || editDuration > 1440) {
+      setError('Укажите корректную дату, время и длительность от 1 до 1440 минут.');
+      return;
+    }
+    // Interpret the calendar entry as a Berlin wall-clock time, including DST.
+    const naive = Date.parse(`${editDate}T${editTime}:00Z`);
+    let start = NaN;
+    for (let offset = -120; offset <= 120; offset += 30) {
+      const candidate = new Date(naive + offset * 60000);
+      const berlin = toBerlinParts(candidate.toISOString());
+      if (berlin.date === editDate && berlin.time === editTime) { start = candidate.getTime(); break; }
+    }
+    if (!Number.isFinite(start)) { setError('Такое время не существует при переводе часов в Германии.'); return; }
+    setEditBusy(true); setError(null);
+    try {
+      await api.lessons.updateSchedule(lesson.eventId, new Date(start).toISOString(),
+        new Date(start + editDuration * 60000).toISOString());
+      await loadAll();
+      setExpandedLessonId(null);
+    } catch (error) { setError(toErrorMessage(error, t)); }
+    finally { setEditBusy(false); }
+  }
+
   function renderLessonCard(lesson: GroupLesson) {
     const brief = lesson.groupId ? briefs[lesson.groupId] : undefined;
     const linkedGroup = Boolean(lesson.groupId && lesson.groupName);
@@ -288,10 +332,19 @@ export function GroupLessonsPage() {
           </div>
           <div className="lesson-agenda-card__actions">
             <Link className="btn" to={'/teacher/lessons/' + encodeURIComponent(lesson.eventId)}>{language === 'DE' ? 'Unterricht öffnen' : 'Открыть урок'}</Link>
-            <button className="teacher-icon-button" type="button" aria-label={(language === 'DE' ? 'Unterrichtseinstellungen: ' : 'Настройки урока: ') + lesson.title} aria-expanded={expanded} aria-controls={'lesson-options-' + lesson.eventId} onClick={() => setExpandedLessonId(expanded ? null : lesson.eventId)}>⋯</button>
+            <button className="teacher-icon-button" type="button" aria-label={(language === 'DE' ? 'Unterrichtseinstellungen: ' : 'Настройки урока: ') + lesson.title} aria-expanded={expanded} aria-controls={'lesson-options-' + lesson.eventId} onClick={() => expanded ? setExpandedLessonId(null) : openTimeEditor(lesson)}>⋯</button>
           </div>
         </div>
         {expanded && <div className="lesson-agenda-card__options" id={'lesson-options-' + lesson.eventId}>
+          <div className="stack" style={{ gap: 8, marginBottom: 14 }}>
+            <strong>{language === 'DE' ? 'Datum und Dauer bearbeiten (auch vergangene Stunden)' : 'Изменить дату и длительность (включая прошедшие уроки)'}</strong>
+            <label>Дата / Datum <input type="date" value={editDate} onChange={event => setEditDate(event.target.value)} /></label>
+            <label>Время / Uhrzeit (Berlin) <input type="time" value={editTime} onChange={event => setEditTime(event.target.value)} /></label>
+            <label>Минуты / Minuten <input type="number" min="1" max="1440" value={editDuration} onChange={event => setEditDuration(Number(event.target.value))} /></label>
+            <button className="btn btn--secondary" type="button" disabled={editBusy} onClick={() => void saveTime(lesson)}>
+              {editBusy ? 'Сохраняем…' : language === 'DE' ? 'Änderungen speichern' : 'Сохранить изменения'}
+            </button>
+          </div>
         <label className="field" style={{ marginTop: 8, marginBottom: 0 }}>
           <span className="field__label" style={{ fontSize: 12 }}>{language === 'DE' ? 'Gruppe oder Schüler für diesen Termin' : 'Группа или ученик для этого события'}</span>
           <select className="select" value={selectedTarget} onChange={(e) => void bindTarget(lesson, e.target.value)}>

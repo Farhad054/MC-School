@@ -45,6 +45,15 @@ public class GroupLessonController {
         return manualLessonService.create(caller, request);
     }
 
+    public record UpdateLessonTimeRequest(java.time.Instant startsAt, java.time.Instant endsAt) {}
+
+    @PutMapping("/{eventId}/schedule")
+    public GroupLessonResponse updateSchedule(@AuthenticationPrincipal AuthenticatedUser caller,
+                                              @PathVariable String eventId,
+                                              @RequestBody UpdateLessonTimeRequest request) {
+        return manualLessonService.reschedule(caller, eventId, request.startsAt(), request.endsAt());
+    }
+
     @PostMapping("/series")
     @ResponseStatus(HttpStatus.CREATED)
     public List<GroupLessonResponse> createSeries(@AuthenticationPrincipal AuthenticatedUser caller,
