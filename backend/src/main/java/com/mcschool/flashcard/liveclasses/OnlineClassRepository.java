@@ -55,6 +55,11 @@ public interface OnlineClassRepository extends JpaRepository<OnlineClass, UUID> 
                     )
                   ))
               AND c.status IN :statuses
+              AND NOT EXISTS (
+                  SELECT h.eventId FROM LessonHistoryEntry h
+                  WHERE h.teacher.id = c.teacher.id AND h.eventId = c.eventId
+                    AND h.deletedAt IS NOT NULL
+              )
               AND (
                     c.student.id = :studentId
                  OR c.group.id IN (

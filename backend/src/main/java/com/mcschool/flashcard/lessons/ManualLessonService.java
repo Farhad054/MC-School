@@ -2,6 +2,9 @@ package com.mcschool.flashcard.lessons;
 
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.common.ConflictException;
+import com.mcschool.flashcard.liveclasses.OnlineClassStatus;
+import java.time.Instant;
 import com.mcschool.flashcard.groups.StudentGroupMemberRepository;
 import com.mcschool.flashcard.groups.StudentGroupRepository;
 import com.mcschool.flashcard.lessons.dto.CreateLessonRequest;
@@ -109,6 +112,30 @@ public class ManualLessonService {
             }
         }
         return changed;
+    }
+
+    /** Remove a single lesson occurrence from all schedules, retaining artifacts.
+     * An open/live class must be ended by the teacher before removal.
+     * For Google events this is a local tombstone, never a remote Calendar delete.
+     */
+    @Transactional
+    public void delete(AuthenticatedUser caller, String eventId) {
+        requireTeacher(caller);
+        LessonHistoryEntry lesson = history.findLockedByTeacherIdAndEventId(caller.id(), eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Lesson not found"));
+        List<OnlineClass> rooms = onlineClasses.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(
+                caller.id(), eventId).stream()
+                .map(room -> onlineClasses.findForUpdate(room.getId()).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (rooms.stream().anyMatch(OnlineClass::isConnectable)) {
+            throw new ConflictException("End the online class before removing its lesson");
+        }
+        for (OnlineClass room : rooms) {
+            if (room.getStatus() == OnlineClassStatus.SCHEDULED) room.cancel();
+        }
+        lesson.removeFromSchedule(Instant.now());
+        history.save(lesson);
     }
 
     @Transactional

@@ -13,8 +13,9 @@ public interface LessonHistoryRepository extends JpaRepository<LessonHistoryEntr
     Optional<LessonHistoryEntry> findByTeacherIdAndEventId(UUID teacherId, String eventId);
     /** Serializes replacement of phone pairings for the same lesson. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select l from LessonHistoryEntry l where l.teacher.id = :teacherId and l.eventId = :eventId")
+    @Query("select l from LessonHistoryEntry l where l.teacher.id = :teacherId and l.eventId = :eventId and l.deletedAt is null")
     Optional<LessonHistoryEntry> findLockedByTeacherIdAndEventId(
             @Param("teacherId") UUID teacherId, @Param("eventId") String eventId);
     List<LessonHistoryEntry> findAllByTeacherIdOrderByStartsAtAsc(UUID teacherId);
+    List<LessonHistoryEntry> findAllByTeacherIdAndDeletedAtIsNullOrderByStartsAtAsc(UUID teacherId);
 }
