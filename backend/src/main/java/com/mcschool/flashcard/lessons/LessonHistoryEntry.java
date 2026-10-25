@@ -67,6 +67,9 @@ public class LessonHistoryEntry {
     @Column(name = "ends_at", nullable = false)
     private Instant endsAt;
 
+    @Column(name = "schedule_manually_edited", nullable = false)
+    private boolean scheduleManuallyEdited;
+
     @Column(name = "meet_url", columnDefinition = "text")
     private String meetUrl;
 
@@ -106,8 +109,10 @@ public class LessonHistoryEntry {
             this.participantStudentIds = encodeParticipants(lesson.participantStudentIds());
         }
         this.title = lesson.title();
-        this.startsAt = lesson.startsAt();
-        this.endsAt = lesson.endsAt();
+        if (!scheduleManuallyEdited) {
+            this.startsAt = lesson.startsAt();
+            this.endsAt = lesson.endsAt();
+        }
         this.meetUrl = lesson.meetUrl();
         this.calendarUrl = lesson.calendarUrl();
     }
@@ -119,6 +124,7 @@ public class LessonHistoryEntry {
         }
         this.startsAt = start;
         this.endsAt = end;
+        this.scheduleManuallyEdited = true;
     }
 
     /** Explicit reassignment replaces the enrollment snapshot for a native lesson. */

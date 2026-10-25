@@ -175,13 +175,7 @@ public class GoogleCalendarLessonService {
         for (GroupLessonResponse lesson : result) {
             LessonHistoryEntry history = historyRepository.findByTeacherIdAndEventId(teacher.id(), lesson.eventId())
                     .orElseGet(() -> LessonHistoryEntry.create(teacherEntity, lesson));
-            if (history.getEventId() == null || history.getEventId().isBlank()) throw new IllegalStateException("Invalid lesson event");
-            // Do not overwrite an explicitly corrected schedule during Google sync.
-            // Imported lesson metadata remains owned by the original calendar.
-            if (history.getUpdatedAt() == null || history.getCreatedAt() == null
-                    || history.getUpdatedAt().equals(history.getCreatedAt())) {
-                history.sync(lesson);
-            }
+            history.sync(lesson); // Manual date/duration overrides survive Google refresh.
             historyRepository.save(history);
         }
         return archivedLessons(teacher.id());
