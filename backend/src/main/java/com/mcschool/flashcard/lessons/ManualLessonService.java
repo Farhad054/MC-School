@@ -2,8 +2,7 @@ package com.mcschool.flashcard.lessons;
 
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
-import com.mcschool.flashcard.common.ConflictException;
-import com.mcschool.flashcard.liveclasses.OnlineClassStatus;
+import com.mcschool.flashcard.liveclasses.OnlineClassService;
 import java.time.Instant;
 import com.mcschool.flashcard.groups.StudentGroupMemberRepository;
 import com.mcschool.flashcard.groups.StudentGroupRepository;
@@ -35,15 +34,18 @@ public class ManualLessonService {
     private final StudentGroupMemberRepository members;
     private final LessonHistoryRepository history;
     private final OnlineClassRepository onlineClasses;
+    private final OnlineClassService onlineClassService;
 
     public ManualLessonService(UserRepository users, StudentGroupRepository groups,
                                StudentGroupMemberRepository members, LessonHistoryRepository history,
-                               OnlineClassRepository onlineClasses) {
+                               OnlineClassRepository onlineClasses,
+                               OnlineClassService onlineClassService) {
         this.users = users;
         this.groups = groups;
         this.members = members;
         this.history = history;
         this.onlineClasses = onlineClasses;
+        this.onlineClassService = onlineClassService;
     }
 
     @Transactional
@@ -114,25 +116,20 @@ public class ManualLessonService {
         return changed;
     }
 
-    /** Remove a single lesson occurrence from all schedules, retaining artifacts.
-     * An open/live class must be ended by the teacher before removal.
-     * For Google events this is a local tombstone, never a remote Calendar delete.
+    /** Teacher-confirmed removal of one lesson, not its materials or history.
+     * Explicit deletion also closes any associated open room for all participants.
+     * For Google events this is a local tombstone, not a Google Calendar deletion.
      */
     @Transactional
     public void delete(AuthenticatedUser caller, String eventId) {
         requireTeacher(caller);
         LessonHistoryEntry lesson = history.findLockedByTeacherIdAndEventId(caller.id(), eventId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lesson not found"));
-        List<OnlineClass> rooms = onlineClasses.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(
-                caller.id(), eventId).stream()
-                .map(room -> onlineClasses.findForUpdate(room.getId()).orElse(null))
-                .filter(java.util.Objects::nonNull)
-                .toList();
-        if (rooms.stream().anyMatch(OnlineClass::isConnectable)) {
-            throw new ConflictException("End the online class before removing its lesson");
-        }
-        for (OnlineClass room : rooms) {
-            if (room.getStatus() == OnlineClassStatus.SCHEDULED) room.cancel();
+        // Use the same authenticated lifecycle as "End for everyone". Do not
+        // remove room records: old documents, attendance and board marks stay.
+        for (OnlineClass room : onlineClasses.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(
+                caller.id(), eventId)) {
+            onlineClassService.closeForLessonRemoval(caller, room.getId());
         }
         lesson.removeFromSchedule(Instant.now());
         history.save(lesson);

@@ -10,6 +10,8 @@ import com.mcschool.flashcard.groups.*;
 import com.mcschool.flashcard.lessons.dto.CreateLessonRequest;
 import com.mcschool.flashcard.lessons.dto.GroupLessonResponse;
 import com.mcschool.flashcard.liveclasses.OnlineClassRepository;
+import com.mcschool.flashcard.liveclasses.OnlineClass;
+import com.mcschool.flashcard.liveclasses.OnlineClassService;
 import com.mcschool.flashcard.users.*;
 import jakarta.validation.Validation;
 import java.time.Instant;
@@ -27,7 +29,8 @@ class ManualLessonServiceTest {
     private final StudentGroupMemberRepository members = mock(StudentGroupMemberRepository.class);
     private final LessonHistoryRepository history = mock(LessonHistoryRepository.class);
     private final OnlineClassRepository onlineClasses = mock(OnlineClassRepository.class);
-    private final ManualLessonService service = new ManualLessonService(users, groups, members, history, onlineClasses);
+    private final OnlineClassService classroom = mock(OnlineClassService.class);
+    private final ManualLessonService service = new ManualLessonService(users, groups, members, history, onlineClasses, classroom);
     private final User teacher = User.activeTeacher("Teacher", "teacher@test.local", "teacher", "unused");
     private final AuthenticatedUser caller = new AuthenticatedUser(teacher.getId(), teacher.getEmail(), Role.TEACHER);
     private final Instant start = Instant.parse("2026-11-10T14:00:00Z");
@@ -150,6 +153,44 @@ class ManualLessonServiceTest {
         assertThat(entry.getDeletedAt()).isNotNull();
         verify(history, atLeastOnce()).save(entry);
         verify(history, never()).delete(any(LessonHistoryEntry.class));
+    }
+
+    @Test
+    void deletingAnOpenTestLessonEndsItsRoomAndKeepsTheHistory() {
+        GroupLessonResponse lesson = service.create(caller, request(null, null));
+        LessonHistoryEntry entry = LessonHistoryEntry.create(teacher, lesson);
+        User student = User.managedStudent("Test pupil", teacher);
+        OnlineClass room = OnlineClass.forStudent(teacher, lesson.eventId(),
+                lesson.bindingKey(), lesson.title(), start, start.plusSeconds(3600), student);
+        room.start(start);
+        when(history.findLockedByTeacherIdAndEventId(teacher.getId(), lesson.eventId()))
+                .thenReturn(Optional.of(entry));
+        when(onlineClasses.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(teacher.getId(), lesson.eventId()))
+                .thenReturn(List.of(room));
+        service.delete(caller, lesson.eventId());
+        verify(classroom).closeForLessonRemoval(caller, room.getId());
+        assertThat(entry.getDeletedAt()).isNotNull();
+        verify(history, atLeastOnce()).save(entry);
+        verify(history, never()).delete(any(LessonHistoryEntry.class));
+    }
+
+    @Test
+    void failedRoomClosureDoesNotDeleteTheLesson() {
+        GroupLessonResponse lesson = service.create(caller, request(null, null));
+        LessonHistoryEntry entry = LessonHistoryEntry.create(teacher, lesson);
+        OnlineClass room = OnlineClass.forStudent(teacher, lesson.eventId(),
+                lesson.bindingKey(), lesson.title(), start, start.plusSeconds(3600),
+                User.managedStudent("Test pupil", teacher));
+        when(history.findLockedByTeacherIdAndEventId(teacher.getId(), lesson.eventId()))
+                .thenReturn(Optional.of(entry));
+        when(onlineClasses.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(teacher.getId(), lesson.eventId()))
+                .thenReturn(List.of(room));
+        doThrow(new IllegalStateException("close failed")).when(classroom)
+                .closeForLessonRemoval(caller, room.getId());
+        assertThatThrownBy(() -> service.delete(caller, lesson.eventId()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(entry.getDeletedAt()).isNull();
+        verify(history, never()).save(entry);
     }
 
     @Test

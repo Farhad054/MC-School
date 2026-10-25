@@ -21,7 +21,9 @@ class LessonSeriesServiceTest {
     private final UserRepository users = mock(UserRepository.class);
     private final StudentGroupRepository groups = mock(StudentGroupRepository.class);
     private final LessonHistoryRepository history = mock(LessonHistoryRepository.class);
-    private final ManualLessonService service = new ManualLessonService(users, groups, mock(StudentGroupMemberRepository.class), history, mock(com.mcschool.flashcard.liveclasses.OnlineClassRepository.class));
+    private final ManualLessonService service = new ManualLessonService(users, groups, mock(StudentGroupMemberRepository.class), history,
+            mock(com.mcschool.flashcard.liveclasses.OnlineClassRepository.class),
+            mock(com.mcschool.flashcard.liveclasses.OnlineClassService.class));
     private final User teacher = User.activeTeacher("Teacher", "teacher@test.local", "teacher", "unused");
     private final AuthenticatedUser caller = new AuthenticatedUser(teacher.getId(), teacher.getEmail(), Role.TEACHER);
     private final LocalDate thursday = LocalDate.of(2026, 10, 22);

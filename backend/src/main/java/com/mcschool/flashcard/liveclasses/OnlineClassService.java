@@ -346,6 +346,28 @@ public class OnlineClassService {
         return toResponse(onlineClass, caller);
     }
 
+    /**
+     * Teacher-confirmed lesson removal is also an explicit instruction to
+     * close its associated online room. Do not require the class feature flag:
+     * retiring an existing room must still work if LiveKit was disabled after
+     * the room was created. The scheduled lesson and all artifacts are retained
+     * as tombstoned history by the caller.
+     */
+    @Transactional
+    public void closeForLessonRemoval(AuthenticatedUser caller, UUID classId) {
+        OnlineClass room = accessService.requireHostForUpdate(caller, classId);
+        if (room.isTerminal()) return;
+        if (room.isConnectable()) {
+            finishSession(room, now());
+        } else {
+            // Never-connected rooms are cancelled, not recorded as attended.
+            room.cancel();
+            room.setMediaClosePending(true);
+            notebookCameras.revokeClass(room.getId());
+            closeProviderRoom(room);
+        }
+    }
+
     /** Credits attendance for anyone still marked connected when the class ends. */
     private void closeConnectionsFor(OnlineClass onlineClass, Instant endedAt) {
         participantRepository.findAllByOnlineClassIdOrderByCreatedAtAsc(onlineClass.getId())

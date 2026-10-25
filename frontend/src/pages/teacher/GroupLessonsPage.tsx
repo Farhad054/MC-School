@@ -3,6 +3,7 @@ import { CreateLessonPanel } from './CreateLessonPanel';
 import { Link } from 'react-router-dom';
 import { isNativeLesson, lessonDurationLabel } from '../../lib/lessonSchedule';
 import { api } from '../../api/client';
+import { ApiRequestError } from '../../api/client';
 import { driveApi, type DriveItem } from '../../api/drive';
 import { lessonPreparationApi } from '../../api/lessonPreparation';
 import type { DailyReviewHistoryItem, GoogleCalendarConnection, GroupLesson, Homework, StudentGroup, StudentListItem, User } from '../../api/types';
@@ -312,17 +313,25 @@ export function GroupLessonsPage() {
   async function deleteLesson(lesson: GroupLesson) {
     if (deletingLessonId) return;
     const confirmed = window.confirm(language === 'DE'
-      ? `Unterricht „${lesson.title}“ aus dem Stundenplan entfernen? Materialien bleiben gespeichert. Das kann nicht rückgängig gemacht werden.`
-      : `Удалить урок «${lesson.title}» из расписания? Материалы сохранятся. Это действие нельзя отменить.`);
+      ? `Unterricht „${lesson.title}“ aus dem Stundenplan entfernen? Ein zugehöriger Online-Raum wird für alle geschlossen. Materialien bleiben gespeichert. Nicht rückgängig zu machen.`
+      : `Удалить урок «${lesson.title}» из расписания? Его онлайн-комната закроется для всех участников. Материалы сохранятся. Это действие нельзя отменить.`);
     if (!confirmed) return;
     setDeletingLessonId(lesson.eventId);
     setError(null);
     try {
       await api.lessons.deleteLesson(lesson.eventId);
+      // An already-successful deletion must not reappear if the subsequent
+      // Google/Drive refresh temporarily fails.
+      setLessons(current => current.filter(item => item.eventId !== lesson.eventId));
       setExpandedLessonId(null);
       if (startedLessonId === lesson.eventId) setStartedLessonId(null);
       await loadAll();
-    } catch (error) { setError(toErrorMessage(error, t)); }
+    } catch (error) {
+      setError(error instanceof ApiRequestError && error.errorCode === 'CONFLICT'
+        ? (language === 'DE' ? 'Dieser Unterricht konnte nicht gelöscht werden. Laden Sie die Seite neu und versuchen Sie es erneut.'
+          : 'Не удалось удалить урок из-за конфликта состояния. Обновите страницу и повторите попытку.')
+        : toErrorMessage(error, t));
+    }
     finally { setDeletingLessonId(null); }
   }
 
@@ -467,9 +476,10 @@ export function GroupLessonsPage() {
           </button>)}
         </div>
         <div className="lesson-agenda-day-heading"><h2>{formatAgendaDate(selectedDayKey, language)}</h2><span>{lessonCountText(selectedLessons.length, language)}</span></div>
-        {loading ? <p className="muted">{t('common.loading')}</p> : error ? <div className="teacher-empty-state"><button className="btn btn--secondary" type="button" onClick={() => void loadAll()}>{language === 'DE' ? 'Erneut versuchen' : 'Повторить загрузку'}</button></div>
+        {loading ? <p className="muted">{t('common.loading')}</p>
           : selectedLessons.length ? <div className="lesson-agenda-list">{selectedLessons.map(renderLessonCard)}</div>
-            : <div className="lesson-agenda-empty"><strong>{language === 'DE' ? 'Kein Unterricht geplant' : 'На этот день уроков нет'}</strong><p>{language === 'DE' ? 'Wähle einen anderen Tag oder plane einen neuen Unterricht.' : 'Выберите другой день или запланируйте новое занятие.'}</p></div>}
+          : error ? <div className="teacher-empty-state"><button className="btn btn--secondary" type="button" onClick={() => void loadAll()}>{language === 'DE' ? 'Erneut versuchen' : 'Повторить загрузку'}</button></div>
+          : <div className="lesson-agenda-empty"><strong>{language === 'DE' ? 'Kein Unterricht geplant' : 'На этот день уроков нет'}</strong><p>{language === 'DE' ? 'Wähle einen anderen Tag oder plane einen neuen Unterricht.' : 'Выберите другой день или запланируйте новое занятие.'}</p></div>}
       </section>
       <div className="lesson-agenda-integration">
       {connection?.connected !== true ? (
