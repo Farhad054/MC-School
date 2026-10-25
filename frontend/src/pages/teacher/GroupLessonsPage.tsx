@@ -46,6 +46,7 @@ export function GroupLessonsPage() {
   const [editTime, setEditTime] = useState('');
   const [editDuration, setEditDuration] = useState(60);
   const [editBusy, setEditBusy] = useState(false);
+  const [deletingLessonId, setDeletingLessonId] = useState<string | null>(null);
   const [createdCount, setCreatedCount] = useState(1);
   const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
   const [startReminderLessonId, setStartReminderLessonId] = useState<string | null>(null);
@@ -308,6 +309,23 @@ export function GroupLessonsPage() {
     finally { setEditBusy(false); }
   }
 
+  async function deleteLesson(lesson: GroupLesson) {
+    if (deletingLessonId) return;
+    const confirmed = window.confirm(language === 'DE'
+      ? `Unterricht „${lesson.title}“ aus dem Stundenplan entfernen? Materialien bleiben gespeichert. Das kann nicht rückgängig gemacht werden.`
+      : `Удалить урок «${lesson.title}» из расписания? Материалы сохранятся. Это действие нельзя отменить.`);
+    if (!confirmed) return;
+    setDeletingLessonId(lesson.eventId);
+    setError(null);
+    try {
+      await api.lessons.deleteLesson(lesson.eventId);
+      setExpandedLessonId(null);
+      if (startedLessonId === lesson.eventId) setStartedLessonId(null);
+      await loadAll();
+    } catch (error) { setError(toErrorMessage(error, t)); }
+    finally { setDeletingLessonId(null); }
+  }
+
   function renderLessonCard(lesson: GroupLesson) {
     const brief = lesson.groupId ? briefs[lesson.groupId] : undefined;
     const linkedGroup = Boolean(lesson.groupId && lesson.groupName);
@@ -344,6 +362,10 @@ export function GroupLessonsPage() {
             <label>Минуты / Minuten <input type="number" min="1" max="1440" value={editDuration} onChange={event => setEditDuration(Number(event.target.value))} /></label>
             <button className="btn btn--secondary" type="button" disabled={editBusy} onClick={() => void saveTime(lesson)}>
               {editBusy ? 'Сохраняем…' : language === 'DE' ? 'Änderungen speichern' : 'Сохранить изменения'}
+            </button>
+            <button className="btn btn--ghost" type="button" disabled={deletingLessonId !== null}
+              onClick={() => void deleteLesson(lesson)}>
+              {deletingLessonId === lesson.eventId ? 'Удаляем…' : language === 'DE' ? 'Unterricht löschen' : 'Удалить урок'}
             </button>
           </div>
         <label className="field" style={{ marginTop: 8, marginBottom: 0 }}>

@@ -12,7 +12,7 @@ vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
   return { ...actual, api: { ...actual.api,
     auth: { ...actual.api.auth, me: vi.fn() },
-    lessons: { ...actual.api.lessons, groupLessons: vi.fn(), googleCalendarConnection: vi.fn(), create: vi.fn(), createSeries: vi.fn() },
+    lessons: { ...actual.api.lessons, groupLessons: vi.fn(), googleCalendarConnection: vi.fn(), create: vi.fn(), createSeries: vi.fn(), deleteLesson: vi.fn() },
     students: { ...actual.api.students, list: vi.fn() },
     groups: { ...actual.api.groups, list: vi.fn() },
   } };
@@ -56,9 +56,37 @@ describe('native lesson schedule', () => {
     lessonApi.groupLessons.mockResolvedValue([]);
     lessonApi.create.mockResolvedValue(lesson());
     lessonApi.createSeries.mockResolvedValue([lesson()]);
+    lessonApi.deleteLesson.mockResolvedValue(undefined);
   });
 
-  it('shows the selected-day agenda and week controls without Google', async () => {
+  it('deletes a test lesson only after confirmation and refreshes the timetable', async () => {
+    lessonApi.groupLessons.mockResolvedValueOnce([lesson()]).mockResolvedValue([]);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    try {
+      renderPage();
+      await screen.findByText('Математика без Google');
+      await userEvent.click(screen.getByRole('button', { name: /Настройки урока/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Удалить урок' }));
+      await waitFor(() => expect(lessonApi.deleteLesson).toHaveBeenCalledWith('local-lesson'));
+      await waitFor(() => expect(screen.queryByText('Математика без Google')).not.toBeInTheDocument());
+      expect(confirm).toHaveBeenCalledOnce();
+    } finally { confirm.mockRestore(); }
+  });
+
+  it('does not remove an unconfirmed lesson', async () => {
+    lessonApi.groupLessons.mockResolvedValue([lesson()]);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    try {
+      renderPage();
+      await screen.findByText('Математика без Google');
+      await userEvent.click(screen.getByRole('button', { name: /Настройки урока/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Удалить урок' }));
+      expect(lessonApi.deleteLesson).not.toHaveBeenCalled();
+      expect(screen.getByText('Математика без Google')).toBeInTheDocument();
+    } finally { confirm.mockRestore(); }
+  });
+
+  it('shows the selected-day agenda and week controls without Google' async () => {
     lessonApi.groupLessons.mockResolvedValue([lesson()]);
     renderPage();
     expect(await screen.findByText('Математика без Google')).toBeInTheDocument();
