@@ -15,8 +15,17 @@ export function berlinLessonDate(value: string | number): string {
 /** UI can narrow a stale server grant, never invent permission to connect. */
 export function lessonEntry(room: OnlineClass | undefined | null, scheduledStart: string, now = Date.now()) {
   const date = room?.entryDate ?? berlinLessonDate(scheduledStart);
+  // Calendar arithmetic handles DST. A Saturday/Sunday lesson expires on the
+  // immediately following Monday at 00:00 Europe/Berlin.
+  const stamp = new Date(date + 'T12:00:00Z');
+  const day = stamp.getUTCDay();
+  const daysUntilMonday = (8 - day) % 7 || 7;
+  stamp.setUTCDate(stamp.getUTCDate() + daysUntilMonday);
+  const weekEnd = Number.isFinite(stamp.getTime()) ? stamp.toISOString().slice(0, 10) : '';
   let state: LessonEntryState;
-  if (room?.status === 'ENDED' || room?.status === 'CANCELLED' || room?.entryState === 'ENDED') {
+  if (room?.status === 'ENDED' || room?.status === 'CANCELLED' || room?.entryState === 'ENDED'
+      || (room && (room.status === 'LIVE' || room.status === 'LOBBY_OPEN')
+          && weekEnd !== '' && berlinLessonDate(now) >= weekEnd)) {
     state = 'ENDED';
   } else {
     const today = berlinLessonDate(now);
