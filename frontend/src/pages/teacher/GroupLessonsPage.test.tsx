@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../../api/client';
+import { api, ApiRequestError } from '../../api/client';
 import type { GroupLesson, StudentGroup, StudentListItem, User } from '../../api/types';
 import { I18nProvider } from '../../i18n/I18nContext';
 import { GroupLessonsPage } from './GroupLessonsPage';
@@ -70,6 +70,21 @@ describe('native lesson schedule', () => {
       await waitFor(() => expect(lessonApi.deleteLesson).toHaveBeenCalledWith('local-lesson'));
       await waitFor(() => expect(screen.queryByText('Математика без Google')).not.toBeInTheDocument());
       expect(confirm).toHaveBeenCalledOnce();
+    } finally { confirm.mockRestore(); }
+  });
+
+  it('keeps lessons visible when deletion is rejected as a conflict', async () => {
+    lessonApi.groupLessons.mockResolvedValue([lesson()]);
+    lessonApi.deleteLesson.mockRejectedValue(new ApiRequestError(409, 'CONFLICT', 'Online class open'));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    try {
+      renderPage();
+      await screen.findByText('Математика без Google');
+      await userEvent.click(screen.getByRole('button', { name: /Настройки урока/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Удалить урок' }));
+      await waitFor(() => expect(screen.getByText(/Не удалось удалить урок из-за конфликта/)).toBeInTheDocument());
+      expect(screen.getByText('Математика без Google')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Повторить загрузку' })).not.toBeInTheDocument();
     } finally { confirm.mockRestore(); }
   });
 

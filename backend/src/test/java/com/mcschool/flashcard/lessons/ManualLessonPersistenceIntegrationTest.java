@@ -96,6 +96,30 @@ class ManualLessonPersistenceIntegrationTest {
     }
 
     @Test
+    void removingScheduledTestLessonCancelsRoomAndPreservesLessonHistory() {
+        User teacher = teacher();
+        var caller = caller(teacher);
+        User student = users.save(User.managedStudent("Pupil", teacher));
+        Instant start = Instant.parse("2026-11-10T12:00:00Z");
+        GroupLessonResponse lesson = service.create(caller, new CreateLessonRequest(
+                "Temporary classroom", start, start.plusSeconds(2700), null, student.getId()));
+        OnlineClass room = onlineClasses.save(OnlineClass.forStudent(teacher, lesson.eventId(),
+                lesson.bindingKey(), lesson.title(), start, start.plusSeconds(2700), student));
+
+        assertThat(calendar.listGroupLessons(caller)).extracting(GroupLessonResponse::eventId)
+                .contains(lesson.eventId());
+        service.delete(caller, lesson.eventId());
+        assertThat(calendar.listGroupLessons(caller)).extracting(GroupLessonResponse::eventId)
+                .doesNotContain(lesson.eventId());
+        assertThat(calendar.listStudentLessons(caller(student))).extracting(GroupLessonResponse::eventId)
+                .doesNotContain(lesson.eventId());
+        assertThat(onlineClasses.findById(room.getId()).orElseThrow().getStatus())
+                .isEqualTo(com.mcschool.flashcard.liveclasses.OnlineClassStatus.CANCELLED);
+        assertThat(history.findByTeacherIdAndEventId(teacher.getId(), lesson.eventId()).orElseThrow()
+                .getDeletedAt()).isNotNull();
+    }
+
+    @Test
     void editingPastLessonKeepsOriginalRoomIdAndHistory() {
         User teacher = teacher();
         User student = users.save(User.managedStudent("Pupil", teacher));
