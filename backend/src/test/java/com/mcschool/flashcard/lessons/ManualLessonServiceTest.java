@@ -9,6 +9,7 @@ import com.mcschool.flashcard.common.ResourceNotFoundException;
 import com.mcschool.flashcard.groups.*;
 import com.mcschool.flashcard.lessons.dto.CreateLessonRequest;
 import com.mcschool.flashcard.lessons.dto.GroupLessonResponse;
+import com.mcschool.flashcard.liveclasses.OnlineClassRepository;
 import com.mcschool.flashcard.users.*;
 import jakarta.validation.Validation;
 import java.time.Instant;
@@ -25,7 +26,8 @@ class ManualLessonServiceTest {
     private final StudentGroupRepository groups = mock(StudentGroupRepository.class);
     private final StudentGroupMemberRepository members = mock(StudentGroupMemberRepository.class);
     private final LessonHistoryRepository history = mock(LessonHistoryRepository.class);
-    private final ManualLessonService service = new ManualLessonService(users, groups, members, history);
+    private final OnlineClassRepository onlineClasses = mock(OnlineClassRepository.class);
+    private final ManualLessonService service = new ManualLessonService(users, groups, members, history, onlineClasses);
     private final User teacher = User.activeTeacher("Teacher", "teacher@test.local", "teacher", "unused");
     private final AuthenticatedUser caller = new AuthenticatedUser(teacher.getId(), teacher.getEmail(), Role.TEACHER);
     private final Instant start = Instant.parse("2026-11-10T14:00:00Z");

@@ -301,6 +301,7 @@ export function GroupLessonsPage() {
     try {
       await api.lessons.updateSchedule(lesson.eventId, new Date(start).toISOString(),
         new Date(start + editDuration * 60000).toISOString());
+      selectDate(editDate);
       await loadAll();
       setExpandedLessonId(null);
     } catch (error) { setError(toErrorMessage(error, t)); }

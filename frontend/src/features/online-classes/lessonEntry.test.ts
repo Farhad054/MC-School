@@ -33,7 +33,7 @@ describe('lesson entry calendar policy', () => {
     expect(lessonEntry({ ...returning, joinWindowOpen: false }, start, at('2026-10-25T12:00:00Z')).canJoin).toBe(false);
   });
   it('ends an open room at Monday midnight, even without a teacher ending it', () => {
-    expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T22:59:59Z')).canJoin).toBe(false);
+    expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T22:59:59Z')).canJoin).toBe(true);
     expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T23:00:00Z')).state).toBe('ENDED');
   });
   it.each(['ENDED', 'CANCELLED'] as const)('never reconnects a %s room', status => {
