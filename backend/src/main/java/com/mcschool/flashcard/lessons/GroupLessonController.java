@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -52,6 +53,13 @@ public class GroupLessonController {
                                               @PathVariable String eventId,
                                               @RequestBody UpdateLessonTimeRequest request) {
         return manualLessonService.reschedule(caller, eventId, request.startsAt(), request.endsAt());
+    }
+
+    @DeleteMapping("/{eventId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteLesson(@AuthenticationPrincipal AuthenticatedUser caller,
+                             @PathVariable String eventId) {
+        manualLessonService.delete(caller, eventId);
     }
 
     @PostMapping("/series")

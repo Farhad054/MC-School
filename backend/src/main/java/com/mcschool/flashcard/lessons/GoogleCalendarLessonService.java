@@ -182,7 +182,7 @@ public class GoogleCalendarLessonService {
     }
 
     private List<GroupLessonResponse> archivedLessons(UUID teacherId) {
-        return historyRepository.findAllByTeacherIdOrderByStartsAtAsc(teacherId).stream()
+        return historyRepository.findAllByTeacherIdAndDeletedAtIsNullOrderByStartsAtAsc(teacherId).stream()
                 .map(LessonHistoryEntry::toResponse)
                 .sorted(Comparator.comparing(GroupLessonResponse::startsAt))
                 .toList();

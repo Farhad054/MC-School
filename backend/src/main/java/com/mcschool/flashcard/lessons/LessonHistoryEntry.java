@@ -67,6 +67,14 @@ public class LessonHistoryEntry {
     @Column(name = "ends_at", nullable = false)
     private Instant endsAt;
 
+    /** Tombstone: keeps notes, history and finished room artifacts available for audits. */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    public void removeFromSchedule(Instant when) {
+        if (deletedAt == null) deletedAt = when;
+    }
+
     @Column(name = "schedule_manually_edited", nullable = false)
     private boolean scheduleManuallyEdited;
 

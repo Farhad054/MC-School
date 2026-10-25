@@ -132,6 +132,27 @@ class ManualLessonServiceTest {
     }
 
     @Test
+    void deletionRequiresTheTeacherToOwnTheLesson() {
+        assertThatThrownBy(() -> service.delete(caller, "local-missing"))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(history, never()).save(any());
+    }
+
+    @Test
+    void deletedLessonIsTombstonedInsteadOfErased() {
+        GroupLessonResponse lesson = service.create(caller, request(null, null));
+        LessonHistoryEntry entry = LessonHistoryEntry.create(teacher, lesson);
+        when(history.findLockedByTeacherIdAndEventId(teacher.getId(), lesson.eventId()))
+                .thenReturn(Optional.of(entry));
+        when(onlineClasses.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(teacher.getId(), lesson.eventId()))
+                .thenReturn(List.of());
+        service.delete(caller, lesson.eventId());
+        assertThat(entry.getDeletedAt()).isNotNull();
+        verify(history, atLeastOnce()).save(entry);
+        verify(history, never()).delete(any(LessonHistoryEntry.class));
+    }
+
+    @Test
     void cannotReassignAnotherTeachersLesson() {
         assertThatThrownBy(() -> service.bindStudent(caller, "local-unknown", UUID.randomUUID()))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -143,7 +164,7 @@ class ManualLessonServiceTest {
         var lesson = service.create(caller, request(null, null));
         var imported = new GroupLessonResponse("google-event", "google-event", null, null, null, null,
                 List.of(), "Imported", start.minusSeconds(3600), start, null, "https://calendar.google.com/");
-        when(history.findAllByTeacherIdOrderByStartsAtAsc(teacher.getId())).thenReturn(List.of(
+        when(history.findAllByTeacherIdAndDeletedAtIsNullOrderByStartsAtAsc(teacher.getId())).thenReturn(List.of(
                 LessonHistoryEntry.create(teacher, lesson), LessonHistoryEntry.create(teacher, imported)));
         var oauth = mock(GoogleCalendarOAuthService.class);
         var meet = mock(GoogleMeetEventsService.class);
@@ -157,7 +178,7 @@ class ManualLessonServiceTest {
     @Test
     void googleRefreshFailureDoesNotHideNativeLessons() {
         var lesson = service.create(caller, request(null, null));
-        when(history.findAllByTeacherIdOrderByStartsAtAsc(teacher.getId()))
+        when(history.findAllByTeacherIdAndDeletedAtIsNullOrderByStartsAtAsc(teacher.getId()))
                 .thenReturn(List.of(LessonHistoryEntry.create(teacher, lesson)));
         var oauth = mock(GoogleCalendarOAuthService.class);
         when(oauth.accessTokenForTeacher(teacher.getId())).thenThrow(new IllegalStateException("Expired connection"));
