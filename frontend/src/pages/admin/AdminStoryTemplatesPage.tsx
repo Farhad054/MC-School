@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { storyTemplatesApi, type StoryTemplateInfo } from '../../api/storyTemplates';
+import { AdminMindcraftiStudioPage } from './AdminMindcraftiStudioPage';
 
 export function AdminStoryTemplatesPage() {
   const [info, setInfo] = useState<StoryTemplateInfo | null>(null);
@@ -35,13 +36,16 @@ export function AdminStoryTemplatesPage() {
   if (loading) return <div className="panel">Загружаем шаблоны Stories...</div>;
 
   return (
-    <div className="stack" style={{ maxWidth: 900 }}>
+    <div className="stack" style={{ width: '100%', maxWidth: 'none' }}>
       <div>
         <h1 style={{ marginBottom: 8 }}>Шаблоны Instagram Stories</h1>
-        <p className="muted" style={{ marginTop: 0 }}>Единственный утверждённый PPTX для всех трёх Stories Mindcrafti. Доступен только администратору.</p>
+        <p className="muted" style={{ marginTop: 0 }}>Визуальный редактор и утверждённый PPTX-мастер Mindcrafti. Раздел доступен только администратору.</p>
       </div>
       {error && <div className="banner banner--error">{error}</div>}
       {notice && <div className="banner banner--success">{notice}</div>}
+      <div className="panel stack" style={{ padding: 18 }}>
+        <AdminMindcraftiStudioPage />
+      </div>
       <div className="panel stack">
         <h2 style={{ margin: 0 }}>Главный мастер-файл</h2>
         <div><strong>Состояние:</strong> {info?.configured ? 'Загружен' : 'Ещё не загружен'}</div>
@@ -69,7 +73,7 @@ export function AdminStoryTemplatesPage() {
       <div className="panel stack">
         <h2 style={{ margin: 0 }}>Фиксированные параметры</h2>
         <div>Instagram Stories: 1080 x 1920 px, формат 9:16.</div>
-        <div>Безопасная зона: 125 px сверху и снизу, 65 px слева и справа.</div>
+        <div>Строгая безопасная зона: 250 px сверху, 350 px снизу, 70 px слева и справа.</div>
         <div>Никаких длинных тире. Никакой кнопки пробного урока. Не менять фотографию, логотип или оформление.</div>
         <p className="muted" style={{ marginBottom: 0 }}>Через коннектор ChatGPT читает текущую версию и скачивает исходный PPTX по частям. Поэтому предыдущие копии из диалогов больше не должны использоваться как мастер.</p>
       </div>
