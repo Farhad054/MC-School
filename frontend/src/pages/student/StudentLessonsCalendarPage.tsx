@@ -183,7 +183,7 @@ export function StudentLessonsCalendarPage() {
     const ended = new Date(lesson.endsAt).getTime() < Date.now();
     const room = roomFor(lesson);
     return <article className="panel student-lesson" key={lesson.eventId}>
-      <div className="student-lesson__time"><strong>{lesson.eventId.startsWith('local-') ? nativeLessonDuration(lesson, language) : formatStartTime(lesson.startsAt, language)}</strong><small>{lesson.eventId.startsWith('local-') ? (language === 'DE' ? 'Dauer' : 'Длительность') : formatLessonTime(lesson.startsAt, lesson.endsAt, language)}</small></div>
+      <div className="student-lesson__time"><strong>{formatStartTime(lesson.startsAt, language)}</strong><small>{formatLessonTime(lesson.startsAt, lesson.endsAt, language)}</small></div>
       <div className="student-lesson__body"><h3>{lesson.title}</h3>
         {lesson.groupName && <p>{language === 'DE' ? 'Gruppe' : 'Группа'}: {lesson.groupName}</p>}
       </div>
@@ -331,11 +331,6 @@ function startOfLocalDay(date: Date) {
 function dateFromKey(key: string) {
   const [year, month, day] = key.split('-').map(Number);
   return new Date(year, month - 1, day);
-}
-
-function nativeLessonDuration(lesson: StudentLesson, language: 'DE' | 'RU') {
-  const minutes = Math.round((new Date(lesson.endsAt).getTime() - new Date(lesson.startsAt).getTime()) / 60_000);
-  return `${minutes} ${language === 'DE' ? 'Min.' : 'мин'}`;
 }
 
 function startOfMonth(date: Date) {

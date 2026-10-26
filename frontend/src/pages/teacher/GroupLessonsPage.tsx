@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CreateLessonPanel } from './CreateLessonPanel';
 import { Link } from 'react-router-dom';
-import { isNativeLesson, lessonDurationLabel } from '../../lib/lessonSchedule';
+import { isNativeLesson } from '../../lib/lessonSchedule';
 import { api } from '../../api/client';
 import { ApiRequestError } from '../../api/client';
 import { driveApi, type DriveItem } from '../../api/drive';
@@ -351,8 +351,8 @@ export function GroupLessonsPage() {
       <article key={lesson.eventId} className="lesson-agenda-card">
         <div className="lesson-agenda-card__row">
           <div className="lesson-agenda-card__when">
-            <strong>{native ? lessonDurationLabel(lesson, language) : formatStartTime(lesson.startsAt, language)}</strong>
-            <span>{native ? (language === 'DE' ? 'Dauer' : 'Длительность') : (language === 'DE' ? 'bis ' : 'до ') + formatStartTime(lesson.endsAt, language)}</span>
+            <strong>{formatStartTime(lesson.startsAt, language)}</strong>
+            <span>{(language === 'DE' ? 'bis ' : 'до ') + formatStartTime(lesson.endsAt, language)}</span>
           </div>
           <div className="lesson-agenda-card__info">
             <h3>{lesson.title}</h3><p>{kind}{lesson.meetUrl ? ' · Google Meet' : ''}</p>
