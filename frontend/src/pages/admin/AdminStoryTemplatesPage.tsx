@@ -38,14 +38,13 @@ export function AdminStoryTemplatesPage() {
   return (
     <div className="stack" style={{ width: '100%', maxWidth: 'none' }}>
       <div>
-        <h1 style={{ marginBottom: 8 }}>Шаблоны Instagram Stories</h1>
-        <p className="muted" style={{ marginTop: 0 }}>Визуальный редактор и утверждённый PPTX-мастер Mindcrafti. Раздел доступен только администратору.</p>
+        <h1 style={{ marginBottom: 0, fontSize: 20 }}>Шаблоны Instagram Stories</h1>
       </div>
       {error && <div className="banner banner--error">{error}</div>}
       {notice && <div className="banner banner--success">{notice}</div>}
-      <div className="panel stack" style={{ padding: 18 }}>
-        <AdminMindcraftiStudioPage />
-      </div>
+      <AdminMindcraftiStudioPage />
+      <details className="stories-master-settings">
+      <summary>PPTX-мастер и правила оформления</summary>
       <div className="panel stack">
         <h2 style={{ margin: 0 }}>Главный мастер-файл</h2>
         <div><strong>Состояние:</strong> {info?.configured ? 'Загружен' : 'Ещё не загружен'}</div>
@@ -77,6 +76,7 @@ export function AdminStoryTemplatesPage() {
         <div>Никаких длинных тире. Никакой кнопки пробного урока. Не менять фотографию, логотип или оформление.</div>
         <p className="muted" style={{ marginBottom: 0 }}>Через коннектор ChatGPT читает текущую версию и скачивает исходный PPTX по частям. Поэтому предыдущие копии из диалогов больше не должны использоваться как мастер.</p>
       </div>
+      </details>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useState, type ReactNode } from 'react';
 import { TeacherShell } from './TeacherShell';
 import { StudentShell } from './StudentShell';
@@ -12,6 +12,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout, setUser } = useAuth();
   const { language, t } = useI18n();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isStoriesWorkspace = user?.role === 'ADMIN' && pathname === '/admin/stories';
   const [returningToAdmin, setReturningToAdmin] = useState(false);
 
   const isStudent = user?.role === 'STUDENT';
@@ -128,7 +130,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
         )}
       </header>
-      <main className="content">{children}</main>
+      <main className={`content${isStoriesWorkspace ? ' content--stories-workspace' : ''}`}>{children}</main>
     </div>
   );
 }

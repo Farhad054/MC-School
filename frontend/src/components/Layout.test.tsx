@@ -18,10 +18,10 @@ vi.mock('../auth/AuthContext', () => ({
   }),
 }));
 
-function mount() {
+function mount(path = '/') {
   return render(
     <I18nProvider>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <Layout><p>page</p></Layout>
       </MemoryRouter>
     </I18nProvider>,
@@ -33,6 +33,14 @@ function showTeacherSidebar() {
 }
 
 describe('Layout: owner-only online classroom pilot navigation', () => {
+  it('uses a full-width content area only for the admin Stories workspace', () => {
+    role = 'ADMIN';
+    const { container, unmount } = mount('/admin/stories');
+    expect(container.querySelector('main.content')).toHaveClass('content--stories-workspace');
+    unmount();
+    const otherPage = mount('/admin/accounts');
+    expect(otherPage.container.querySelector('main.content')).not.toHaveClass('content--stories-workspace');
+  });
   beforeEach(() => {
     localStorage.setItem('language', 'RU');
     sessionStorage.clear();
