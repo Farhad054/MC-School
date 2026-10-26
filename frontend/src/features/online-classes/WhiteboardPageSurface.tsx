@@ -145,7 +145,9 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
     targetType,
     targetId,
     page: pageIndex,
-    enabled: !camera || Boolean(ownerId),
+    // Only visible shared PDF pages need previews. A notebook-camera page may
+    // still relay private pencil packets while its parent panel is hidden.
+    enabled: camera ? Boolean(ownerId) : active,
     personalOwnerId: ownerId,
     hostUserId,
     currentUserId: actorId,
