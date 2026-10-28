@@ -50,7 +50,7 @@ public class MindcraftiMcpController {
 
     private static final String API_KEY_HEADER = "X-Mindcrafti-Api-Key";
     private static final String SERVER_NAME = "mindcrafti-lessons";
-    private static final String SERVER_VERSION = "1.22.0";
+    private static final String SERVER_VERSION = "1.23.0";
     private static final int MAX_DIRECT_PDF_BYTES = 15 * 1024 * 1024;
 
     private final String apiKey;
@@ -122,6 +122,18 @@ public class MindcraftiMcpController {
     private SkillBoardMcpService skillBoardMcpService;
     private PersonalNutritionMcpService personalNutritionMcpService;
     private SkillMasteryMcpService skillMasteryMcpService;
+    private McpLessonScheduleService lessonScheduleService;
+    private McpSiteFunctionsService siteFunctionsService;
+
+    @Autowired
+    public void setLessonScheduleService(McpLessonScheduleService service) {
+        this.lessonScheduleService = service;
+    }
+
+    @Autowired
+    public void setSiteFunctionsService(McpSiteFunctionsService service) {
+        this.siteFunctionsService = service;
+    }
 
     @Autowired
     public void setOwnerWorkbookPdfRenderService(OwnerWorkbookPdfRenderService service) {
@@ -196,7 +208,12 @@ public class MindcraftiMcpController {
         result.put("instructions", authenticated
                 ? "For the curriculum skills board, always read get_skill_board fresh before answering from it or using edit_skill_board. Edit only explicitly requested items, using the exact returned revision. Preserve unrelated content and read back after saving. A stale revision means reconcile, not blind retry. This catalog does not contain pupil mastery. Mindcrafti school tools include lessons, structured monthly plans for students and groups, school prompts, the current school Brand Guide, the current approved 3-slide Mindcrafti Stories PPTX via get_story_template_info and get_story_template_chunk, homework assignment, direct PDF homework upload, explicit replacement/update/deletion of existing homework, submitted homework PDFs, rendered submission pages, read-only student analytics and admin-only public funnel analytics. When preparing the next lesson for a student or group, use get_month_plan for the current month when a plan exists, then combine it with recent lesson/homework evidence and the current school prompt. IMPORTANT: when a teacher asks to create a lesson, homework, worksheet or other teaching material 'по промту', 'по школьному промту', 'using the prompt', or clearly asks to use the school's prompt, first call get_school_prompt with the most specific lessonType: group or individual for lesson logic, workbook for a workbook/worksheet, homework for homework, diagnostic for a diagnostic lesson, or error_correction for work on mistakes, and then follow the returned prompt as the base instruction. Apply any extra teacher instructions on top of that prompt. If the teacher explicitly says 'без промта' or 'without the prompt', do not call get_school_prompt. Do not assume or reuse an old prompt from chat history; fetch the current prompt each time the teacher asks to work 'по промту'. For ANY Mindcrafti-branded document or visual material (PDF, homework, diagnostic, worksheet, report, presentation, work-on-mistakes document, parent report, internal document or other branded artifact), first call get_brand_guide and follow the current Brand Guide for visual design. Do not reuse a Brand Guide from chat history. When ChatGPT creates homework PDFs, assign them directly with assign_homework_series using pdfBase64; Google Drive is optional."
                 : "The connector is in diagnostic mode. Sign in with Mindcrafti OAuth to access school data tools.");
+        if (authenticated) result.put("instructions", result.get("instructions") + schedulingInstructions());
         return result;
+    }
+
+    private String schedulingInstructions() {
+        return " To schedule an actual appointment on the website, use create_lesson or create_lesson_series; prepare_lesson and create_lesson_draft only attach teaching materials. Lesson dates and times use Europe/Berlin. Use update_lesson for time changes, assign_lesson for the student or group, and delete_lesson only on explicit cancellation. For other website operations, discover list_site_functions, inspect get_site_function, then use read_site_function or execute_site_function. Writes require the user's concrete request and a stable idempotencyKey. Reuse that key on identical retries. If an external action has an unknown outcome, inspect current state; do not silently use a new key. ADMIN must select the verified teacherId for teacher-scoped operations. Browser camera, microphone, stylus, OAuth and credentials remain outside this catalog.";
     }
 
     private Map<String, Object> discover(boolean authenticated) {
@@ -208,6 +225,7 @@ public class MindcraftiMcpController {
         result.put("instructions", authenticated
                 ? "For the curriculum skills board, always read get_skill_board fresh before answering from it or using edit_skill_board. Edit only explicitly requested items, using the exact returned revision. Preserve unrelated content and read back after saving. A stale revision means reconcile, not blind retry. This catalog does not contain pupil mastery. Mindcrafti lesson, school-prompt, Brand Guide, homework-file and school analytics tools. If the teacher says to make a lesson or homework 'по промту', fetch the current school prompt with get_school_prompt before generating. For any Mindcrafti-branded document or visual material, fetch the current Brand Guide with get_brand_guide before creating it. Extra teacher instructions override or refine the prompt for that request. If the teacher says 'без промта', do not fetch the lesson prompt."
                 : "Mindcrafti diagnostic MCP connection. No school data is exposed without authentication.");
+        if (authenticated) result.put("instructions", result.get("instructions") + schedulingInstructions());
         return result;
     }
 
@@ -215,6 +233,12 @@ public class MindcraftiMcpController {
         List<Map<String, Object>> tools = new ArrayList<>();
         tools.add(tool("mindcrafti_status", "Check that the Mindcrafti MCP server is reachable.", schema(Map.of(), List.of()), readOnlyAnnotations()));
         if (!auth.authenticated()) return tools;
+        // Website management requires a real school OAuth identity. The legacy
+        // PDF import key must never gain account or scheduling privileges.
+        if (auth.user() != null && !auth.apiKey()) {
+            if (lessonScheduleService != null) tools.addAll(McpLessonScheduleService.definitions());
+            if (siteFunctionsService != null) tools.addAll(McpSiteFunctionsService.definitions());
+        }
         tools.addAll(SkillBoardMcpService.definitions());
         tools.addAll(SkillMasteryMcpService.definitions());
         tools.addAll(PersonalNutritionMcpService.definitions());
@@ -266,7 +290,7 @@ public class MindcraftiMcpController {
         Map<String,Object> pd = new LinkedHashMap<>(dp);
         pd.put("confirm",property("boolean","True only on explicit user instruction to publish approved documents"));
         tools.add(tool("publish_lesson_draft","Attach two approved PDFs to the exact lesson, without homework.",schema(pd,List.of("teacherId","draftId","confirm")),writeAnnotations()));
-        tools.add(tool("find_lessons", "Find upcoming Mindcrafti lessons. Admins can search all connected teacher calendars; teachers can search only their own calendar.", schema(Map.of("query", property("string", "Optional student, group, or event title filter.")), List.of()), readOnlyAnnotations()));
+        tools.add(tool("find_lessons", "Find Mindcrafti schedule lessons, including lessons created on the website without Google Calendar. Admins can search accessible teachers; teachers search only their own lessons. Returns exact eventId and Berlin local date/time. To schedule a new lesson use create_lesson or create_lesson_series; preparation/draft tools only manage teaching materials.", schema(Map.of("query", property("string", "Optional student, group, or event title filter.")), List.of()), readOnlyAnnotations()));
         tools.add(tool("find_trial_lessons", "Find trial/diagnostic lessons. Admins can search trial lessons across the whole school; teachers see only their own. Returns the concrete teacherId/eventId and whether an original transcript PDF is stored, so download_lesson_transcript can be used next.", schema(Map.of("query", property("string", "Optional teacher name, lesson title, phone number or date text filter.")), List.of()), readOnlyAnnotations()));
         tools.add(tool("get_lesson_preparation", "Read lesson metadata, homework notes, difficulties, lesson plan, and which PDF documents are attached. Transcript text is not returned when a transcript PDF exists; use download_lesson_transcript when the actual document is needed.", schema(Map.of("teacherId", property("string", "Teacher UUID returned by find_lessons."), "eventId", property("string", "Google Calendar event ID returned by find_lessons.")), List.of("teacherId", "eventId")), readOnlyAnnotations()));
         tools.add(tool("download_lesson_pdf", "Download one PDF already stored in a lesson directly from Mindcrafti. Returns the PDF as base64 so it can be saved or reused without Google Drive.", schema(Map.of("teacherId", property("string", "Teacher UUID returned by find_lessons."), "eventId", property("string", "Google Calendar event ID returned by find_lessons."), "kind", property("string", "PDF kind: workbook, answers or transcript.")), List.of("teacherId", "eventId", "kind")), readOnlyAnnotations()));
@@ -410,12 +434,33 @@ public class MindcraftiMcpController {
             status.put("mode", auth.authenticated() ? "full" : "diagnostic");
             status.put("authentication", auth.apiKey() ? "api_key" : auth.user() != null ? "oauth" : "none");
             if (auth.user() != null) status.put("role", auth.user().getRole().name());
-            List<Map<String, Object>> visibleTools = tools(auth);
-            status.put("availableToolCount", visibleTools.size());
-            status.put("availableToolNames", visibleTools.stream().map(tool -> String.valueOf(tool.get("name"))).toList());
+            List<String> visibleNames = new ArrayList<>(tools(auth).stream()
+                    .map(tool -> String.valueOf(tool.get("name"))).toList());
+            // These two existing admin tools are appended by the HTTP bridges
+            // to tools/list. Report the same catalog in the status response.
+            if (auth.user() != null && auth.user().getRole() == Role.ADMIN && !auth.apiKey()) {
+                visibleNames.add("update_school_prompt");
+                visibleNames.add("update_brand_guide");
+            }
+            status.put("availableToolCount", visibleNames.size());
+            status.put("availableToolNames", visibleNames);
             return toolResult(status);
         }
         if (!auth.authenticated()) throw new IllegalArgumentException("This Mindcrafti tool requires authentication");
+        if (McpLessonScheduleService.handles(name) || McpSiteFunctionsService.handles(name)) {
+            try {
+                if (auth.apiKey() || auth.user() == null)
+                    throw new org.springframework.security.access.AccessDeniedException("School OAuth sign-in is required");
+                if (McpLessonScheduleService.handles(name)) {
+                    if (lessonScheduleService == null) throw new IllegalStateException("Scheduling is unavailable");
+                    return toolResult(lessonScheduleService.call(name, arguments, auth.user(), auth.apiKey()));
+                }
+                if (siteFunctionsService == null) throw new IllegalStateException("Website functions are unavailable");
+                return toolResult(siteFunctionsService.call(name, arguments, auth.user(), auth.apiKey()));
+            } catch (Exception failure) {
+                return siteToolFailure(failure);
+            }
+        }
         if (SkillBoardMcpService.TOOL_NAMES.contains(name))
             return skillBoardMcpService.call(name, arguments, auth.user());
         if (SkillMasteryMcpService.TOOL_NAMES.contains(name))
@@ -833,7 +878,7 @@ public class MindcraftiMcpController {
         String normalizedQuery = normalize(query);
         List<Map<String, Object>> result = new ArrayList<>();
         for (User teacher : accessibleTeachers(auth)) {
-            if (teacher.isArchived() || teacher.getGoogleCalendarRefreshToken() == null || teacher.getGoogleCalendarRefreshToken().isBlank()) continue;
+            if (teacher.isArchived()) continue;
             AuthenticatedUser principal = principal(teacher);
             List<GroupLessonResponse> lessons;
             try { lessons = calendarLessonService.listGroupLessons(principal); } catch (RuntimeException ignored) { continue; }
@@ -852,6 +897,12 @@ public class MindcraftiMcpController {
                 item.put("studentName", lesson.studentName());
                 item.put("startsAt", lesson.startsAt() == null ? null : lesson.startsAt().toString());
                 item.put("endsAt", lesson.endsAt() == null ? null : lesson.endsAt().toString());
+                item.put("timeZone", "Europe/Berlin");
+                if (lesson.startsAt() != null) {
+                    java.time.ZonedDateTime localStart = lesson.startsAt().atZone(java.time.ZoneId.of("Europe/Berlin"));
+                    item.put("date", localStart.toLocalDate().toString());
+                    item.put("startTime", localStart.toLocalTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")));
+                }
                 result.add(item);
             }
         }
@@ -1209,6 +1260,35 @@ public class MindcraftiMcpController {
     private Map<String, Object> schema(Map<String, Object> properties, List<String> required) { Map<String, Object> schema = new LinkedHashMap<>(); schema.put("type", "object"); schema.put("properties", properties); if (!required.isEmpty()) schema.put("required", required); schema.put("additionalProperties", false); return schema; }
     private Map<String, Object> property(String type, String description) { return Map.of("type", type, "description", description); }
     private Map<String, Object> arrayProperty(String description) { Map<String, Object> value = new LinkedHashMap<>(); value.put("type", "array"); value.put("description", description); value.put("items", Map.of("type", "string")); return value; }
+    private Map<String, Object> siteToolFailure(Exception failure) throws Exception {
+        int status = 500;
+        String message = "The site function could not be completed";
+        if (failure instanceof org.springframework.security.access.AccessDeniedException) {
+            status = 403;
+            message = "This school account is not allowed to perform this action";
+        } else if (failure instanceof org.springframework.web.server.ResponseStatusException expected) {
+            status = expected.getStatusCode().value();
+            if (status < 500) message = expected.getReason() == null ? "The site action was rejected" : expected.getReason();
+        } else if (failure instanceof com.mcschool.flashcard.common.ResourceNotFoundException) {
+            status = 404;
+            message = "The requested school resource was not found or is not accessible";
+        } else if (failure instanceof com.mcschool.flashcard.common.ConflictException) {
+            status = 409;
+            message = failure.getMessage() == null ? "The site action conflicts with current data" : failure.getMessage();
+        } else if (failure instanceof IllegalArgumentException) {
+            status = 400;
+            message = failure.getMessage() == null ? "Invalid site function arguments" : failure.getMessage();
+        } else if (failure instanceof jakarta.validation.ConstraintViolationException) {
+            status = 400;
+            message = "The supplied fields do not satisfy the website validation rules";
+        }
+        message = message.replaceAll("[\\r\\n]+", " ");
+        if (message.length() > 400) message = message.substring(0, 400);
+        Map<String, Object> result = toolResult(Map.of("success", false, "status", status, "message", message));
+        result.put("isError", true);
+        return result;
+    }
+
     private Map<String, Object> toolResult(Object value) throws Exception { Map<String, Object> result = new LinkedHashMap<>(); result.put("content", List.of(Map.of("type", "text", "text", objectMapper.writeValueAsString(value)))); result.put("structuredContent", value); result.put("isError", false); return result; }
     private Map<String, Object> success(Object id, Object result) { Map<String, Object> response = new LinkedHashMap<>(); response.put("jsonrpc", "2.0"); response.put("id", id); response.put("result", result); return response; }
     private Map<String, Object> error(Object id, int code, String message) { Map<String, Object> response = new LinkedHashMap<>(); response.put("jsonrpc", "2.0"); response.put("id", id); response.put("error", Map.of("code", code, "message", message == null ? "Error" : message)); return response; }
