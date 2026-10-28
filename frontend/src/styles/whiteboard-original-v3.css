@@ -329,6 +329,7 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
 
 /* Page canvases keep a fixed page identity when the reading layout changes. */
 .whiteboard--original-v3 .whiteboard__pages--paged { position:absolute; inset:0; }
+.whiteboard--original-v3 .whiteboard__view-frame { position:absolute; inset:0; overflow:hidden; }
 .whiteboard--original-v3 .whiteboard__page { margin:0; padding:0; min-width:0; }
 .whiteboard--original-v3 .whiteboard__page[hidden] { display:none!important; }
 .whiteboard--original-v3 .whiteboard__pages--paged > .whiteboard__document > .whiteboard__page { position:absolute; inset:0; }
@@ -348,4 +349,23 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
 .whiteboard--original-v3 .board-toolbar__more-actions button[role='switch'][aria-checked='true'] { color:var(--v3-orange)!important; background:var(--v3-selected); }
 @media(max-width:600px) {
   .whiteboard--original-v3 .whiteboard__pages--continuous { padding-left:12px; padding-right:12px; }
+}
+
+/* The mirror uses the pupil's logical viewport and scales that entire scene
+   into the teacher's tile, keeping the same crop and handwriting proportions. */
+.whiteboard--original-v3.school-islands-board.whiteboard--following-student .whiteboard__page-surface .whiteboard__surface {
+  inset:0; width:100%; height:100%; border-radius:0;
+}
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__pages--continuous {
+  padding:0; overflow:hidden; scrollbar-gutter:auto;
+}
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__topline-pages,
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__zoom { display:none!important; }
+.whiteboard__follow-status {
+  position:absolute; z-index:10; top:8px; left:50%; transform:translateX(-50%);
+  max-width:calc(100% - 16px); padding:6px 10px; border-radius:8px;
+  color:#e6eaed; background:#2a2f33ed; font-size:12px; text-align:center; pointer-events:none;
+}
+.student-workspaces--overview .whiteboard--compact-preview:not(.whiteboard--following-student) .whiteboard__zoom {
+  display:inline-flex!important; right:8px; bottom:8px;
 }

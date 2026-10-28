@@ -8,13 +8,16 @@ import { ApiRequestError } from '../../api/client';
 import type { CameraModule } from '../notebook-camera/cameraModules';
 import type { NotebookCameraGeometry } from './notebookCameraGeometry';
 import { DEFAULT_VIEW } from './boardView';
+import { capturePagedRegion } from './studentViewGeometry';
 import {
   ANNOTATION_TOPIC,
   NOTEBOOK_STROKE_TOPIC,
   STROKE_TOPIC,
+  STUDENT_VIEW_TOPIC,
   VIEW_TOPIC,
   annotationEvent,
   strokeEvent,
+  studentViewEvent,
   viewEvent,
   type ClassEvent,
 } from './events';
@@ -244,11 +247,120 @@ describe('WhiteboardPanel', () => {
     expect(container.querySelector('.whiteboard--compact-preview')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Страницы доски' })).not.toBeInTheDocument();
     expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.view).toBe(DEFAULT_VIEW);
-    expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.navigationLocked).toBe(true);
+    expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.navigationLocked).toBe(false);
+    act(() => pageCanvasProps.get('WHITEBOARD:personal-student:0')!.onViewChange({ zoom: 2, panX: -120, panY: -80 }));
+    expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.view).toEqual({ zoom: 2, panX: -120, panY: -80 });
 
     rerender(content(false));
     expect(await screen.findByRole('region', { name: 'Страницы доски' })).toBeInTheDocument();
     expect(screen.getByText('125%')).toBeInTheDocument();
+    rerender(content(true));
+    expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.view).toEqual({ zoom: 2, panX: -120, panY: -80 });
+  });
+
+  describe('following the pupil viewport', () => {
+    const viewport = { width: 1000, height: 500 };
+    const pupilPageView = { zoom: 3, panX: -900, panY: -700 };
+    const packet = (patch = {}) => studentViewEvent('c1', {
+      boardId: 'personal-student', targetType: 'WHITEBOARD', sessionId: 'pupil-session', revision: 1,
+      page: 0, pageCount: 3, layout: 'paged', viewport,
+      region: capturePagedRegion(pupilPageView, viewport, 210 / 297)!, ...patch,
+    });
+    const receive = (patch = {}) => act(() => handlers[STUDENT_VIEW_TOPIC]({ event: packet(patch), senderIdentity: 'student|ipad' }));
+
+    it('mirrors a cached pupil crop only when enabled, keeps the same canvas and restores manual overview navigation', async () => {
+      const content = (following: boolean) => <I18nProvider><WhiteboardPanel classId="c1" actorId="teacher" isHost
+        targetId="personal-student" compactPreview canAnnotate={false} followStudent={following} /></I18nProvider>;
+      const mounted = render(content(false));
+      const canvas = await screen.findByTestId('canvas');
+      const manual = { zoom: 2, panX: -120, panY: -80 };
+      act(() => canvasProps.onViewChange(manual));
+      receive();
+      expect(canvasProps.view).toEqual(manual);
+      expect(canvasProps.navigationLocked).toBe(false);
+
+      mounted.rerender(content(true));
+      await waitFor(() => expect(canvasProps.view.zoom).toBeCloseTo(pupilPageView.zoom));
+      expect(canvasProps.view.panX).toBeCloseTo(pupilPageView.panX);
+      expect(canvasProps.view.panY).toBeCloseTo(pupilPageView.panY);
+      expect(canvasProps.navigationLocked).toBe(true);
+      expect(canvasProps.readOnly).toBe(true);
+      expect(screen.getByTestId('canvas')).toBe(canvas);
+      act(() => canvasProps.onViewChange(DEFAULT_VIEW));
+      expect(canvasProps.view.zoom).toBeCloseTo(3);
+
+      mounted.rerender(content(false));
+      expect(canvasProps.view).toEqual(manual);
+      expect(canvasProps.navigationLocked).toBe(false);
+      expect(screen.getByTestId('canvas')).toBe(canvas);
+      expect(api.appendAnnotation).not.toHaveBeenCalled();
+      expect(publish.mock.calls.some(([event]) => event.type === 'student-view')).toBe(false);
+    });
+
+    it('changes the followed page and layout without overwriting the teacher’s own page or layout preference', async () => {
+      chooseLayout('teacher', 'paged');
+      const content = (following: boolean) => <I18nProvider><WhiteboardPanel classId="c1" actorId="teacher" isHost
+        targetId="personal-student" followStudent={following} /></I18nProvider>;
+      const mounted = render(content(false));
+      await screen.findByTestId('canvas');
+      act(() => canvasProps.onViewChange({ zoom: 2, panX: -100, panY: -50 }));
+      mounted.rerender(content(true));
+      expect(screen.getByText('Ожидаем вид ученика…')).toBeInTheDocument();
+      receive({ page: 2, layout: 'continuous', viewport: { width: 800, height: 500 },
+        region: { x: .1, y: .25, width: .5, height: .4 }, pageGap: .02 });
+      await waitFor(() => expect(mounted.container.querySelector('.whiteboard__pages--continuous')).not.toBeNull());
+      await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalledWith('c1', 'WHITEBOARD', 'personal-student', 2, undefined, undefined));
+      expect(canvasProps.navigationLocked).toBe(true);
+      expect(localStorage.getItem('mc.board.pageLayout:teacher')).toBe('paged');
+      expect(screen.queryByText('Ожидаем вид ученика…')).not.toBeInTheDocument();
+
+      mounted.rerender(content(false));
+      expect(screen.queryByRole('region', { name: 'Страницы доски' })).not.toBeInTheDocument();
+      expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.active).toBe(true);
+      expect(canvasProps.view).toEqual({ zoom: 2, panX: -100, panY: -50 });
+      expect(localStorage.getItem('mc.board.pageLayout:teacher')).toBe('paged');
+      expect(api.appendAnnotation).not.toHaveBeenCalled();
+    });
+
+    it('captures the owner’s actual continuous scroll, zoom and page gap and sends it only to the teacher', async () => {
+      const observers = documentObservers();
+      chooseLayout('student', 'continuous');
+      mount('student', { targetId: 'personal-student', document: { pageCount: 3 } as never });
+      const list = await screen.findByRole('region', { name: 'Страницы доски' });
+      const geometry = documentGeometry(list);
+      act(() => observers.resize());
+      await userEvent.click(screen.getByRole('button', { name: 'Увеличить' }));
+      list.scrollLeft = 15; list.scrollTop = 750;
+      fireEvent.scroll(list);
+      await waitFor(() => expect(publish.mock.calls.some(([event]) => event.type === 'student-view' && event.page === 1)).toBe(true));
+      const calls = publish.mock.calls.filter(([event]) => event.type === 'student-view');
+      const [event, reliable, recipients] = calls.at(-1)!;
+      const page = geometry.pages[1];
+      expect(event.layout).toBe('continuous');
+      expect(event.viewport).toEqual({ width: 800, height: 500 });
+      expect(event.region.x).toBeCloseTo((15 + 20 - page.offsetLeft) / page.offsetWidth);
+      expect(event.region.y).toBeCloseTo((750 + 100 - page.offsetTop) / page.offsetHeight);
+      expect(event.region.width).toBeCloseTo(800 / page.offsetWidth);
+      expect(event.region.height).toBeCloseTo(500 / page.offsetHeight);
+      expect(event.pageGap).toBeCloseTo(parseFloat(geometry.rail.style.gap) / page.offsetWidth);
+      expect(reliable).toBe(true);
+      expect(recipients).toEqual(['teacher']);
+    });
+
+    it('uses reported canvas geometry for the pupil’s paged and projected notebook view', async () => {
+      mount('student', { targetId: 'personal-student', targetType: 'NOTEBOOK_CAMERA' });
+      await screen.findByTestId('canvas');
+      act(() => {
+        canvasProps.onViewportChange({ width: 600, height: 900 }, 9 / 16);
+        canvasProps.onViewChange({ zoom: 2, panX: -80, panY: -120 });
+      });
+      await waitFor(() => expect(publish.mock.calls.some(([event]) => event.type === 'student-view')).toBe(true));
+      const [event, , recipients] = publish.mock.calls.filter(([event]) => event.type === 'student-view').at(-1)!;
+      expect(event.targetType).toBe('NOTEBOOK_CAMERA');
+      expect(event.viewport).toEqual({ width: 600, height: 900 });
+      expect(event.region).toEqual(capturePagedRegion({ zoom: 2, panX: -80, panY: -120 }, { width: 600, height: 900 }, 9 / 16));
+      expect(recipients).toEqual(['teacher']);
+    });
   });
 
   it('keeps ink and undo bound to each page while switching layouts', async () => {

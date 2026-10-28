@@ -177,6 +177,40 @@ describe('WhiteboardCanvas canonical notebook projection', () => {
   });
 });
 
+describe('WhiteboardCanvas independent view scopes', () => {
+  it('restores manual pan after a source-sized pupil frame without scaling it a second time', () => {
+    let resize!: ResizeObserverCallback;
+    class ScopedResizeObserver {
+      constructor(callback: ResizeObserverCallback) { resize = callback; }
+      observe() { resize([{ contentRect: { width: 1000, height: 500 } } as ResizeObserverEntry], {} as ResizeObserver); }
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', ScopedResizeObserver);
+    const onViewChange = vi.fn();
+    const manual = { zoom: 3, panX: -400, panY: -250 };
+    const { rerender, getByTestId } = render(<WhiteboardCanvas {...props} viewScope="overview" view={manual} onViewChange={onViewChange} />);
+    const stage = getByTestId('stage');
+    expect(onViewChange).not.toHaveBeenCalled();
+
+    rerender(<WhiteboardCanvas {...props} viewScope="pupil" navigationLocked
+      view={{ zoom: 2, panX: -600, panY: -300 }} onViewChange={onViewChange} />);
+    act(() => resize([{ contentRect: { width: 1200, height: 800 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(onViewChange).not.toHaveBeenCalled();
+
+    // The parent has restored the previous local view. The observed pupil
+    // dimensions belong to a different view and must not rescale that pan.
+    rerender(<WhiteboardCanvas {...props} viewScope="overview" view={manual} onViewChange={onViewChange} />);
+    act(() => resize([{ contentRect: { width: 1000, height: 500 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(getByTestId('stage')).toBe(stage);
+    expect(onViewChange).not.toHaveBeenCalled();
+    expect(mock.stageProps).toMatchObject({ width: 1000, height: 500, scaleX: 3, scaleY: 3, x: -400, y: -250 });
+
+    // Resizing the same local workspace still keeps its relative position.
+    act(() => resize([{ contentRect: { width: 800, height: 400 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(onViewChange).toHaveBeenCalledExactlyOnceWith({ zoom: 3, panX: -320, panY: -200 });
+  });
+});
+
 describe('WhiteboardCanvas live-ink performance', () => {
   const saved = {
     operationId: 'saved-1', layerOwnerId: 'teacher', sequence: 1,

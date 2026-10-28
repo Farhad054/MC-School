@@ -504,13 +504,14 @@ function RoomBody({
             visible={showStudentWorkspaces}
             onSelect={selectBoard}
             onOverview={() => selectBoard(ALL_STUDENT_BOARDS_ID)}
-            renderBoard={(studentId, active, compact) => <Suspense fallback={null}>
+            renderBoard={(studentId, active, compact, following) => <Suspense fallback={null}>
               <WhiteboardPanel
                 classId={classId}
                 actorId={currentUserId}
                 isHost
                 targetId={personalBoardId(studentId)}
                 compactPreview={compact}
+                followStudent={following}
                 observedPage={studentPages[personalBoardId(studentId)]}
                 canAnnotate={!compact}
                 active={active}
@@ -523,7 +524,7 @@ function RoomBody({
                 hostActions={active && !compact ? <AnswersButton compact status={answers.status} open={answers.open} onToggle={answers.toggle} /> : undefined}
               />
             </Suspense>}
-            renderCameraBoard={(studentId, active, compact, source) => <Suspense fallback={null}>
+            renderCameraBoard={(studentId, active, compact, source, following) => <Suspense fallback={null}>
               <WhiteboardPanel
                 classId={classId}
                 actorId={currentUserId}
@@ -531,6 +532,7 @@ function RoomBody({
                 targetType="NOTEBOOK_CAMERA"
                 targetId={personalBoardId(studentId)}
                 compactPreview={compact}
+                followStudent={following}
                 canAnnotate={!compact}
                 active={active}
                 fileAction={active && !compact ? fileAction : undefined}

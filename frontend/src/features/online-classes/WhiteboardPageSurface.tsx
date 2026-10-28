@@ -68,6 +68,8 @@ export interface WhiteboardPageSurfaceProps {
   onActivate?: (pageIndex: number) => void;
   onStatusChange?: (pageIndex: number, status: PageSurfaceStatus) => void;
   onAspectChange?: (pageIndex: number, aspect: number | null) => void;
+  onCanvasGeometry?: (pageIndex: number, viewport: { width: number; height: number }, aspect: number | null) => void;
+  viewScope?: string;
 }
 
 /**
@@ -104,6 +106,8 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
   onActivate,
   onStatusChange,
   onAspectChange,
+  onCanvasGeometry,
+  viewScope,
 }, ref) {
   const camera = targetType === 'NOTEBOOK_CAMERA';
   const personal = isPersonalBoard(targetId);
@@ -268,6 +272,8 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
         textFontSize={textSettings.fontSize ?? 24}
         textBold={Boolean(textSettings.bold)}
         sourceAspect={pageAspect}
+        onViewportChange={(viewport, aspect) => onCanvasGeometry?.(pageIndex, viewport, aspect)}
+        viewScope={viewScope}
         readOnly={!canAnnotate || loadingPdfPage}
         eraserMode={eraserMode}
         inputMode={inputMode}

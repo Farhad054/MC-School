@@ -31,6 +31,7 @@ backend DTOs must match it.
 | `mc.class.hand.v1` | reliable | hand state is sticky until lowered |
 | `mc.class.control.v1` | reliable | moderation notices must arrive |
 | `mc.class.annotation.v1` | reliable | durable strokes; ordered by sequence |
+| `mc.class.student-view.v1` | reliable, private | pupil viewport updates to the classroom host only |
 | `mc.class.reaction.v1` | lossy | transient, expires in ~4 s |
 | `mc.class.pointer.v1` | lossy | superseded ~20×/s; a dropped frame is invisible |
 
@@ -128,6 +129,52 @@ replays from its last known sequence over REST and shows what the server
 returns. The sender no longer includes `payload` (the field is not parsed), and a forged packet (e.g. a fake
 `CLEAR_ALL`) can at most trigger a harmless re-fetch. Bursts collapse into one
 replay per 150 ms.
+
+### `mc.class.student-view.v1`
+
+```jsonc
+{ "v": 1, "type": "student-view", "classId": "<uuid>", "id": "<uuid>",
+  "at": 1789744374000, "boardId": "personal-<pupil-uuid>",
+  "targetType": "WHITEBOARD", "sessionId": "source-session-1", "revision": 12,
+  "page": 2, "pageCount": 5, "layout": "continuous",
+  "viewport": { "width": 1200, "height": 800 },
+  "region": { "x": 0.15, "y": 0.3, "width": 0.75, "height": 0.5 },
+  "pageGap": 0.03 }
+```
+
+The visible pupil board publishes its clear viewport in CSS pixels and the
+visible rectangle relative to the selected page. `page` is zero-based; `region`
+may extend outside 0..1 to preserve margins and neighbouring pages. Optional
+`pageGap` is the continuous inter-page gap divided by that page's rendered
+width. `layout` is `paged` or `continuous`; `targetType` is `WHITEBOARD` or
+`NOTEBOOK_CAMERA`, so paper and camera views cannot mix. The teacher fits a
+frame with the source viewport's aspect ratio and reproduces the same crop.
+
+Only the personal board owner sends these packets, targeted to the roster's
+host user devices. An absent recipient never falls back to broadcast. The
+host checks the actual LiveKit sender identity against the board owner, plus
+class, board and target type. Other pupils do not receive or apply this data.
+**Following is an optional local teacher setting:** cached packets do not move
+the teacher's view until enabled, and the switch never controls the pupil or
+changes stored annotations. This is separate from shared-board
+`mc.class.view.v1` follow-the-teacher.
+
+Changes use an 80 ms trailing throttle, with a 2 s heartbeat for late joiners
+and reconnects. Identical heartbeats refresh liveness without rebuilding the
+view. After 6 s without a fresh accepted packet, the last view remains visible
+and is marked stale; a new packet resumes following. A source remount gets a
+new `sessionId`; increasing `revision` values reject duplicates and old updates.
+Retired sessions and earlier source timestamps prevent delayed packets from
+returning to a previous view. Timestamps are compared only within one sender
+device, not against the teacher's clock. View telemetry is never persisted.
+
+Validation requires finite values: viewport dimensions 1..32768, region
+coordinates -100..100, region dimensions 0.05..100, and optional `pageGap`
+0..10. `pageCount` is an integer 1..10000 and `page` is an integer smaller than
+it. Session IDs contain 1..128 letters, digits, `_` or `-`; revisions are
+nonnegative safe integers. Invalid packets are dropped under the common 8 KB
+limit. The region size floor prevents pathological magnification while leaving
+margin beyond the local board's 5× zoom limit.
 
 ### `mc.class.notebook-stroke.v1`
 

@@ -93,6 +93,10 @@ interface Props {
   textFontSize?: number;
   textBold?: boolean;
   sourceAspect: number | null;
+  /** Report the actual drawing viewport, including a notebook's projected aspect. */
+  onViewportChange?: (viewport: { width: number; height: number }, aspect: number | null) => void;
+  /** Independent local/remote views reuse the canvas without sharing resize offsets. */
+  viewScope?: string;
   readOnly?: boolean;
   eraserMode?: EraserMode;
   inputMode?: InputMode;
@@ -150,6 +154,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     textFontSize = 24,
     textBold = false,
     sourceAspect,
+    onViewportChange,
+    viewScope = 'local',
     readOnly = false,
     eraserMode = 'partial',
     inputMode = 'finger',
@@ -222,6 +228,13 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   }
   const sceneViewport = projection?.rawSize ?? (documentCanvas ? fixedDocumentViewport.current ?? viewport : viewport);
   const sceneAspect = projection ? notebookView!.rawWidth / notebookView!.rawHeight : sourceAspect;
+  const viewportCallback = useRef(onViewportChange);
+  viewportCallback.current = onViewportChange;
+  useLayoutEffect(() => {
+    if (viewport.width > 0 && viewport.height > 0) {
+      viewportCallback.current?.(viewport, projection?.aspect ?? sourceAspect);
+    }
+  }, [viewport.width, viewport.height, projection?.aspect, sourceAspect]);
   const documentStageStyle = documentCanvas && sceneViewport.width > 0 && sceneViewport.height > 0
     ? { transformOrigin: 'top left', transform: `scale(${viewport.width / sceneViewport.width}, ${viewport.height / sceneViewport.height})` }
     : undefined;
@@ -389,6 +402,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   // answers column. Annotations remain normalized; only pixel pan is rescaled
   // so no old zoom offset pushes the displayed page outside the new viewport.
   const previousViewport = useRef<{ width: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    previousViewport.current = null;
+  }, [viewScope]);
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
