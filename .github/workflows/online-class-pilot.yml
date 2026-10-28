@@ -1,9 +1,10 @@
-name: Online classroom pilot gate
+name: Online classroom teacher and pupil access
 
 on:
   pull_request:
     paths:
       - "backend/src/main/java/com/mcschool/flashcard/auth/OnlineClassPilotAuthorizationManager.java"
+      - "backend/src/main/java/com/mcschool/flashcard/users/UserRepository.java"
       - "backend/src/main/java/com/mcschool/flashcard/config/SecurityConfig.java"
       - "backend/src/test/java/com/mcschool/flashcard/auth/OnlineClassPilotAuthorizationManagerTest.java"
       - "backend/src/main/resources/application.properties"
@@ -15,7 +16,7 @@ permissions:
 
 jobs:
   authorization:
-    name: Owner-only and student access tests
+    name: Active teacher and pupil access tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +25,6 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Verify pilot authorization
+      - name: Verify teacher and pupil authorization
         working-directory: backend
         run: ./mvnw -B -ntp -Dtest=OnlineClassPilotAuthorizationManagerTest test

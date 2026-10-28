@@ -354,6 +354,20 @@ describe('OnlineClassRoom', () => {
     expect(screen.queryByRole('button', { name: 'Подключить тетрадь' })).not.toBeInTheDocument();
   });
 
+  it('keeps the same notebook settings and personal board for a pupil of a non-pilot teacher', async () => {
+    mount(false, { currentUserId: 'regular-pupil', connection: { ...connection(false), identity: 'regular-pupil|tablet' } });
+    await screen.findByTestId('board-board-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Настройки тетради' }));
+    const notebook = screen.getByRole('region', { name: 'Встроенная тетрадь' });
+    expect(notebook).toHaveAttribute('data-event', 'e1');
+    expect(notebook).toHaveAttribute('data-class', 'c1');
+    expect(notebook).toHaveAttribute('data-owner', 'regular-pupil');
+    expect(notebook).toHaveAttribute('data-teacher', 'false');
+    expect(notebook).toHaveAttribute('data-presentation', 'lesson');
+    await userEvent.click(screen.getByRole('button', { name: 'Моя доска' }));
+    expect(await screen.findByTestId('board-personal-regular-pupil')).toBeInTheDocument();
+  });
+
   it('shows the camera column next to the board', async () => {
     mount(false);
     await userEvent.click(screen.getByRole('button', { name: '‹ Видео' }));

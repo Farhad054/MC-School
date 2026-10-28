@@ -10,7 +10,6 @@ const BOARD_HEIGHT = 900;
 const MAX_BOARD_TOOL_WIDTH = 48;
 // Short normalized coordinates keep even 500-point strokes below the API payload limit.
 const coordinate = (value: number) => Math.round(Math.max(0, Math.min(1, value)) * 10000) / 10000;
-const PILOT_TEACHER_ID = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
 
 type Tool = 'pen' | 'eraser' | 'text';
 
@@ -92,7 +91,9 @@ function position(event: ReactPointerEvent<HTMLCanvasElement>): BoardPoint {
 export function LessonBoardPage() {
   const { eventId = '' } = useParams();
   const { user } = useAuth();
-  const isTeacher = user?.role === 'TEACHER' && user.id === PILOT_TEACHER_ID;
+  const teacherAccount = user?.role === 'TEACHER';
+  const [teacherAccess, setTeacherAccess] = useState(false);
+  const isTeacher = teacherAccount && teacherAccess;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const touchesRef = useRef(new Map<number, { x: number; y: number }>());
   const gestureRef = useRef<{ x: number; y: number; distance: number; zoom: number; offsetX: number; offsetY: number } | null>(null);
@@ -138,16 +139,18 @@ export function LessonBoardPage() {
     cursorRef.current = 0;
     setOperations([]);
     setReady(false);
+    setTeacherAccess(false);
     setError(null);
 
     const initialize = async () => {
       try {
-        const snapshot = isTeacher
+        const snapshot = teacherAccount
           ? await lessonBoardApi.start(eventId)
           : await lessonBoardApi.read(eventId, 0);
         if (cancelled) return;
         setTitle(snapshot.title);
         setMeetUrl(snapshot.meetUrl);
+        setTeacherAccess(snapshot.teacher);
         mergeOperations(snapshot.operations);
         setReady(true);
       } catch (reason) {
@@ -175,7 +178,7 @@ export function LessonBoardPage() {
       window.clearInterval(interval);
       draftRef.current = null;
     };
-  }, [eventId, isTeacher, mergeOperations]);
+  }, [eventId, teacherAccount, user?.id, mergeOperations]);
 
   async function commit(action: BoardAction) {
     setWorking(true);
@@ -323,7 +326,7 @@ export function LessonBoardPage() {
       <div style={{ display: 'flex', gap: 14, justifyContent: 'space-between',
         alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
-          <Link to={isTeacher ? '/teacher/lessons' : '/student/lessons'} className="muted">
+          <Link to={teacherAccount ? '/teacher/lessons' : '/student/lessons'} className="muted">
             ← Назад к урокам
           </Link>
           <h1 style={{ margin: '8px 0 3px' }}>{title}</h1>
@@ -332,7 +335,7 @@ export function LessonBoardPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {user && ['TEACHER', 'STUDENT'].includes(user.role) && <NotebookCameraButton eventId={eventId} currentUserId={user.id} isTeacher={user.role === 'TEACHER'} />}
+          {ready && user && ['TEACHER', 'STUDENT'].includes(user.role) && <NotebookCameraButton eventId={eventId} currentUserId={user.id} isTeacher={isTeacher} />}
           {isTeacher && (
             <button type="button" className="btn btn--secondary" onClick={() => {
               void navigator.clipboard.writeText(window.location.href)

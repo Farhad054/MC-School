@@ -23,9 +23,20 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByRole(Role role);
 
-    // Database-level pilot access check avoids dereferencing a detached lazy teacher proxy.
-    boolean existsByIdAndTeacherIdAndRoleAndStatusAndArchivedFalse(
-            UUID id, UUID teacherId, Role role, UserStatus status);
+    boolean existsByIdAndRoleAndStatusAndArchivedFalse(UUID id, Role role, UserStatus status);
+
+    // Check both accounts in the database without dereferencing a detached teacher proxy.
+    @Query("""
+            select count(s) > 0 from User s join s.teacher t
+            where s.id = :studentId
+              and s.role = com.mcschool.flashcard.users.Role.STUDENT
+              and s.status = com.mcschool.flashcard.users.UserStatus.ACTIVE
+              and s.archived = false
+              and t.role = com.mcschool.flashcard.users.Role.TEACHER
+              and t.status = com.mcschool.flashcard.users.UserStatus.ACTIVE
+              and t.archived = false
+            """)
+    boolean existsActiveStudentWithActiveTeacher(@Param("studentId") UUID studentId);
 
     List<User> findAllByRoleOrderByFullNameAsc(Role role);
 

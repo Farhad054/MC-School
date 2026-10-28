@@ -375,10 +375,8 @@ export function LessonDetailPage() {
               ? 'Ordnen Sie diesem Unterricht einen Schüler zu, damit er teilnehmen kann.'
               : 'Для подключения ученика назначьте его этому уроку'}</p>
           )}
-          {/* Mindcrafti Online will be enabled only after the live-classes API,
-              migrations and LiveKit provider have passed staging acceptance tests.
-              Keep the Google Meet action functional independently. */}
-          {isNickAiPilot && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && (import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED !== 'true' || !hasLessonAudience) && (
+          {/* Retain the configured standalone board for lessons that do not use the video classroom. */}
+          {user?.role === 'TEACHER' && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && (import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED !== 'true' || !hasLessonAudience) && (
             <Link className="btn btn--secondary" to={`/lesson-board/${encodeURIComponent(eventId)}`}>
               Mindcrafti доска (тест)
             </Link>

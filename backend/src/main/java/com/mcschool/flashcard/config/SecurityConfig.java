@@ -98,8 +98,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/integrations/**").permitAll()
                         .requestMatchers("/api/v1/mcp/**").permitAll()
                         // The online classroom API is governed by app.online-classes.enabled and
-                        // per-class membership checks in the service. Only the separate
-                        // teacher-only lesson whiteboard stays behind the pilot gate.
+                        // per-class membership checks in the service. Boards and notebook
+                        // cameras also require an active teacher or their active pupil.
                         .requestMatchers("/api/v1/lesson-board/**")
                                 .access(onlineClassPilotAuthorizationManager)
                         .requestMatchers("/api/v1/notebook-cameras/**")
