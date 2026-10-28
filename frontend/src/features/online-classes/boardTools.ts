@@ -1,5 +1,6 @@
 import type { TranslationKey } from '../../i18n/translations';
 import type { Tool } from './WhiteboardCanvas';
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE, type TextFont } from './textStyles';
 
 export interface ToolDefinition {
   tool: Tool;
@@ -11,6 +12,7 @@ export interface ToolDefinition {
 
 /** Order mirrors a notebook toolbar: write, mark up, shape, erase, select, point. */
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
+  { tool: 'pan', labelKey: 'onlineClass.board.select', glyph: '✋', settings: 'none' },
   { tool: 'pen', labelKey: 'onlineClass.whiteboard.pen', glyph: '✎', settings: 'ink' },
   { tool: 'highlighter', labelKey: 'onlineClass.whiteboard.highlighter', glyph: '▌', settings: 'ink' },
   { tool: 'erase', labelKey: 'onlineClass.whiteboard.eraser', glyph: '⌫', settings: 'eraser' },
@@ -29,15 +31,20 @@ export interface ToolSettings {
   color: string;
   /** Normalized to the board width, like the stroke width on the wire. */
   width: number;
+  /** Text-only options, stored with each annotation. */
+  font?: TextFont;
+  fontSize?: number;
+  bold?: boolean;
 }
 
 /** Each tool remembers its own colour and thickness, like a physical pen tray. */
 export const DEFAULT_TOOL_SETTINGS: Record<Tool, ToolSettings> = {
+  pan: { color: COLORS[0], width: 0.004 },
   pen: { color: COLORS[0], width: 0.004 },
   highlighter: { color: COLORS[4], width: 0.016 },
   erase: { color: COLORS[0], width: 0.012 },
   select: { color: COLORS[0], width: 0.004 },
-  text: { color: COLORS[0], width: 0.004 },
+  text: { color: COLORS[0], width: 0.004, font: DEFAULT_TEXT_FONT, fontSize: DEFAULT_TEXT_SIZE, bold: false },
   line: { color: COLORS[0], width: 0.004 },
   arrow: { color: COLORS[0], width: 0.004 },
   rect: { color: COLORS[0], width: 0.004 },

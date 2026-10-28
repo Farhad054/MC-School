@@ -1,4 +1,5 @@
 import type KonvaType from 'konva';
+import type { Shape as KonvaShape } from 'konva/lib/Shape';
 import { onlineClassesApi, type AnnotationTargetType } from '../../api/onlineClasses';
 import {
   type Operation,
@@ -10,6 +11,9 @@ import {
 } from './annotations';
 import { buildPdf, dataUrlToBytes, type JpegPage } from './pdfWriter';
 import type { PdfDoc } from './pdfDocument';
+import { penOutline, strokeWidthPixels, tracePenOutline } from './freehand';
+import { shapeTextSizePx, textStyleFor } from './textStyles';
+import { A4_PORTRAIT_ASPECT } from './boardPaper';
 
 /**
  * Konva is loaded when the first export runs, not with the board: most lessons
@@ -66,14 +70,19 @@ function renderPage(
 }
 
 /** Mirrors how the live canvas draws each kind, so the PDF matches the screen. */
-function shapeNode(shape: Shape, viewport: { width: number; height: number }, aspect: number): Konva.Node | null {
+function shapeNode(shape: Shape, viewport: { width: number; height: number }, aspect: number): KonvaShape | null {
   const stroke = shape.color ?? '#111111';
-  const width = Math.max(1, (shape.width ?? 0.004) * viewport.width);
+  const width = strokeWidthPixels(shape.width, viewport, aspect);
   const opacity = shape.kind === 'highlighter' ? 0.35 : 1;
   const box = letterbox(viewport, aspect);
 
   switch (shape.kind) {
-    case 'pen':
+    case 'pen': {
+      const outline = penOutline(shape, viewport, aspect);
+      return new Konva.Shape({ fill: stroke,
+        sceneFunc: (context, node) => { if (tracePenOutline(context, outline)) context.fillStrokeShape(node); },
+      });
+    }
     case 'highlighter':
     case 'erase': {
       const points = (shape.points ?? []).flatMap(([x, y]) => {
@@ -128,7 +137,12 @@ function shapeNode(shape: Shape, viewport: { width: number; height: number }, as
         x: origin.x,
         y: origin.y,
         text: shape.text ?? '',
-        fontSize: Math.max(10, (shape.size ?? 0.03) * box.height),
+        fontSize: shapeTextSizePx(shape.size, box.height),
+        fontFamily: textStyleFor(shape.font, shape.bold).fontFamily,
+        fontStyle: textStyleFor(shape.font, shape.bold).fontStyle,
+        lineHeight: 1.22,
+        width: Math.max(10, box.width - (origin.x - box.left)),
+        wrap: 'word',
         fill: stroke,
       });
     }
@@ -171,7 +185,7 @@ export async function exportBoardPdf({
     let aspect =
       document?.sourceWidth && document?.sourceHeight
         ? document.sourceWidth / document.sourceHeight
-        : DEFAULT_ASPECT;
+        : targetType === 'WHITEBOARD' ? A4_PORTRAIT_ASPECT : DEFAULT_ASPECT;
     if (pdfDocument && index < pdfDocument.pageCount) {
       const rendered = await pdfDocument.renderPage(index, EXPORT_WIDTH);
       background = rendered.canvas;

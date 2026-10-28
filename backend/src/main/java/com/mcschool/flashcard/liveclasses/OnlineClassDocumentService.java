@@ -42,4 +42,27 @@ public class OnlineClassDocumentService {
                 .filter(LessonPreparation::hasWorkbook)
                 .map(LessonPreparation::getWorkbookPdf);
     }
+
+    /** Cheap revision probe: no PDF bytes are sent during polling. */
+    @Transactional(readOnly = true)
+    public long workbookVersion(AuthenticatedUser caller, UUID classId) {
+        OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
+        return preparations.findByTeacherIdAndEventId(
+                        onlineClass.getTeacher().getId(), onlineClass.getEventId())
+                .filter(LessonPreparation::hasWorkbook)
+                .map(p -> p.getVersion() == null ? 1L : p.getVersion() + 1L)
+                .orElse(0L);
+    }
+
+    /** Assignment-only details: no private lesson plan, transcript or answer key. */
+    public record HomeworkSummary(String notes, boolean hasDocument) {}
+
+    @Transactional(readOnly = true)
+    public HomeworkSummary homework(AuthenticatedUser caller, UUID classId) {
+        OnlineClass lesson = accessService.requireAdmitted(caller, classId);
+        return preparations
+                .findByTeacherIdAndEventId(lesson.getTeacher().getId(), lesson.getEventId())
+                .map(p -> new HomeworkSummary(p.getHomeworkNotes(), p.hasWorkbook()))
+                .orElseGet(() -> new HomeworkSummary(null, false));
+    }
 }

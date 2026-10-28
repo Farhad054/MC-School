@@ -30,6 +30,13 @@ export interface OnlineClass {
   /** Whether this server can record / transcribe at all; hides the buttons when not. */
   recordingAvailable: boolean;
   transcriptionAvailable: boolean;
+  /** Authoritative server admission state, separate from room transport status. */
+  entryState?: 'WAITING_FOR_TEACHER' | 'OPEN' | 'RECONNECT' | 'DAY_CLOSED' | 'CLOSED' | 'ENDED';
+  entryDate?: string;
+  entryOpensAt?: string;
+  entryClosesAt?: string;
+  viewerHasJoined?: boolean;
+  serverNow?: string;
 }
 
 /**
@@ -171,6 +178,11 @@ export function deviceId(): string {
   }
 }
 
+export interface OnlineClassHomework {
+  notes: string | null;
+  hasDocument: boolean;
+}
+
 export const onlineClassesApi = {
   materializeFromCalendar: (eventId: string) =>
     request<OnlineClass>('POST', `/online-classes/calendar/${encodeURIComponent(eventId)}`),
@@ -178,6 +190,9 @@ export const onlineClassesApi = {
   listUpcoming: () => request<OnlineClass[]>('GET', '/online-classes/upcoming'),
 
   get: (classId: string) => request<OnlineClass>('GET', `/online-classes/${classId}`),
+
+  homework: (classId: string) =>
+    request<OnlineClassHomework>('GET', `/online-classes/${classId}/homework`),
 
   openLobby: (classId: string) => request<OnlineClass>('POST', `/online-classes/${classId}/open-lobby`),
 
@@ -191,6 +206,10 @@ export const onlineClassesApi = {
     request<OnlineClassConnection>('POST', `/online-classes/${classId}/connection`, {
       deviceId: deviceId(),
     }),
+
+  /** Host-only probe. It checks LiveKit's server API, not the user's WebRTC path. */
+  mediaDiagnostics: (classId: string) =>
+    request<{ mediaApiReachable: boolean; diagnosticStatus: 'OK' | 'NOT_CONFIGURED' | 'AUTH_REJECTED' | 'UNREACHABLE' }>('POST', `/online-classes/${classId}/media-diagnostics`),
 
   leave: (classId: string) => request<void>('POST', `/online-classes/${classId}/leave`),
 
@@ -337,6 +356,9 @@ export const onlineClassesApi = {
    * The lesson's workbook PDF for the shared board, or null when the lesson has
    * none (404). Never the answers file: the server only serves the workbook.
    */
+  documentVersion: (classId: string) =>
+    request<{ version: number }>('GET', `/online-classes/${classId}/document/version`),
+
   documentBytes: async (classId: string): Promise<ArrayBuffer | null> => {
     try {
       return await (await requestBlob(`/online-classes/${classId}/document`)).arrayBuffer();

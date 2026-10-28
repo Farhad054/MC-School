@@ -71,7 +71,7 @@ export const lessonPreparationApi = {
   get(eventId: string) {
     return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}`, { headers: authHeaders() }).then(parse<LessonPreparation>);
   },
-  update(eventId: string, payload: { homeworkNotes: string; difficulties: string; lessonPlan: string; transcriptText: string }) {
+  update(eventId: string, payload: { coveredMaterial?: string; homeworkNotes: string; difficulties: string; lessonPlan: string; transcriptText: string }) {
     return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}`, {
       method: 'PUT',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -80,6 +80,13 @@ export const lessonPreparationApi = {
   },
   uploadWorkbook(eventId: string, file: File) {
     return uploadPdf(eventId, 'workbook', file);
+  },
+  appendWorkbook(eventId: string, file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/workbook/append`, {
+      method: 'POST', headers: authHeaders(), body: form,
+    }).then(parse<LessonPreparation>);
   },
   uploadAnswers(eventId: string, file: File) {
     return uploadPdf(eventId, 'answers', file);
@@ -114,5 +121,38 @@ export const lessonPreparationApi = {
   },
   assignHomeworkSeries(eventId: string, startDate: string, days: number, files: File[]) {
     return uploadHomeworkSeries(eventId, startDate, days, files);
+  },
+};
+
+export type CompletedLessonDocument = { id: string; classId: string; boardId: string; filename: string; savedAt: string };
+
+export const completedLessonApi = {
+  list(eventId: string): Promise<CompletedLessonDocument[]> {
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents`, { headers: authHeaders() }).then(parse<CompletedLessonDocument[]>);
+  },
+  save(eventId: string, classId: string, boardId: string, blob: Blob): Promise<CompletedLessonDocument> {
+    const form = new FormData();
+    form.append('classId', classId);
+    form.append('boardId', boardId);
+    form.append('file', blob, 'completed-board.pdf');
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents`, {
+      method: 'POST', headers: authHeaders(), body: form,
+    }).then(parse<CompletedLessonDocument>);
+  },
+  uploadManual(eventId: string, file: File, studentId?: string): Promise<CompletedLessonDocument> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('target', studentId ? 'student' : 'shared');
+    if (studentId) form.append('studentId', studentId);
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents/manual`, {
+      method: 'POST', headers: authHeaders(), body: form,
+    }).then(parse<CompletedLessonDocument>);
+  },
+  async open(eventId: string, id: string): Promise<void> {
+    const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents/${encodeURIComponent(id)}`, { headers: authHeaders() });
+    if (!response.ok) throw new ApiRequestError(response.status, 'COMPLETED_DOCUMENT', response.statusText);
+    const url = URL.createObjectURL(await response.blob());
+    window.open(url, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
   },
 };

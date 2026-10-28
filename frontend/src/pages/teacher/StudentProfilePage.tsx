@@ -19,6 +19,7 @@ export function StudentProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [timeReport, setTimeReport] = useState<import('../../api/types').StudentTimeReport | null>(null);
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null);
@@ -31,6 +32,7 @@ export function StudentProfilePage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [studentId, revision, overview]);
+  useEffect(() => { let live = true; api.learningTime.student(studentId,30).then(r => { if(live) setTimeReport(r); }).catch(()=>{}); return () => { live = false; }; }, [studentId]);
   const pdfs = homeworks.filter(h => h.hasWorksheet).sort((a, b) => b.startDate.localeCompare(a.startDate));
   const next = lessons.filter(e => new Date(e.startsAt).getTime() > Date.now()).sort((a,b) => a.startsAt.localeCompare(b.startsAt))[0];
   const tabs = [['', tr('Обзор', 'Übersicht')], ['lessons', tr('Уроки', 'Unterricht')], ['homeworks', tr('Домашние задания', 'Hausaufgaben')], ['cards', tr('Карточки', 'Karten')], ['month-plan', tr('План на месяц', 'Monatsplan')], ['drive', 'Google Drive']];
@@ -44,6 +46,11 @@ export function StudentProfilePage() {
       <button className="group-summary-card" onClick={() => navigate(`${base}/homeworks`)}><div className="group-summary-card__icon group-summary-card__icon--yellow">▤</div><div><strong>{loading || error ? '—' : pdfs.filter(h => !h.submitted).length}</strong><span>{tr('ДЗ ожидают сдачи', 'offene Hausaufgaben')}</span></div><small>{tr('Перейти к домашним заданиям', 'Hausaufgaben öffnen')} →</small></button>
       <div className="group-summary-card group-summary-card--lesson"><div className="group-summary-card__icon group-summary-card__icon--green">▣</div><div><span>{tr('Следующий урок', 'Nächster Unterricht')}</span><strong className="group-summary-card__lesson">{loading || error || !next ? '—' : date(next.startsAt)}</strong></div><small>{next && !loading && !error ? <Link to={`/teacher/lessons/${encodeURIComponent(next.eventId)}`}>{next.title} →</Link> : loading ? tr('Загрузка…', 'Laden…') : error ? '—' : tr('Ближайших уроков нет', 'Kein Unterricht geplant')}</small></div>
     </div>
+    {timeReport && <div className="panel row" style={{gap:24,justifyContent:'space-around',flexWrap:'wrap',marginBottom:16}}>
+      <div><strong>{Math.round(timeReport.summary.cardSeconds/60)} мин</strong><div className="muted">{tr('Карточки за 30 дней','Karten, letzte 30 Tage')}</div></div>
+      <div><strong>{Math.round(timeReport.summary.homeworkSeconds/60)} мин</strong><div className="muted">{tr('Домашка за 30 дней','Hausaufgaben, letzte 30 Tage')}</div></div>
+      <div><strong>{timeReport.summary.activeDays}</strong><div className="muted">{tr('Активных дней','Aktive Tage')}</div></div>
+    </div>}
     <nav className="group-detail-tabs" aria-label={tr('Разделы ученика', 'Schülerbereiche')}>
       {tabs.map(([path, label]) => { const url = `${base}${path ? `/${path}` : ''}`; const active = location.pathname.replace(/\/$/, '') === url; return <button key={path} type="button" className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} onClick={() => navigate(url)}><span>{label}</span></button>; })}
     </nav>
@@ -123,7 +130,7 @@ function LearningProfileCard({ student, language, onSaved }: {
       {message && <div className="banner banner--success" style={{ marginBottom: 14 }}>{message}</div>}
       {saveError && <div className="banner banner--error" style={{ marginBottom: 14 }}>{saveError}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+      <div className="teacher-profile-fields">
         <label className="field">
           <span className="field__label">{tr('Класс', 'Klasse')}</span>
           <select className="input" value={grade} onChange={(e) => setGrade(e.target.value)}>
@@ -144,7 +151,7 @@ function LearningProfileCard({ student, language, onSaved }: {
 
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 14, marginTop: 14 }}>
+      <div className="teacher-profile-notes">
         <label className="field">
           <span className="field__label">{tr('Что даётся тяжело', 'Schwierigkeiten')}</span>
           <textarea className="input" rows={4} value={learningDifficulties} onChange={(e) => setLearningDifficulties(e.target.value)} placeholder={tr('Например: теряется при скобках, путает знаки, боится текстовых задач…', 'Zum Beispiel: Klammern, Vorzeichen, Textaufgaben…')} />

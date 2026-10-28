@@ -96,6 +96,21 @@ public class HomeworkPdfService {
         return filename == null || filename.isBlank() ? "worksheet.pdf" : filename;
     }
 
+    /**
+     * Download the student's original worksheet. Do not expose submitted answers
+     * and never resolve the homework without its owning student's ID.
+     */
+    @Transactional(readOnly = true)
+    public WorksheetDownload studentWorksheet(AuthenticatedUser student, UUID homeworkId) {
+        Homework homework = requireStudentHomework(student.id(), homeworkId);
+        ensureWorksheet(homework);
+        String filename = homework.getWorksheetFilename();
+        return new WorksheetDownload(homework.getWorksheetPdf(),
+                filename == null || filename.isBlank() ? "worksheet.pdf" : filename);
+    }
+
+    public record WorksheetDownload(byte[] bytes, String filename) {}
+
     @Transactional(readOnly = true)
     public byte[] renderTeacherPage(AuthenticatedUser teacher, UUID homeworkId, int pageIndex) {
         Homework homework = requireTeacherHomework(teacher.id(), homeworkId);

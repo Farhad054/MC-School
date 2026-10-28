@@ -9,6 +9,8 @@ import type { RosterStudent } from './useStudentRoster';
  * the shared board or any student's personal board; looking at one does not move
  * anyone else, because personal boards take no part in follow mode.
  */
+export const ALL_STUDENT_BOARDS_ID = 'all-student-boards';
+
 export function BoardSwitcher({
   isHost,
   currentUserId,
@@ -30,6 +32,7 @@ export function BoardSwitcher({
         <span className="visually-hidden">{t('onlineClass.board.switch')}</span>
         <select value={activeId} onChange={(event) => onChange(event.target.value)}>
           <option value={SHARED_BOARD_ID}>{t('onlineClass.board.shared')}</option>
+          <option value={ALL_STUDENT_BOARDS_ID}>Все ученики (2×2)</option>
           {students.map((student) => (
             <option key={student.userId} value={personalBoardId(student.userId)}>
               {t('onlineClass.board.studentBoard', { name: student.displayName })}

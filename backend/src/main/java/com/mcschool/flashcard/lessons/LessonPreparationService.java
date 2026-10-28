@@ -6,11 +6,18 @@ import com.mcschool.flashcard.lessons.dto.LessonPreparationResponse;
 import com.mcschool.flashcard.lessons.dto.UpdateLessonPreparationRequest;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.Locale;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.multipdf.PDFMergerUtility;
+import org.apache.pdfbox.io.IOUtils;
+import org.apache.pdfbox.io.RandomAccessReadBuffer;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -41,6 +48,9 @@ public class LessonPreparationService {
     public LessonPreparationResponse update(AuthenticatedUser teacher, String eventId, UpdateLessonPreparationRequest request) {
         LessonPreparation preparation = getOrCreateEntity(teacher, eventId);
         preparation.updateNotes(request.homeworkNotes(), request.difficulties(), request.lessonPlan(), request.transcriptText());
+        if (request.coveredMaterial() != null) {
+            preparation.updateCoveredMaterial(request.coveredMaterial());
+        }
         return response(repository.save(preparation));
     }
 
@@ -53,7 +63,15 @@ public class LessonPreparationService {
 
     @Transactional
     public LessonPreparationResponse uploadWorkbook(AuthenticatedUser teacher, String eventId, String filename, byte[] pdf) {
+        if (!looksLikePdf(pdf)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Workbook upload requires a non-empty PDF file");
+        }
         LessonPreparation preparation = getOrCreateEntity(teacher, eventId);
+        // Never guess a document's role from incidental words in its filename.
+        // 'solutions_for_students.pdf' is still a workbook when the caller
+        // chooses the workbook slot. An explicit __answers__: legacy prefix
+        // is the ONLY backwards-compatible exception for older MCP clients.
         boolean answersCompatibility = isAnswersCompatibilityFilename(filename);
         String storedFilename = answersCompatibility ? cleanAnswersFilename(filename) : filename;
         if (answersCompatibility) {
@@ -62,12 +80,67 @@ public class LessonPreparationService {
             preparation.attachWorkbook(storedFilename, pdf);
         }
         LessonPreparation saved = repository.save(preparation);
-        if (answersCompatibility) {
-            driveArchiveService.archiveAnswersBestEffort(teacher, eventId, storedFilename, pdf);
-        } else {
-            driveArchiveService.archiveWorkbookBestEffort(teacher, eventId, storedFilename, pdf);
-        }
+        // Live classroom uploads must respond immediately after database persistence.
+        // Drive archiving is available separately via the explicit archive endpoint;
+        // do not block the upload HTTP request on remote Drive calls.
         return response(saved);
+    }
+
+    /**
+     * Appends pages to the existing workbook without changing any old page
+     * indices. Annotation operations are keyed by (document, pageIndex), so
+     * the ink on already-used pages stays exactly where it was.
+     * Each upload is atomic: corrupt PDFs cannot overwrite the previous file.
+     */
+    @Transactional
+    public LessonPreparationResponse appendWorkbook(AuthenticatedUser teacher, String eventId,
+                                                     String filename, byte[] pdf) {
+        if (!looksLikePdf(pdf)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Please upload a valid PDF");
+        }
+        LessonPreparation preparation = getOrCreateEntity(teacher, eventId);
+        byte[] merged;
+        try {
+            // Parse both files before merging: a PDF header alone does not
+            // mean it is safe or even readable by the PDF viewer.
+            try (var appended = Loader.loadPDF(pdf)) {
+                if (appended.getNumberOfPages() == 0) {
+                    throw new IOException("PDF contains no pages");
+                }
+            }
+            if (!preparation.hasWorkbook()) {
+                merged = pdf;
+            } else {
+                byte[] old = preparation.getWorkbookPdf();
+                try (var existing = Loader.loadPDF(old)) {
+                    if (existing.getNumberOfPages() == 0) throw new IOException("Existing PDF has no pages");
+                }
+                PDFMergerUtility merger = new PDFMergerUtility();
+                merger.addSource(new RandomAccessReadBuffer(old));
+                merger.addSource(new RandomAccessReadBuffer(pdf));
+                try (var output = new ByteArrayOutputStream()) {
+                    merger.setDestinationStream(output);
+                    merger.mergeDocuments(IOUtils.createMemoryOnlyStreamCache());
+                    merged = output.toByteArray();
+                }
+            }
+            // Both server and browsers have bounded resources. Do not store
+            // a huge combined file that would crash a student's tablet.
+            if (merged.length > 25 * 1024 * 1024) {
+                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                        "Combined workbook exceeds 25 MB. Please use smaller PDFs.");
+            }
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "PDF could not be read or combined; previous workbook is unchanged", e);
+        }
+        String storedFilename = preparation.hasWorkbook()
+                ? "lesson-workbook-combined.pdf"
+                : (filename == null || filename.isBlank() ? "lesson-workbook.pdf" : filename);
+        preparation.attachWorkbook(storedFilename, merged);
+        return response(repository.saveAndFlush(preparation));
     }
 
     @Transactional
@@ -154,10 +227,7 @@ public class LessonPreparationService {
         if (filename == null || filename.isBlank()) return false;
         String normalized = filename.trim().toLowerCase(Locale.ROOT);
         if (normalized.startsWith(ANSWERS_COMPAT_PREFIX)) return true;
-        return normalized.contains("answer")
-                || normalized.contains("solution")
-                || normalized.contains("ответ")
-                || normalized.contains("решен");
+        return false;
     }
 
     private String cleanAnswersFilename(String filename) {
@@ -190,6 +260,7 @@ public class LessonPreparationService {
                 preparation.hasAnswers(),
                 preparation.getAnswersFilename(),
                 preparation.hasAnswers() ? null : ANSWERS_UPLOAD_HINT,
-                preparation.getSiteOpenedAt());
+                preparation.getSiteOpenedAt(),
+                preparation.getCoveredMaterial());
     }
 }

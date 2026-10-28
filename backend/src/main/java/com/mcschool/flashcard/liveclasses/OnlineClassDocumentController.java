@@ -25,6 +25,21 @@ public class OnlineClassDocumentController {
         this.documentService = documentService;
     }
 
+    /** Homework text and document availability for admitted participants only. */
+    @GetMapping("/{classId}/homework")
+    public ResponseEntity<OnlineClassDocumentService.HomeworkSummary> homework(
+            @AuthenticationPrincipal AuthenticatedUser caller, @PathVariable UUID classId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(documentService.homework(caller, classId));
+    }
+
+    @GetMapping("/{classId}/document/version")
+    public ResponseEntity<java.util.Map<String, Long>> documentVersion(
+            @AuthenticationPrincipal AuthenticatedUser caller, @PathVariable UUID classId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(java.util.Map.of("version", documentService.workbookVersion(caller, classId)));
+    }
+
     /** 404 when the lesson has no workbook; the board then simply stays blank. */
     @GetMapping("/{classId}/document")
     public ResponseEntity<byte[]> document(@AuthenticationPrincipal AuthenticatedUser caller,

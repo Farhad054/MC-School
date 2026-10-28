@@ -1,7 +1,9 @@
 import { Suspense, lazy } from 'react';
 import { AdminStoryTemplatesPage } from './pages/admin/AdminStoryTemplatesPage';
+import { LearningTimeAdminPage } from './pages/admin/LearningTimeAdminPage';
+import { LearningTimeStudentPage } from './pages/admin/LearningTimeStudentPage';
 import { SkillsPage } from './pages/SkillsPage';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { homePathForRole } from './auth/roleRoutes';
@@ -22,6 +24,7 @@ import { StudentProfilePage } from './pages/teacher/StudentProfilePage';
 import { StudentDetailPage } from './pages/teacher/StudentDetailPage';
 import { StudentHomeworksPage } from './pages/teacher/StudentHomeworksPage';
 import { StudentLessonsPage } from './pages/teacher/StudentLessonsPage';
+import { StudentLessonHistoryDetailPage } from './pages/teacher/StudentLessonHistoryDetailPage';
 import { StudentDrivePage } from './pages/teacher/StudentDrivePage';
 import { HomeworkDetailPage } from './pages/teacher/HomeworkDetailPage';
 import { TeacherCardsDetailPage } from './pages/teacher/TeacherCardsDetailPage';
@@ -56,18 +59,25 @@ const OnlineClassPage = lazy(() =>
   import('./pages/online-classes/OnlineClassPage').then((m) => ({ default: m.OnlineClassPage })),
 );
 const LessonBoardPage = lazy(() => import('./pages/lesson-board/LessonBoardPage').then((m) => ({ default: m.LessonBoardPage })));
+const PhoneCameraPage = lazy(() => import('./features/notebook-camera/PhoneCameraPage').then(m => ({ default: m.PhoneCameraPage })));
+const NotebookCameraPage = lazy(() => import('./features/notebook-camera/NotebookCameraPage').then(m => ({ default: m.NotebookCameraPage })));
 
 export function App() {
   const { user, initializing } = useAuth();
-  if (initializing) return null;
+  const location = useLocation();
+  if (initializing && !location.pathname.startsWith('/phone-camera')) return null;
 
   return (
     <Routes>
       <Route path="/skills" element={<ProtectedRoute><Layout><SkillsPage /></Layout></ProtectedRoute>} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/activate" element={<ActivatePage />} />
+      <Route path="/phone-camera/:cameraId?" element={<Suspense fallback={<p>Открываем камеру…</p>}><PhoneCameraPage /></Suspense>} />
+      <Route path="/lesson-notebook/:eventId" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Layout><Suspense fallback={<p>Открываем тетрадь…</p>}><NotebookCameraPage /></Suspense></Layout></ProtectedRoute>} />
 
       <Route path="/teachers" element={<ProtectedRoute role="ADMIN"><Layout><TeachersPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/learning-time" element={<ProtectedRoute role="ADMIN"><Layout><LearningTimeAdminPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/learning-time/:studentId" element={<ProtectedRoute role="ADMIN"><Layout><LearningTimeStudentPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/accounts" element={<ProtectedRoute role="ADMIN"><Layout><AdminAccountsPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/lessons" element={<ProtectedRoute role="ADMIN"><Layout><AdminTeacherLessonsPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/trial-lessons" element={<ProtectedRoute role="ADMIN"><Layout><AdminTrialLessonsPage /></Layout></ProtectedRoute>} />
@@ -89,6 +99,7 @@ export function App() {
       </Route>
       <Route path="/teacher/students/:studentId/cards/:homeworkId" element={<ProtectedRoute role="TEACHER"><Layout><TeacherCardsDetailPage /></Layout></ProtectedRoute>} />
       <Route path="/teacher/students/:studentId/homeworks/:homeworkId" element={<ProtectedRoute role="TEACHER"><Layout><HomeworkDetailPage /></Layout></ProtectedRoute>} />
+      <Route path="/teacher/students/:studentId/lesson-history/:sourceTeacherId/:eventId" element={<ProtectedRoute role="TEACHER"><Layout><StudentLessonHistoryDetailPage /></Layout></ProtectedRoute>} />
       <Route path="/groups" element={<ProtectedRoute role="TEACHER"><Layout><GroupsPage /></Layout></ProtectedRoute>} />
       <Route path="/groups/:groupId" element={<ProtectedRoute role="TEACHER"><Layout><GroupDetailWithHomeworkLinks /></Layout></ProtectedRoute>} />
       <Route path="/groups/:groupId/month-plan" element={<ProtectedRoute role="TEACHER"><Layout><MonthlyPlanPage targetType="GROUP" /></Layout></ProtectedRoute>} />
@@ -116,7 +127,7 @@ export function App() {
       {/* Online classes: teachers and students share these routes; the
           backend decides who may see or join each class. */}
       <Route path="/online-classes" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Layout><Suspense fallback={null}><UpcomingOnlineClassesPage /></Suspense></Layout></ProtectedRoute>} />
-      <Route path="/online-classes/:classId" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Layout><Suspense fallback={null}><OnlineClassPage /></Suspense></Layout></ProtectedRoute>} />
+      <Route path="/online-classes/:classId" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Suspense fallback={<p>Подключаем онлайн-урок…</p>}><OnlineClassPage /></Suspense></ProtectedRoute>} />
 
       <Route path="/parent" element={<ProtectedRoute role="PARENT"><Layout><ParentPage /></Layout></ProtectedRoute>} />
       <Route path="/parent/settings" element={<ProtectedRoute role="PARENT"><Layout><SettingsPage /></Layout></ProtectedRoute>} />

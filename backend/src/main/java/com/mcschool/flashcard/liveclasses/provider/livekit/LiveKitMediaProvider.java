@@ -47,11 +47,17 @@ public class LiveKitMediaProvider implements LiveClassMediaProvider {
     private final RoomServiceClient roomServiceClient;
 
     public LiveKitMediaProvider(OnlineClassProperties properties) {
-        this.properties = properties;
-        this.roomServiceClient = RoomServiceClient.createClient(
+        this(properties, RoomServiceClient.createClient(
                 toHttpUrl(properties.livekitUrl()),
                 properties.livekitApiKey(),
-                properties.livekitApiSecret());
+                properties.livekitApiSecret()));
+    }
+
+    // Package-visible injection for deterministic adapter tests. The public
+    // constructor always uses the configured endpoint and server-only secrets.
+    LiveKitMediaProvider(OnlineClassProperties properties, RoomServiceClient roomServiceClient) {
+        this.properties = properties;
+        this.roomServiceClient = roomServiceClient;
     }
 
     @Override
@@ -107,9 +113,18 @@ public class LiveKitMediaProvider implements LiveClassMediaProvider {
         try {
             execute(roomServiceClient.createRoom(roomName));
         } catch (MediaProviderException e) {
-            // Creating an existing room is not an error for our purposes; the
-            // room is ensured either way.
-            log.debug("ensureRoom: room {} already present or create rejected", safe(roomName));
+            // Only an explicit "already exists" response is safe to ignore.
+            // Auth failures, DNS/TLS errors and unreachable LiveKit servers
+            // must fail the class start rather than leaving students with a
+            // signed token for a room that was never provisioned.
+            if ("LiveKit request failed with HTTP 409".equals(e.getMessage())) {
+                log.debug("ensureRoom: room {} already exists", safe(roomName));
+                return;
+            }
+            // Only the HTTP code or generic failure is logged: never a token,
+            // key, secret or upstream response body.
+            log.warn("LiveKit room check failed: {}", e.getMessage());
+            throw e;
         }
     }
 
@@ -118,7 +133,13 @@ public class LiveKitMediaProvider implements LiveClassMediaProvider {
         try {
             execute(roomServiceClient.deleteRoom(roomName));
         } catch (MediaProviderException e) {
-            log.debug("closeRoom: room {} already gone", safe(roomName));
+            if ("LiveKit request failed with HTTP 404".equals(e.getMessage())) {
+                log.debug("closeRoom: room {} already gone", safe(roomName));
+                return;
+            }
+            // An outage is not confirmation that a camera stopped. The caller
+            // keeps pending cleanup and retries after the provider recovers.
+            throw e;
         }
     }
 
@@ -171,12 +192,32 @@ public class LiveKitMediaProvider implements LiveClassMediaProvider {
 
     @Override
     public List<String> listParticipantIdentities(String roomName) {
-        List<LivekitModels.ParticipantInfo> participants =
-                execute(roomServiceClient.listParticipants(roomName));
-        if (participants == null) {
-            return List.of();
+        try {
+            Response<List<LivekitModels.ParticipantInfo>> response =
+                    roomServiceClient.listParticipants(roomName).execute();
+            if (response.isSuccessful() && response.body() != null) {
+                return response.body().stream().map(LivekitModels.ParticipantInfo::getIdentity).toList();
+            }
+            // A reverse-proxy 404 or a malformed response is not proof that
+            // the room is empty. Only the provider's explicit Twirp code is.
+            if (response.code() == 404 && isMissingRoom(response.errorBody())) return List.of();
+            throw new MediaProviderException("LiveKit presence check failed with HTTP " + response.code());
+        } catch (java.io.IOException e) {
+            throw new MediaProviderException("LiveKit presence check failed", e);
         }
-        return participants.stream().map(LivekitModels.ParticipantInfo::getIdentity).toList();
+    }
+
+    private static boolean isMissingRoom(okhttp3.ResponseBody body) {
+        if (body == null) return false;
+        try (body) {
+            byte[] bytes = body.byteStream().readNBytes(4097);
+            if (bytes.length > 4096) return false;
+            tools.jackson.databind.JsonNode error =
+                    new tools.jackson.databind.ObjectMapper().readTree(bytes);
+            return error != null && "not_found".equals(error.path("code").asText());
+        } catch (java.io.IOException | RuntimeException ignored) {
+            return false;
+        }
     }
 
     @Override

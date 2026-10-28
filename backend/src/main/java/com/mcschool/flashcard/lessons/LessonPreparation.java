@@ -46,6 +46,9 @@ public class LessonPreparation {
     @Column(name = "lesson_plan", columnDefinition = "text")
     private String lessonPlan;
 
+    @Column(name = "covered_material", columnDefinition = "text")
+    private String coveredMaterial;
+
     @Column(name = "transcript_text", columnDefinition = "text")
     private String transcriptText;
 
@@ -98,6 +101,28 @@ public class LessonPreparation {
         if (!hasTranscriptPdf()) {
             this.transcriptText = normalize(transcriptText);
         }
+    }
+
+    public void updateCoveredMaterial(String coveredMaterial) {
+        this.coveredMaterial = normalize(coveredMaterial);
+    }
+
+    /** Copy a saved preparation to a newly assigned teacher without altering the original. */
+    public LessonPreparation copyFor(User targetTeacher, String targetEventId) {
+        LessonPreparation copy = new LessonPreparation(targetTeacher, targetEventId);
+        copy.homeworkNotes = this.homeworkNotes;
+        copy.difficulties = this.difficulties;
+        copy.lessonPlan = this.lessonPlan;
+        copy.coveredMaterial = this.coveredMaterial;
+        copy.transcriptText = this.transcriptText;
+        copy.transcriptPdf = this.transcriptPdf == null ? null : this.transcriptPdf.clone();
+        copy.transcriptFilename = this.transcriptFilename;
+        copy.workbookPdf = this.workbookPdf == null ? null : this.workbookPdf.clone();
+        copy.workbookFilename = this.workbookFilename;
+        copy.answersPdf = this.answersPdf == null ? null : this.answersPdf.clone();
+        copy.answersFilename = this.answersFilename;
+        copy.siteOpenedAt = this.siteOpenedAt;
+        return copy;
     }
 
     public void attachWorkbook(String filename, byte[] pdf) {

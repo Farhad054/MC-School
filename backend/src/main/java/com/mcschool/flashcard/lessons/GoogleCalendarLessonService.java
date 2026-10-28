@@ -64,7 +64,13 @@ public class GoogleCalendarLessonService {
 
     @Transactional
     public List<GroupLessonResponse> listGroupLessons(AuthenticatedUser teacher) {
-        String accessToken = oauthService.accessTokenForTeacher(teacher.id());
+        String accessToken;
+        try {
+            accessToken = oauthService.accessTokenForTeacher(teacher.id());
+        } catch (RuntimeException unavailable) {
+            // An expired Google connection must not hide native lessons or their history.
+            return archivedLessons(teacher.id());
+        }
         if (accessToken == null || accessToken.isBlank()) return archivedLessons(teacher.id());
         User teacherEntity = userRepository.findById(teacher.id())
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher account no longer exists"));
@@ -169,14 +175,14 @@ public class GoogleCalendarLessonService {
         for (GroupLessonResponse lesson : result) {
             LessonHistoryEntry history = historyRepository.findByTeacherIdAndEventId(teacher.id(), lesson.eventId())
                     .orElseGet(() -> LessonHistoryEntry.create(teacherEntity, lesson));
-            history.sync(lesson);
+            history.sync(lesson); // Manual date/duration overrides survive Google refresh.
             historyRepository.save(history);
         }
         return archivedLessons(teacher.id());
     }
 
     private List<GroupLessonResponse> archivedLessons(UUID teacherId) {
-        return historyRepository.findAllByTeacherIdOrderByStartsAtAsc(teacherId).stream()
+        return historyRepository.findAllByTeacherIdAndDeletedAtIsNullOrderByStartsAtAsc(teacherId).stream()
                 .map(LessonHistoryEntry::toResponse)
                 .sorted(Comparator.comparing(GroupLessonResponse::startsAt))
                 .toList();
