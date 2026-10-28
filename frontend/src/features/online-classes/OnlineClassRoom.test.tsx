@@ -425,6 +425,110 @@ describe('OnlineClassRoom', () => {
     expect(screen.queryByRole('region', { name: 'Встроенная тетрадь' })).not.toBeInTheDocument();
   });
 
+  it('forwards independent pupil follow choices to the right paper panels and retains them when opening a tile', async () => {
+    const user = userEvent.setup();
+    vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([
+      { userId: 'u1', displayName: 'Alice', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
+      { userId: 'u2', displayName: 'Boris', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
+    ]);
+    mount(true);
+    await screen.findByRole('option', { name: 'Доска ученика: Boris' });
+    await user.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    const alice = await screen.findByTestId('board-personal-u1');
+    const boris = await screen.findByTestId('board-personal-u2');
+    const latest = (targetId: string) => boardProps.filter(props => props.targetId === targetId && !props.targetType).at(-1);
+    expect(latest('personal-u1')).toMatchObject({ followStudent: false, compactPreview: true, isHost: true });
+    expect(latest('personal-u2')).toMatchObject({ followStudent: false, compactPreview: true });
+
+    await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Alice' }));
+    expect(latest('personal-u1')).toMatchObject({ followStudent: true });
+    expect(latest('personal-u2')).toMatchObject({ followStudent: false });
+    expect(latest('board-1')?.followStudent).toBeUndefined();
+    await user.click(within(screen.getByRole('region', { name: 'Работа ученика: Alice' })).getByRole('button', { name: 'Открыть' }));
+    expect(latest('personal-u1')).toMatchObject({ followStudent: true, compactPreview: false, active: true });
+    expect(screen.getByTestId('board-personal-u1')).toBe(alice);
+    expect(screen.getByRole('button', { name: 'Следовать за учеником: Alice' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Все ученики' }));
+    expect(latest('personal-u1')).toMatchObject({ followStudent: true, compactPreview: true });
+    expect(screen.getByTestId('board-personal-u2')).toBe(boris);
+
+    await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Boris' }));
+    await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Alice' }));
+    expect(latest('personal-u1')).toMatchObject({ followStudent: false });
+    expect(latest('personal-u2')).toMatchObject({ followStudent: true });
+  });
+
+  it('keeps follow scoped to each pupil when their camera replaces paper and when returning to the overview', async () => {
+    const user = userEvent.setup();
+    vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([
+      { userId: 'u1', displayName: 'Alice', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
+      { userId: 'u2', displayName: 'Boris', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
+    ]);
+    for (const id of ['u1', 'u2']) notebookFixture.camerasByOwner.set(id, { cameraId: `camera-${id}`, ownerId: id, status: 'CONNECTED' });
+    mount(true);
+    await screen.findByRole('option', { name: 'Доска ученика: Boris' });
+    await user.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    const paper = await screen.findByTestId('board-personal-u1');
+    await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Alice' }));
+    const aliceSource = pupilCameraSource(), borisSource = pupilCameraSource();
+    act(() => {
+      notebookFixture.viewerProps.get('camera-u1').onVideoAvailableChange(true);
+      notebookFixture.viewerProps.get('camera-u1').onBoardVideoChange(aliceSource);
+      notebookFixture.viewerProps.get('camera-u2').onVideoAvailableChange(true);
+      notebookFixture.viewerProps.get('camera-u2').onBoardVideoChange(borisSource);
+    });
+    const camera = await screen.findByTestId('board-personal-u1-camera');
+    const latest = (targetId: string) => boardProps.filter(props => props.targetId === targetId && props.targetType === 'NOTEBOOK_CAMERA').at(-1);
+    expect(latest('personal-u1')).toMatchObject({ followStudent: true, compactPreview: true, active: true, targetType: 'NOTEBOOK_CAMERA' });
+    expect(latest('personal-u1')!.liveBackground.source).toBe(aliceSource.rawVideo);
+    expect(latest('personal-u2')).toMatchObject({ followStudent: false, active: true });
+    expect(latest('personal-u2')!.liveBackground.source).toBe(borisSource.rawVideo);
+    await user.click(within(screen.getByRole('region', { name: 'Работа ученика: Alice' })).getByRole('button', { name: 'Открыть' }));
+    expect(latest('personal-u1')).toMatchObject({ followStudent: true, compactPreview: false });
+    expect(screen.getByTestId('board-personal-u1-camera')).toBe(camera);
+    await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Alice' }));
+    expect(latest('personal-u1')).toMatchObject({ followStudent: false });
+    act(() => {
+      notebookFixture.viewerProps.get('camera-u1').onVideoAvailableChange(false);
+      notebookFixture.viewerProps.get('camera-u1').onBoardVideoChange(null);
+    });
+    expect(screen.getByTestId('board-personal-u1')).toBe(paper);
+    expect(paper).toHaveAttribute('data-active', 'true');
+    expect(boardProps.filter(props => props.targetId === 'personal-u1' && !props.targetType).at(-1)).toMatchObject({ followStudent: false });
+    await user.click(screen.getByRole('button', { name: 'Все ученики' }));
+    expect(screen.getByRole('button', { name: 'Следовать за учеником: Alice' })).toHaveAttribute('aria-pressed', 'false');
+    expect(latest('personal-u2')!.liveBackground.source).toBe(borisSource.rawVideo);
+  });
+
+  it('never applies the teacher follow control to a pupil’s own paper or camera board', async () => {
+    const user = userEvent.setup();
+    mount(false);
+    await screen.findByTestId('board-board-1');
+    await user.click(screen.getByRole('button', { name: 'Моя доска' }));
+    await screen.findByTestId('board-personal-me');
+    expect(screen.queryByRole('button', { name: /^Следовать за учеником:/ })).not.toBeInTheDocument();
+    const source = pupilCameraSource();
+    emitPupilCamera('camera-me', source);
+    await screen.findByTestId('board-personal-me-camera');
+    for (const props of boardProps.filter(item => item.targetId === 'personal-me')) {
+      expect(props.isHost).toBe(false);
+      expect(props.followStudent).toBeUndefined();
+    }
+    expect(screen.queryByRole('button', { name: /^Следовать за учеником:/ })).not.toBeInTheDocument();
+  });
+
+  it('starts a new lesson with pupil follow disabled even when the same pupil remains selected', async () => {
+    const user = userEvent.setup();
+    const view = mount(true);
+    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
+    await user.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Alice' }));
+    expect(boardProps.filter(props => props.targetId === 'personal-u1').at(-1)).toMatchObject({ classId: 'c1', followStudent: true });
+    view.rerender(classroom(true, { classId: 'c2', eventId: 'e2' }));
+    await waitFor(() => expect(boardProps.filter(props => props.targetId === 'personal-u1').at(-1)).toMatchObject({ classId: 'c2', followStudent: false }));
+    expect(screen.getByRole('button', { name: 'Следовать за учеником: Alice' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('uses the ordinary drawing panel with a private camera target and live video, without the pupil PDF', async () => {
     notebookFixture.camerasByOwner.set('u1', { cameraId: 'camera-u1', ownerId: 'u1', status: 'CONNECTED' });
     mount(true);

@@ -12,8 +12,8 @@ interface StudentSurfaceProps {
   onOpen: () => void;
   onOverview: () => void;
   showOverview: boolean;
-  renderBoard: (studentId: string, active: boolean, compact: boolean) => ReactNode;
-  renderCameraBoard: (studentId: string, active: boolean, compact: boolean, source: NotebookCameraVideoSource | null) => ReactNode;
+  renderBoard: (studentId: string, active: boolean, compact: boolean, following: boolean) => ReactNode;
+  renderCameraBoard: (studentId: string, active: boolean, compact: boolean, source: NotebookCameraVideoSource | null, following: boolean) => ReactNode;
 }
 
 function StudentSurface({ student, camera, visible, compact, onOpen, onOverview, showOverview, renderBoard, renderCameraBoard }: StudentSurfaceProps) {
@@ -21,6 +21,9 @@ function StudentSurface({ student, camera, visible, compact, onOpen, onOverview,
   const [video, setVideo] = useState<{ cameraId: string; source: NotebookCameraVideoSource } | null>(null);
   const [boardVisited, setBoardVisited] = useState(false);
   const [cameraBoardVisited, setCameraBoardVisited] = useState(false);
+  // Follow belongs to the pupil, so opening their tile or switching between
+  // paper and camera keeps the choice without changing another pupil's view.
+  const [following, setFollowing] = useState(false);
   const source = camera && video?.cameraId === camera.cameraId ? video.source : null;
   const hasVideo = Boolean(source && camera && media?.cameraId === camera.cameraId && media.available);
   // A hidden viewer continues listening for the phone to start again. Switching
@@ -33,15 +36,21 @@ function StudentSurface({ student, camera, visible, compact, onOpen, onOverview,
     <div className="online-class-room__student-tile-header">
       <strong>{student.displayName}</strong>
       <span className="student-workspace__kind">{hasVideo ? 'Камера тетради' : 'Доска'}</span>
+      <button type="button" className="student-workspace__follow"
+        aria-label={`Следовать за учеником: ${student.displayName}`} aria-pressed={following}
+        title={following ? 'Вернуться к своему просмотру' : `Следовать за учеником: ${student.displayName}`}
+        onClick={() => setFollowing(current => !current)}>
+        {following ? 'Слежение включено' : 'Следовать'}
+      </button>
       {compact ? <button type="button" onClick={onOpen}>Открыть</button>
         : showOverview && <button type="button" onClick={onOverview}>Все ученики</button>}
     </div>
     <div className="student-workspace__content">
       {boardVisited && <div className="student-workspace__board" hidden={hasVideo}>
-        {renderBoard(student.userId, boardNeeded, compact)}
+        {renderBoard(student.userId, boardNeeded, compact, following)}
       </div>}
       {cameraBoardVisited && <div className="student-workspace__camera-board" hidden={!hasVideo}>
-        {renderCameraBoard(student.userId, visible && hasVideo, compact, hasVideo ? source : null)}
+        {renderCameraBoard(student.userId, visible && hasVideo, compact, hasVideo ? source : null, following)}
       </div>}
       {camera && <div className={`student-workspace__camera${hasVideo ? '' : ' student-workspace__camera--waiting'}`}>
         <NotebookCameraViewer

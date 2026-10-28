@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import '../../styles/floating-islands.css';
 import '../../styles/whiteboard-original-v3.css';
 import { ApiRequestError } from '../../api/client';
@@ -27,7 +27,7 @@ import {
   type PageView,
 } from './boardView';
 import { isPersonalBoard, personalBoardOwner } from './boards';
-import { VIEW_TOPIC, viewEvent, type DocumentViewport } from './events';
+import { VIEW_TOPIC, viewEvent, type DocumentViewport, type StudentViewSnapshot } from './events';
 import { documentPageSize, zoomDocumentScroll, type DocumentScroll } from './documentBoardView';
 import type { DocumentGesture } from './documentGesture';
 import { isPalmContact, type InputMode } from './inputPolicy';
@@ -38,6 +38,9 @@ import type { PdfDoc } from './pdfDocument';
 import { buildPdf, dataUrlToBytes } from './pdfWriter';
 import { useClassEvents } from './useClassEvents';
 import { useFollowTeacher } from './useFollowTeacher';
+import { useStudentView } from './useStudentView';
+import { captureContinuousRegion, capturePagedRegion, documentZoomForStudentRegion,
+  fitStudentViewport, viewForStudentRegion } from './studentViewGeometry';
 import { useHostUserId } from './useHostUserId';
 import { useLaserPointers } from './useLaserPointers';
 import {
@@ -104,6 +107,7 @@ export function WhiteboardPanel({
   overlay,
   active = true,
   compactPreview = false,
+  followStudent = false,
   observedPage,
   onSaveLessonDocuments,
   savingLessonDocuments = false,
@@ -129,8 +133,10 @@ export function WhiteboardPanel({
   overlay?: ReactNode;
   /** False while another board is on screen: pauses polling, keeps state. */
   active?: boolean;
-  /** A fixed, full-page, read-only overview. Does not change the pupil's zoom or pan. */
+  /** Read-only overview with an independent local pan/zoom for each pupil. */
   compactPreview?: boolean;
+  /** Teacher opt-in: reproduce the owner's visible document region. */
+  followStudent?: boolean;
   /** Page currently being viewed by the student who owns this board. */
   observedPage?: number;
   onSaveLessonDocuments?: () => void;
@@ -147,6 +153,7 @@ export function WhiteboardPanel({
   // authorized by the server. Personal boards never follow the shared view.
   const personal = isPersonalBoard(targetId);
   const ownerId = personalBoardOwner(targetId);
+  const studentFollowRequested = isHost && personal && followStudent;
   const [tool, setTool] = useState<Tool>('pen');
   const [toolSettings, setToolSettings] = useState<Record<Tool, ToolSettings>>(
     () => boardToolPreferences.get(`${classId}:${actorId}`) ?? DEFAULT_TOOL_SETTINGS,
@@ -154,6 +161,7 @@ export function WhiteboardPanel({
   const [eraserMode, setEraserMode] = useState<EraserMode>('partial');
   const [inputMode, setInputModeState] = useState<InputMode>(loadInputMode);
   const [pages, setPages] = useState<BoardPages>(() => initialPages(1));
+  const [previewViews, setPreviewViews] = useState<Record<number, PageView>>({});
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<'unavailable' | 'failed' | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -177,6 +185,18 @@ export function WhiteboardPanel({
   const lastRemoteDocumentView = useRef<{ value: DocumentViewport; page: number } | null>(null);
   const fitViewport = useRef({ width: 0, height: 0 });
   const [remoteViewRevision, setRemoteViewRevision] = useState(0);
+  const [stageViewport, setStageViewport] = useState({ width: 0, height: 0 });
+  const [canvasGeometry, setCanvasGeometry] = useState<Record<number, {
+    viewport: { width: number; height: number }; aspect: number | null;
+  }>>({});
+  const reportCanvasGeometry = useCallback((index: number, viewport: { width: number; height: number }, aspect: number | null) => {
+    setCanvasGeometry(current => {
+      const previous = current[index];
+      return previous?.aspect === aspect && previous.viewport.width === viewport.width && previous.viewport.height === viewport.height
+        ? current : { ...current, [index]: { viewport, aspect } };
+    });
+  }, []);
+  const [pupilSnapshot, setPupilSnapshot] = useState<StudentViewSnapshot | null>(null);
   const receiveDocumentView = useCallback((value: DocumentViewport, page: number) => {
     remoteDocumentView.current = { value, page };
     lastRemoteDocumentView.current = { value, page };
@@ -186,6 +206,33 @@ export function WhiteboardPanel({
   }, []);
 
   const hostUserId = useHostUserId(classId);
+  const pupilView = useStudentView({
+    classId, boardId: targetId, targetType: camera ? 'NOTEBOOK_CAMERA' : 'WHITEBOARD', actorId, isHost, hostUserId,
+    active: active && personal && (targetType === 'WHITEBOARD' || camera),
+    followEnabled: studentFollowRequested, snapshot: pupilSnapshot,
+  });
+  // A hidden tile or a short connection interruption retains its last viewport.
+  const rememberedStudentView = useRef<{ key: string; value: StudentViewSnapshot | null }>({ key: '', value: null });
+  const studentViewKey = `${classId}:${targetType}:${targetId}:${actorId}:${isHost}:${hostUserId}`;
+  if (rememberedStudentView.current.key !== studentViewKey) rememberedStudentView.current = { key: studentViewKey, value: null };
+  if (pupilView.remoteView) rememberedStudentView.current.value = pupilView.remoteView;
+  const studentView = studentFollowRequested ? pupilView.remoteView ?? rememberedStudentView.current.value : null;
+  const manualView = useRef<{ pages: BoardPages; zoom: number; document: DocumentViewport } | null>(null);
+  useLayoutEffect(() => {
+    if (studentFollowRequested) {
+      manualView.current ??= { pages: pagesRef.current, zoom: documentZoomRef.current, document: documentViewRef.current };
+    } else if (manualView.current) {
+      const previous = manualView.current;
+      manualView.current = null;
+      setPages(current => ({ ...previous.pages, count: Math.max(current.count, previous.pages.count) }));
+      documentZoomRef.current = previous.zoom;
+      setDocumentZoom(previous.zoom);
+      setDocumentView(previous.document);
+      remoteDocumentView.current = { value: { ...previous.document, zoom: previous.zoom }, page: previous.pages.current };
+      lastRemoteDocumentView.current = null;
+      pendingDocumentScroll.current = null;
+    }
+  }, [studentFollowRequested]);
   const getBoardSize = useCallback((index = pagesRef.current.current) => {
     const size = pageHandles.current.get(index)?.canvas()?.getSize();
     if (size && size.width > 0 && size.height > 0) return size;
@@ -193,22 +240,25 @@ export function WhiteboardPanel({
     return { width: element?.clientWidth ?? 0, height: element?.clientHeight ?? 0 };
   }, []);
 
-  // Teacher preview opens on the student's actual page, not always page one.
+  // Open on the pupil's page once. Later page changes only move the teacher
+  // when they explicitly enabled following, never during manual inspection.
+  const openedObservedPage = useRef(false);
   useEffect(() => {
-    if (camera || !isHost || !personal || observedPage === undefined) return;
+    if (camera || !isHost || !personal || observedPage === undefined || openedObservedPage.current || studentFollowRequested) return;
+    openedObservedPage.current = true;
     setPages((current) => goToPage(ensurePageCount(current, observedPage + 1), observedPage));
-  }, [camera, isHost, personal, observedPage]);
+  }, [camera, isHost, personal, observedPage, studentFollowRequested]);
 
   const { publish: publishPersonalView } = useClassEvents(classId, VIEW_TOPIC, () => undefined);
   useEffect(() => {
     if (camera || isHost || !personal || ownerId !== actorId || !active) return;
-    const send = () => void publishPersonalView(viewEvent(classId, describeView(pages, viewOf(pages), getBoardSize(), targetId, false)), true);
+    const send = () => void publishPersonalView(viewEvent(classId, describeView(pages, viewOf(pages), getBoardSize(), targetId, false)), true, hostUserId ? [hostUserId] : []);
     send();
     const timer = window.setInterval(send, 2000);
     return () => window.clearInterval(timer);
-  }, [camera, isHost, personal, ownerId, actorId, active, classId, pages, targetId, getBoardSize, publishPersonalView]);
+  }, [camera, isHost, personal, ownerId, actorId, active, classId, pages, targetId, getBoardSize, publishPersonalView, hostUserId]);
 
-  const view = viewOf(pages);
+  const view = compactPreview ? previewViews[pages.current] ?? DEFAULT_VIEW : viewOf(pages);
   const follow = useFollowTeacher({
     classId,
     boardId: targetId,
@@ -221,10 +271,42 @@ export function WhiteboardPanel({
     documentView: layout === 'continuous' && targetType === 'WHITEBOARD' ? { ...documentView, zoom: documentZoom } : undefined,
     onDocumentView: receiveDocumentView,
   });
-  const locked = navigationLocked(isHost, follow.following);
-  // Overview tiles always fit one complete page, irrespective of the teacher's
-  // previously opened (and potentially zoomed or scrolled) workspace.
-  const continuous = !compactPreview && targetType === 'WHITEBOARD' && (canAnnotate || follow.followLayout === 'continuous') && (follow.followLayout ?? layout) === 'continuous';
+  const locked = navigationLocked(isHost, follow.following) || studentFollowRequested;
+  const annotationAllowed = canAnnotate && !studentFollowRequested;
+  // Manual overview navigation is independent of the focused workspace. A
+  // followed pupil can use either paged or continuous document navigation.
+  const continuous = targetType === 'WHITEBOARD' && (studentFollowRequested
+    ? studentView?.layout === 'continuous'
+    : !compactPreview && (canAnnotate || follow.followLayout === 'continuous') && (follow.followLayout ?? layout) === 'continuous');
+
+  useLayoutEffect(() => {
+    if (!studentView) return;
+    openedObservedPage.current = true;
+    setPages(current => goToPage(ensurePageCount(current, studentView.pageCount), studentView.page));
+    pendingDocumentScroll.current = null;
+    remoteDocumentView.current = null;
+  }, [studentView]);
+
+  useEffect(() => {
+    const element = stageRef.current;
+    if (!element) return;
+    const measure = () => {
+      const next = { width: element.clientWidth, height: element.clientHeight };
+      if (next.width > 0 && next.height > 0) setStageViewport(previous =>
+        previous.width === next.width && previous.height === next.height ? previous : next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const studentFrame = studentView ? fitStudentViewport(studentView.viewport, stageViewport) : null;
+  const studentFrameStyle: CSSProperties | undefined = studentView ? {
+    inset: 'auto', left: studentFrame?.left ?? 0, top: studentFrame?.top ?? 0,
+    width: studentView.viewport.width, height: studentView.viewport.height,
+    transform: `scale(${studentFrame ? studentFrame.width / studentView.viewport.width : 1})`,
+    transformOrigin: 'top left', visibility: studentFrame ? 'visible' : 'hidden',
+  } : undefined;
 
   const [pageStatuses, setPageStatuses] = useState<Record<number, PageSurfaceStatus>>({});
   const reportPageStatus = useCallback((index: number, status: PageSurfaceStatus) => {
@@ -303,10 +385,18 @@ export function WhiteboardPanel({
     window.addEventListener('blur', release);
     return () => { window.removeEventListener('blur', release); release(); };
   }, [continuous, locked, active]);
-  const basePageSizes = Array.from({ length: pages.count }, (_, index) => documentPageSize(pageWidth, pageHeight,
+  const layoutWidth = studentView?.layout === 'continuous' ? studentView.viewport.width : pageWidth;
+  const layoutHeight = studentView?.layout === 'continuous' ? Math.max(1, Math.round(studentView.viewport.height * .92)) : pageHeight;
+  const basePageSizes = Array.from({ length: pages.count }, (_, index) => documentPageSize(layoutWidth, layoutHeight,
     pageAspects[index] ?? (sourceAspect && Number.isFinite(sourceAspect) && sourceAspect > 0 ? sourceAspect : A4_PORTRAIT_ASPECT)));
   const baseRailWidth = Math.max(...basePageSizes.map(size => size.width));
-  const railWidth = Math.max(pageWidth, baseRailWidth * documentZoom);
+  const displayedDocumentZoom = studentView?.layout === 'continuous'
+    ? documentZoomForStudentRegion(studentView.region, studentView.viewport, basePageSizes[studentView.page] ?? basePageSizes[0]) ?? documentZoom
+    : documentZoom;
+  const railWidth = Math.max(layoutWidth, baseRailWidth * displayedDocumentZoom);
+  const pageGap = studentView?.layout === 'continuous' && studentView.pageGap !== undefined
+    ? studentView.pageGap * (basePageSizes[studentView.page] ?? basePageSizes[0]).width * displayedDocumentZoom
+    : 24 * displayedDocumentZoom;
   const rememberDocumentView = useCallback(() => {
     const root = scrollRef.current, element = pageElements.current.get(pagesRef.current.current);
     if (!root || !element || element.offsetWidth <= 0 || element.offsetHeight <= 0) return;
@@ -360,7 +450,7 @@ export function WhiteboardPanel({
     const resize = () => {
       const viewport = readScrollViewport(element);
       const previous = fitViewport.current;
-      if (continuous && previous.width > 0 && previous.height > 0 &&
+      if (continuous && !studentFollowRequested && previous.width > 0 && previous.height > 0 &&
           (Math.abs(previous.width - viewport.width) > .5 || Math.abs(previous.height - viewport.height) > .5) &&
           !pendingDocumentScroll.current && !remoteDocumentView.current) {
         remoteDocumentView.current = { value: { ...documentViewRef.current, zoom: documentZoomRef.current }, page: pagesRef.current.current };
@@ -373,24 +463,24 @@ export function WhiteboardPanel({
     const observer = new ResizeObserver(resize);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [continuous]);
+  }, [continuous, studentFollowRequested]);
   const reportPageAspect = useCallback((index: number, aspect: number | null) => {
     if (!aspect || !Number.isFinite(aspect) || aspect <= 0 || aspectCache.current[index] === aspect) return;
     const root = scrollRef.current, selected = pageElements.current.get(pagesRef.current.current);
-    if (continuous && root && selected && selected.offsetHeight > 0) geometryAnchor.current = {
+    if (continuous && !studentFollowRequested && root && selected && selected.offsetHeight > 0) geometryAnchor.current = {
       index: pagesRef.current.current, ratio: (root.scrollTop - selected.offsetTop) / selected.offsetHeight,
     };
     aspectCache.current = { ...aspectCache.current, [index]: aspect };
     setPageAspects(aspectCache.current);
-  }, [continuous]);
+  }, [continuous, studentFollowRequested]);
   useLayoutEffect(() => {
     const anchor = geometryAnchor.current, root = scrollRef.current;
-    if (!continuous) { geometryAnchor.current = null; return; }
+    if (!continuous || studentFollowRequested) { geometryAnchor.current = null; return; }
     if (!anchor || !root) return;
     const element = pageElements.current.get(anchor.index);
     if (element) root.scrollTop = Math.max(0, element.offsetTop + anchor.ratio * element.offsetHeight);
     geometryAnchor.current = null;
-  }, [continuous, pageAspects]);
+  }, [continuous, pageAspects, studentFollowRequested]);
   useEffect(() => {
     const root = scrollRef.current;
     if (!continuous || !root || typeof IntersectionObserver === 'undefined') return;
@@ -417,15 +507,25 @@ export function WhiteboardPanel({
     }
   }, []);
   useLayoutEffect(() => {
-    if (!continuous || !active) return;
+    if (!continuous || !active || studentFollowRequested) return;
     if (pendingDocumentScroll.current || remoteDocumentView.current || (locked && lastRemoteDocumentView.current)) return;
     if (scrollSelected.current === pages.current && !locked) { scrollSelected.current = null; return; }
     scrollSelected.current = null;
     alignCurrentPage();
-  }, [continuous, active, pages.current, pages.count, pageHeight, pageWidth, alignCurrentPage]);
+  }, [continuous, active, pages.current, pages.count, pageHeight, pageWidth, alignCurrentPage, studentFollowRequested]);
   useLayoutEffect(() => {
     const root = scrollRef.current;
     if (!continuous || !root) return;
+    if (studentView?.layout === 'continuous') {
+      const element = pageElements.current.get(studentView.page);
+      if (element && element.offsetWidth > 0 && element.offsetHeight > 0) {
+        // These are logical CSS coordinates inside the source-sized frame.
+        // Its outer CSS scale changes only presentation, never this scroll.
+        root.scrollLeft = element.offsetLeft + studentView.region.x * element.offsetWidth;
+        root.scrollTop = element.offsetTop + studentView.region.y * element.offsetHeight;
+      }
+      return;
+    }
     const remote = locked && follow.followLayout === 'continuous' ? lastRemoteDocumentView.current : remoteDocumentView.current;
     if (remote) {
       const element = pageElements.current.get(remote.page);
@@ -441,7 +541,8 @@ export function WhiteboardPanel({
     }
     pendingDocumentScroll.current = null;
     rememberDocumentView();
-  }, [continuous, locked, follow.followLayout, documentZoom, remoteViewRevision, pages.current, pageAspects, pageHeight, pageWidth, rememberDocumentView]);
+  }, [continuous, locked, follow.followLayout, documentZoom, remoteViewRevision, pages.current, pageAspects, pageHeight, pageWidth,
+    rememberDocumentView, studentView, displayedDocumentZoom]);
   const activatePage = useCallback((index: number) => {
     if (locked) return;
     scrollSelected.current = index;
@@ -476,6 +577,50 @@ export function WhiteboardPanel({
       };
       setDocumentView(previous => previous.zoom === value.zoom && Math.abs(previous.x - value.x) < .0001 && Math.abs(previous.y - value.y) < .0001 ? previous : value);
     }
+  };
+  // Publish the owner's actual clear viewport, including continuous scrolling.
+  // Measuring in document coordinates avoids both browser pixel density and
+  // the teacher tile's dimensions changing the stored ink or visible crop.
+  useLayoutEffect(() => {
+    if (isHost || !personal || ownerId !== actorId || !active || (targetType !== 'WHITEBOARD' && !camera)) return;
+    const geometry = canvasGeometry[pages.current];
+    const canvasSize = geometry?.viewport ?? getBoardSize();
+    const aspect = geometry?.aspect ?? pageAspects[pages.current] ?? sourceAspect ?? A4_PORTRAIT_ASPECT;
+    let viewport = canvasSize;
+    let region = capturePagedRegion(viewOf(pages), viewport, aspect);
+    let gap: number | undefined;
+    if (continuous) {
+      const root = scrollRef.current, element = pageElements.current.get(pages.current);
+      if (!root || !element) return;
+      const clear = readScrollViewport(root), style = getComputedStyle(root);
+      viewport = { width: clear.width, height: clear.height };
+      region = captureContinuousRegion({
+        left: root.scrollLeft + (parseFloat(style.paddingLeft) || 0), top: root.scrollTop + clear.top,
+        ...viewport,
+      }, { left: element.offsetLeft, top: element.offsetTop, width: element.offsetWidth, height: element.offsetHeight });
+      if (element.offsetWidth > 0) gap = pageGap / element.offsetWidth;
+    }
+    if (!region) return;
+    const snapshot: StudentViewSnapshot = {
+      page: pages.current, pageCount: pages.count, layout: continuous ? 'continuous' : 'paged', viewport, region,
+      ...(gap === undefined ? {} : { pageGap: gap }),
+    };
+    setPupilSnapshot(previous => JSON.stringify(previous) === JSON.stringify(snapshot) ? previous : snapshot);
+  }, [isHost, personal, ownerId, actorId, active, targetType, camera, pages, continuous, documentZoom,
+    documentView, canvasGeometry, pageAspects, sourceAspect, pageWidth, pageHeight, pageGap, getBoardSize]);
+
+  const displayedPageView = (index: number) => {
+    if (continuous) return DEFAULT_VIEW;
+    if (studentView?.layout === 'paged') {
+      const aspect = canvasGeometry[index]?.aspect ?? pageAspects[index] ?? sourceAspect ?? A4_PORTRAIT_ASPECT;
+      return viewForStudentRegion(studentView.region, studentView.viewport, aspect) ?? DEFAULT_VIEW;
+    }
+    return compactPreview ? previewViews[index] ?? DEFAULT_VIEW : viewOf(pages, index);
+  };
+  const changePageView = (next: PageView, index = pagesRef.current.current) => {
+    if (locked) return;
+    if (compactPreview) setPreviewViews(current => ({ ...current, [index]: next }));
+    else setPages(current => withView(current, next, index));
   };
   const finishPointerNavigation = () => {
     drawingPage.current = null;
@@ -541,8 +686,6 @@ export function WhiteboardPanel({
     finishPointerNavigation();
   };
 
-  const setView = useCallback((next: PageView) => setPages((current) => withView(current, next)), []);
-
   const zoomBy = (factor: number) => {
     const root = scrollRef.current;
     if (continuous && root) {
@@ -552,7 +695,7 @@ export function WhiteboardPanel({
       return;
     }
     const size = getBoardSize();
-    setView(zoomAbout(view, view.zoom * factor, { x: size.width / 2, y: size.height / 2 }, size));
+    changePageView(zoomAbout(view, view.zoom * factor, { x: size.width / 2, y: size.height / 2 }, size));
   };
 
   const changeInputMode = (mode: InputMode) => {
@@ -648,15 +791,15 @@ export function WhiteboardPanel({
   ) : null;
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (!canAnnotate || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+    if (!annotationAllowed || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
     event.preventDefault();
     void (event.shiftKey ? board.redo() : board.undo());
   };
 
   return (
-    <section className={`whiteboard school-islands-board whiteboard--original-v3${camera ? ' whiteboard--camera' : ''}${continuous ? ' whiteboard--continuous' : ''}${compactPreview ? ' whiteboard--compact-preview' : ''}`} aria-label={t('onlineClass.board.viewLabel')} onKeyDown={onKeyDown}>
+    <section className={`whiteboard school-islands-board whiteboard--original-v3${camera ? ' whiteboard--camera' : ''}${continuous ? ' whiteboard--continuous' : ''}${compactPreview ? ' whiteboard--compact-preview' : ''}${studentFollowRequested ? ' whiteboard--following-student' : ''}`} aria-label={t('onlineClass.board.viewLabel')} onKeyDown={onKeyDown}>
       <div className="whiteboard__topline">
-      {canAnnotate && (
+      {annotationAllowed && (
         <BoardToolbar
           tool={tool}
           onToolChange={setTool}
@@ -710,16 +853,20 @@ export function WhiteboardPanel({
         )}
         {exportFailed && <span className="whiteboard__error">{t('onlineClass.whiteboard.exportFailed')}</span>}
         {isHost && follow.followEnabled && <span>{t('onlineClass.board.follow.hostOn')}</span>}
-        {locked && <span>{t('onlineClass.board.follow.student')}</span>}
+        {!isHost && follow.following && <span>{t('onlineClass.board.follow.student')}</span>}
       </div>
 
       <div ref={stageRef} className="whiteboard__stage">
+      {studentFollowRequested && !pupilView.isFresh && <div className="whiteboard__follow-status" role="status">
+        {studentView ? 'Ждём обновление вида ученика…' : 'Ожидаем вид ученика…'}
+      </div>}
       {!continuous && <div className="whiteboard__topline-pages">
         <PageNavigator current={pages.current} count={pages.count} disabled={locked}
           onPrevious={() => setPages(previousPage)} onNext={() => setPages(nextPage)}
           onAdd={(isHost || personal) && canAnnotate ? () => setPages(addPage) : undefined} />
       </div>}
 
+        <div className="whiteboard__view-frame" style={studentFrameStyle} data-following-student={Boolean(studentView)}>
         <div ref={scrollRef} className={`whiteboard__pages${continuous ? ' whiteboard__pages--continuous' : ' whiteboard__pages--paged'}${locked ? ' whiteboard__pages--locked' : ''}`}
           role={continuous ? 'region' : undefined} aria-label={continuous ? (language === 'DE' ? 'Unterrichtsseiten' : 'Страницы доски') : undefined}
           tabIndex={continuous ? 0 : undefined} onScroll={handleScroll}
@@ -730,28 +877,31 @@ export function WhiteboardPanel({
           }}
           onPointerMoveCapture={moveDocumentPointer}
           onPointerUpCapture={endDocumentPointer} onPointerCancelCapture={endDocumentPointer}>
-          <div ref={railRef} className="whiteboard__document" style={continuous ? { width: railWidth, gap: 24 * documentZoom } : undefined}>
+          <div ref={railRef} className="whiteboard__document" style={continuous ? { width: railWidth, gap: pageGap } : undefined}>
           {Array.from({ length: pages.count }, (_, index) => <article key={`${targetType}:${targetId}:${index}`}
             ref={element => { if (element) pageElements.current.set(index, element); else pageElements.current.delete(index); }}
             className="whiteboard__page" data-page-index={index} hidden={!continuous && index !== pages.current}
             aria-current={index === pages.current ? 'page' : undefined}
             aria-label={t('onlineClass.board.page.current', { current: index + 1, total: pages.count })}
-            style={continuous ? { width: basePageSizes[index].width * documentZoom, height: basePageSizes[index].height * documentZoom } : undefined}>
+            style={continuous ? { width: basePageSizes[index].width * displayedDocumentZoom, height: basePageSizes[index].height * displayedDocumentZoom } : undefined}>
             {(visitedPages.has(index) || index === pages.current) && <WhiteboardPageSurface
               ref={handle => { if (handle) { pageHandles.current.set(index, handle); if (documentNavigationActive.current) handle.canvas()?.setDocumentNavigation?.(true); } else pageHandles.current.delete(index); }}
               classId={classId} actorId={actorId} isHost={isHost} targetType={targetType} targetId={targetId} pageIndex={index}
               pdfDocument={pdfDocument} sourceAspect={sourceAspect} liveBackground={cameraBackground}
-              tool={tool} settings={settingsOf} textSettings={toolSettings.text} eraserMode={eraserMode} inputMode={inputMode}
-              view={compactPreview || continuous ? DEFAULT_VIEW : viewOf(pages, index)} onViewChange={next => setPages(current => withView(current, next, index))}
+              tool={compactPreview ? 'pan' : tool} settings={settingsOf} textSettings={toolSettings.text} eraserMode={eraserMode} inputMode={inputMode}
+              view={displayedPageView(index)} onViewChange={next => changePageView(next, index)}
+              viewScope={studentFollowRequested ? 'pupil' : compactPreview ? 'overview' : 'focused'}
               onDocumentGesture={continuous ? applyDocumentGesture : undefined}
               onDocumentPenContact={continuous ? pressed => noteDocumentPenContact(index, pressed) : undefined}
-              canAnnotate={canAnnotate} navigationLocked={locked || compactPreview} continuous={continuous}
+              canAnnotate={annotationAllowed} navigationLocked={locked} continuous={continuous}
               active={active && (index === pages.current || (continuous && visiblePages.has(index)))} selected={index === pages.current}
               lasers={index === pages.current && !camera ? lasers : []} onLaser={sendLaser}
-              onActivate={activatePage} onStatusChange={reportPageStatus} onAspectChange={reportPageAspect} onScrollGesture={scrollPages}
+              onActivate={activatePage} onStatusChange={reportPageStatus} onAspectChange={reportPageAspect}
+              onCanvasGeometry={reportCanvasGeometry} onScrollGesture={scrollPages}
             />}
           </article>)}
           </div>
+        </div>
         </div>
 
         <div className="whiteboard__zoom" role="group">

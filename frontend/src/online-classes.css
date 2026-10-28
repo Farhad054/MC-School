@@ -2024,6 +2024,23 @@
 }
 .student-workspaces[hidden], .student-workspace[hidden],
 .student-workspace__board[hidden], .student-workspace__camera-board[hidden] { display: none; }
+.student-workspace .online-class-room__student-tile-header { flex-wrap: wrap; }
+.student-workspace .online-class-room__student-tile-header strong { min-width: 0; }
+.student-workspace .online-class-room__student-tile-header button { flex-shrink: 0; }
+.student-workspace .online-class-room__student-tile-header .student-workspace__follow {
+  min-height: 28px;
+  white-space: nowrap;
+}
+.student-workspace .online-class-room__student-tile-header .student-workspace__follow[aria-pressed='true'] {
+  border-color: #2563a9;
+  background: #e7f1ff;
+  color: #174d8a;
+}
+.online-class-room--original-v3 .student-workspace .online-class-room__student-tile-header .student-workspace__follow[aria-pressed='true'] {
+  border-color: var(--v3-orange, #ff812f);
+  background: var(--v3-selected, #553824);
+  color: var(--v3-orange, #ff812f);
+}
 .student-workspace__kind {
   flex-shrink: 0;
   margin-left: auto;
