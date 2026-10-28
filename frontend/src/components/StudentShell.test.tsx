@@ -34,4 +34,9 @@ describe('student role shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Вернуться в админку' }));
     expect(callbacks.onReturnToAdmin).toHaveBeenCalledOnce();
   });
+  it('shows and highlights the shared online classroom list only when available', () => {
+    mount('/online-classes', { onlineClassesAvailable: true });
+    expect(screen.getByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('href', '/online-classes');
+    expect(screen.getByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('aria-current', 'page');
+  });
 });

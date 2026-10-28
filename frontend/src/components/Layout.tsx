@@ -5,6 +5,7 @@ import { StudentShell } from './StudentShell';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n/I18nContext';
 import { api, setAccessToken, setSessionAccessToken } from '../api/client';
+import { useOnlineClassesAvailable } from '../features/online-classes/useOnlineClassesAvailable';
 import type { TranslationKey } from '../i18n/translations';
 import { clearAdminImpersonation, readAdminImpersonation } from '../auth/adminImpersonation';
 
@@ -22,6 +23,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const isAdmin = user?.role === 'ADMIN';
   const impersonation = !isAdmin ? readAdminImpersonation() : null;
   const isImpersonating = Boolean(user && impersonation?.adminToken);
+  // Only offered where the feature is switched on for this server and user.
+  const onlineClassesAvailable = useOnlineClassesAvailable(user?.id, Boolean(isTeacher || isStudent));
 
   async function returnToAdmin() {
     if (!impersonation || returningToAdmin) return;
@@ -60,11 +63,13 @@ export function Layout({ children }: { children: ReactNode }) {
 
   if (isTeacher) {
     return <TeacherShell user={user} isImpersonating={isImpersonating} returningToAdmin={returningToAdmin}
+      onlineClassesAvailable={onlineClassesAvailable}
       onReturnToAdmin={() => void returnToAdmin()} onLogout={fullLogout}>{children}</TeacherShell>;
   }
 
   if (isStudent) {
     return <StudentShell name={user.fullName} isImpersonating={isImpersonating} returningToAdmin={returningToAdmin}
+      onlineClassesAvailable={onlineClassesAvailable}
       onReturnToAdmin={() => void returnToAdmin()} onLogout={fullLogout}>{children}</StudentShell>;
   }
 
@@ -72,6 +77,7 @@ export function Layout({ children }: { children: ReactNode }) {
     ? [
         { to: '/today', label: 'nav.today' },
         { to: '/my-cards', label: 'nav.myCards' },
+        ...(onlineClassesAvailable ? [{ to: '/online-classes', label: 'nav.onlineClasses' }] : []),
         { to: '/student/lessons', label: language === 'DE' ? 'Mein Unterricht' : 'Мои уроки' },
         { to: '/settings', label: 'nav.settings' },
       ]

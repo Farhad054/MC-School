@@ -11,6 +11,7 @@ import './teacher-groups.css';
 import './teacher-detail.css';
 import './group-detail.css';
 import './login-page.css';
+import './online-classes.css';
 import './pdf-homework.css';
 import './student-menu.css';
 import './student-today-status.css';

@@ -26,11 +26,11 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Standalone pilot whiteboard for an existing Google Calendar lesson.
+ * Standalone whiteboard for an existing school lesson.
  *
  * This deliberately does not change scheduling, Meet, attendance, homework or
- * PDF preparation. The global security filter restricts all endpoints to the
- * designated pilot teacher and his enrolled students, and this controller
+ * PDF preparation. The global security filter restricts all endpoints to active
+ * teachers and their active pupils, and this controller
  * additionally checks membership in the exact lesson occurrence.
  */
 @RestController
@@ -94,7 +94,7 @@ public class LessonBoardController {
                         .map(BoardOperationView::of).toList());
     }
 
-    /** Called only when the pilot teacher opens the board from a lesson card. */
+    /** Called only when the owning teacher opens the board from a lesson card. */
     @PostMapping("/{eventId}/start")
     @Transactional
     @PreAuthorize("hasRole('TEACHER')")

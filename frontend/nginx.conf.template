@@ -23,8 +23,8 @@ server {
     # Spring multipart limit so uploads are not rejected by nginx first.
     client_max_body_size 26M;
 
-    # --- Security headers (applied to every response; no location redefines
-    # add_header, so these are inherited by all locations below) ---
+    # --- Security headers. The iframe locations below repeat these headers
+    # because a location's own add_header directives replace inheritance. ---
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "no-referrer" always;

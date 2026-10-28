@@ -9,6 +9,7 @@ type Props = {
   user: User;
   isImpersonating: boolean;
   returningToAdmin: boolean;
+  onlineClassesAvailable?: boolean;
   onReturnToAdmin: () => void;
   onLogout: () => void;
 };
@@ -20,7 +21,7 @@ function Brand() {
   </div>;
 }
 
-export function TeacherShell({ children, user, isImpersonating, returningToAdmin, onReturnToAdmin, onLogout }: Props) {
+export function TeacherShell({ children, user, isImpersonating, returningToAdmin, onlineClassesAvailable = false, onReturnToAdmin, onLogout }: Props) {
   const { language, t } = useI18n();
   const de = language === 'DE';
   const location = useLocation();
@@ -33,8 +34,8 @@ export function TeacherShell({ children, user, isImpersonating, returningToAdmin
     { to: '/parents', label: de ? 'Eltern' : 'Родители', icon: 'parents' },
     { to: '/groups', label: de ? 'Meine Gruppen' : 'Мои группы', icon: 'groups' },
     { to: '/teacher/lessons', label: de ? 'Unterricht' : 'Уроки', icon: 'lessons' },
-    ...(user.id === '14e3c7c1-1fc8-41bd-858a-6c20efdd957a' && import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true'
-      ? [{ to: '/teacher/online-classes', label: de ? 'Online-Unterricht' : 'Онлайн-уроки', icon: 'video' as const }] : []),
+    ...(onlineClassesAvailable
+      ? [{ to: '/online-classes', label: t('nav.onlineClasses'), icon: 'video' as const }] : []),
     { to: '/skills', label: de ? 'Kompetenzen' : 'Карта навыков', icon: 'skills' },
     { to: '/teacher/settings', label: de ? 'Einstellungen' : 'Настройки', icon: 'settings' },
   ];

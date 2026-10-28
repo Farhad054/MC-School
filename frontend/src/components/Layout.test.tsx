@@ -1,14 +1,15 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api, ApiRequestError } from '../api/client';
+import { onlineClassesApi } from '../api/onlineClasses';
+import type { User } from '../api/types';
+import { resetOnlineClassesAvailability } from '../features/online-classes/useOnlineClassesAvailable';
 import { I18nProvider } from '../i18n/I18nContext';
 import { Layout } from './Layout';
-import { api } from '../api/client';
-import type { User } from '../api/types';
 
-const PILOT_OWNER_ID = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
 let role: 'TEACHER' | 'STUDENT' | 'PARENT' | 'ADMIN' = 'TEACHER';
-let userId: string = PILOT_OWNER_ID;
+let userId = 'teacher';
 const authActions = vi.hoisted(() => ({ logout: vi.fn(), setUser: vi.fn() }));
 
 vi.mock('../auth/AuthContext', () => ({
@@ -17,6 +18,10 @@ vi.mock('../auth/AuthContext', () => ({
     ...authActions,
   }),
 }));
+vi.mock('../api/onlineClasses', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/onlineClasses')>();
+  return { ...actual, onlineClassesApi: { ...actual.onlineClassesApi, listUpcoming: vi.fn() } };
+});
 
 function mount(path = '/') {
   return render(
@@ -28,11 +33,19 @@ function mount(path = '/') {
   );
 }
 
-function showTeacherSidebar() {
-  expect(screen.getByRole('navigation', { name: 'Основная навигация' })).toBeInTheDocument();
-}
+describe('Layout: role designs and server-controlled online classroom navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('language', 'RU');
+    sessionStorage.clear();
+    resetOnlineClassesAvailability();
+    role = 'TEACHER';
+    userId = 'teacher';
+    vi.mocked(onlineClassesApi.listUpcoming).mockResolvedValue([]);
+  });
+  afterEach(() => { sessionStorage.clear(); vi.unstubAllEnvs(); });
 
-describe('Layout: owner-only online classroom pilot navigation', () => {
   it('uses a full-width content area only for the admin Stories workspace', () => {
     role = 'ADMIN';
     const { container, unmount } = mount('/admin/stories');
@@ -41,53 +54,49 @@ describe('Layout: owner-only online classroom pilot navigation', () => {
     const otherPage = mount('/admin/accounts');
     expect(otherPage.container.querySelector('main.content')).not.toHaveClass('content--stories-workspace');
   });
-  beforeEach(() => {
-    localStorage.setItem('language', 'RU');
-    sessionStorage.clear();
-    role = 'TEACHER';
-    userId = PILOT_OWNER_ID;
-    vi.stubEnv('VITE_MINDCRAFTI_LIVEKIT_ENABLED', 'true');
-  });
-  afterEach(() => {
-    sessionStorage.clear();
-    vi.unstubAllEnvs();
-    vi.clearAllMocks();
-  });
 
-  it('shows the original online classroom entry for the designated pilot teacher', () => {
+  it('gives a teacher the shared online classes link when the server enables it', async () => {
     mount();
-    showTeacherSidebar();
-    expect(screen.getByRole('link', { name: 'Онлайн-уроки' }))
-      .toHaveAttribute('href', '/teacher/online-classes');
+    expect(await screen.findByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('href', '/online-classes');
+    expect(screen.getByRole('navigation', { name: 'Основная навигация' })).toBeInTheDocument();
   });
 
-  it('does not expose the pilot to unrelated teachers', () => {
+  it('gives a student the same server-authorized online classes entry', async () => {
+    role = 'STUDENT';
+    mount();
+    expect(await screen.findByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('href', '/online-classes');
+  });
+
+  it('does not restrict a server-authorized teacher to the old pilot id or build flag', async () => {
     userId = 'not-the-pilot';
-    mount();
-    showTeacherSidebar();
-    expect(screen.queryByRole('link', { name: 'Онлайн-уроки' })).not.toBeInTheDocument();
-  });
-
-  it('does not show the navigation entry when the pilot flag is disabled', () => {
     vi.stubEnv('VITE_MINDCRAFTI_LIVEKIT_ENABLED', 'false');
     mount();
-    showTeacherSidebar();
+    expect(await screen.findByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('href', '/online-classes');
+  });
+
+  it.each([403, 404])('hides the classroom shortcut when the server rejects availability with %s', async (status) => {
+    vi.mocked(onlineClassesApi.listUpcoming).mockRejectedValue(new ApiRequestError(status, 'NOT_FOUND', 'Unavailable'));
+    mount();
+    await waitFor(() => expect(onlineClassesApi.listUpcoming).toHaveBeenCalledOnce());
     expect(screen.queryByRole('link', { name: 'Онлайн-уроки' })).not.toBeInTheDocument();
   });
 
-  it('does not give a parent a teacher-only menu', () => {
-    role = 'PARENT';
+  it.each(['PARENT', 'ADMIN'] as const)('never probes online classrooms for %s', (nextRole) => {
+    role = nextRole;
     mount();
+    expect(onlineClassesApi.listUpcoming).not.toHaveBeenCalled();
     expect(screen.queryByRole('link', { name: 'Онлайн-уроки' })).not.toBeInTheDocument();
   });
 
-  it('does not expose a dead-end homework shortcut', () => {
+  it('does not expose a dead-end teacher homework shortcut', async () => {
     mount();
-    showTeacherSidebar();
+    await screen.findByRole('link', { name: 'Онлайн-уроки' });
     expect(screen.queryByRole('link', { name: 'Домашние задания' })).not.toBeInTheDocument();
   });
-  it('opens the additional sections, traps focus, and returns it on Escape', () => {
+
+  it('opens the additional sections, traps focus, and returns it on Escape', async () => {
     mount();
+    await screen.findByRole('link', { name: 'Онлайн-уроки' });
     const more = screen.getByRole('button', { name: 'Показать меню' });
     fireEvent.click(more);
     const dialog = screen.getByRole('dialog', { name: 'Разделы кабинета' });
@@ -100,31 +109,33 @@ describe('Layout: owner-only online classroom pilot navigation', () => {
     expect(more).toHaveFocus();
   });
 
-  it('closes the additional menu when navigating and keeps the official logo', () => {
+  it('closes the additional menu when navigating and keeps the official logo', async () => {
     mount();
+    await screen.findByRole('link', { name: 'Онлайн-уроки' });
     expect(screen.getAllByRole('img', { name: 'Mindcrafti School' })[0]).toHaveAttribute('src', '/brand/Mindcrafti_Logo_M_OFFICIAL.webp');
     fireEvent.click(screen.getByRole('button', { name: 'Показать меню' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('link', { name: 'Родители' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('uses the student design with only existing pupil routes', () => {
+  it('uses the student design with existing pupil routes and the available online classes', async () => {
     role = 'STUDENT';
     const { container } = mount();
+    await screen.findByRole('link', { name: 'Онлайн-уроки' });
     expect(container.querySelector('.student-shell')).toBeInTheDocument();
     expect(container.querySelector('.teacher-shell')).not.toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Основная навигация' });
     expect(within(nav).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual([
-      '/today', '/my-cards', '/student/homeworks', '/student/lessons', '/settings',
+      '/today', '/my-cards', '/student/homeworks', '/student/lessons', '/online-classes', '/settings',
     ]);
-    expect(screen.queryByRole('link', { name: 'Онлайн-уроки' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Мой прогресс' })).not.toBeInTheDocument();
   });
 
-  it('translates the student menu and keeps logout working', () => {
+  it('translates the student menu and keeps logout working', async () => {
     role = 'STUDENT';
     localStorage.setItem('language', 'DE');
     mount();
+    await screen.findByRole('link', { name: 'Online-Unterricht' });
     expect(screen.getByRole('link', { name: 'Mein Unterricht' })).toHaveAttribute('href', '/student/lessons');
     fireEvent.click(screen.getByRole('button', { name: 'Abmelden' }));
     expect(authActions.logout).toHaveBeenCalledOnce();
@@ -143,7 +154,7 @@ describe('Layout: owner-only online classroom pilot navigation', () => {
     expect(authActions.logout).not.toHaveBeenCalled();
   });
 
-  it.each(['PARENT', 'ADMIN'] as const)('keeps %s outside the student theme', nextRole => {
+  it.each(['PARENT', 'ADMIN'] as const)('keeps %s outside the student theme', (nextRole) => {
     role = nextRole;
     const { container } = mount();
     expect(container.querySelector('.student-shell')).not.toBeInTheDocument();

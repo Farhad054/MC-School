@@ -3,8 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
+import { aiPilotApi } from '../../api/aiPilot';
 import { completedLessonApi, lessonPreparationApi, type CompletedLessonDocument } from '../../api/lessonPreparation';
-import type { LessonPreparation } from '../../api/types';
+import type { LessonPreparation, StudentListItem } from '../../api/types';
 import { I18nProvider } from '../../i18n/I18nContext';
 import { LessonDetailPage } from './LessonDetailPage';
 
@@ -14,7 +15,8 @@ vi.mock('../../api/client', async importOriginal => {
   const actual = await importOriginal<typeof import('../../api/client')>();
   return { ...actual, api: { ...actual.api,
     lessons: { ...actual.api.lessons, groupLessons: vi.fn() },
-    students: { ...actual.api.students, list: vi.fn() },
+    students: { ...actual.api.students, list: vi.fn(), get: vi.fn() },
+    homeworks: { ...actual.api.homeworks, listForStudent: vi.fn() },
   } };
 });
 vi.mock('../../api/lessonPreparation', async importOriginal => {
@@ -38,6 +40,7 @@ beforeEach(() => {
     startsAt: '2026-10-23T00:00:00Z', endsAt: '2026-10-23T01:00:00Z', meetUrl: null, calendarUrl: null,
   }]);
   vi.mocked(api.students.list).mockResolvedValue([]);
+  vi.mocked(api.homeworks.listForStudent).mockResolvedValue([]);
   vi.mocked(lessonPreparationApi.get).mockResolvedValue({ eventId: 'local-trial', hasWorkbook: false, hasAnswers: false, hasTranscript: false } as LessonPreparation);
   vi.mocked(completedLessonApi.list).mockResolvedValue([archived]);
   vi.mocked(completedLessonApi.uploadManual).mockResolvedValue(uploaded);
@@ -89,13 +92,43 @@ describe('native lesson details preserve completed documents', () => {
     }));
     expect(await screen.findByText('Информация для урока сохранена.')).toBeInTheDocument();
   });
-  it('keeps the board available but requires an assigned pupil before starting trial video', async () => {
-    currentUser.id = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
+  it('keeps the configured trial board available to a regular teacher but requires an assigned pupil for video', async () => {
     vi.stubEnv('VITE_MINDCRAFTI_LIVEKIT_ENABLED', 'true');
     vi.stubEnv('VITE_MINDCRAFTI_ONLINE_ENABLED', 'true');
     mount();
     expect(await screen.findByText('Для подключения ученика назначьте его этому уроку')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Начать онлайн-урок' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Mindcrafti доска (тест)' })).toHaveAttribute('href', '/lesson-board/local-trial');
+    expect(screen.queryByText('AI пилот Николая')).not.toBeInTheDocument();
+    expect(aiPilotApi.status).not.toHaveBeenCalled();
+  });
+  it('keeps the same primary classroom entry for any teacher and their own assigned pupil', async () => {
+    vi.stubEnv('VITE_MINDCRAFTI_LIVEKIT_ENABLED', 'true');
+    vi.stubEnv('VITE_MINDCRAFTI_ONLINE_ENABLED', 'true');
+    const pupil = { id: 'regular-pupil', fullName: 'Анна', chatGptProjectUrl: null } as StudentListItem;
+    vi.mocked(api.students.list).mockResolvedValue([pupil]);
+    vi.mocked(api.students.get).mockResolvedValue(pupil);
+    vi.mocked(api.lessons.groupLessons).mockResolvedValue([{
+      eventId: 'local-trial', bindingKey: 'local-trial', title: 'Урок Анны', groupId: null, groupName: null,
+      studentId: pupil.id, studentName: pupil.fullName, participantStudentIds: [pupil.id],
+      startsAt: '2026-10-23T00:00:00Z', endsAt: '2026-10-23T01:00:00Z', meetUrl: null, calendarUrl: null,
+    }]);
+    mount();
+    expect(await screen.findByRole('button', { name: 'Начать онлайн-урок' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Mindcrafti доска (тест)' })).not.toBeInTheDocument();
+    expect(screen.queryByText('AI пилот Николая')).not.toBeInTheDocument();
+    expect(aiPilotApi.status).not.toHaveBeenCalled();
+  });
+  it('does not expose the standalone fallback when its deployment switch is off', async () => {
+    vi.stubEnv('VITE_MINDCRAFTI_ONLINE_ENABLED', 'false');
+    mount();
+    await screen.findByText('Для подключения ученика назначьте его этому уроку');
+    expect(screen.queryByRole('link', { name: 'Mindcrafti доска (тест)' })).not.toBeInTheDocument();
+  });
+  it('keeps the separate AI pilot restricted to its existing owner account', async () => {
+    currentUser.id = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
+    mount();
+    expect(await screen.findByText('AI пилот Николая')).toBeInTheDocument();
+    expect(aiPilotApi.status).toHaveBeenCalledOnce();
   });
 });

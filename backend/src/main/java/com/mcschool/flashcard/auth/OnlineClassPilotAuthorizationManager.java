@@ -13,13 +13,13 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 import org.springframework.stereotype.Component;
 
 /**
- * Trial-only gate for the Mindcrafti Online classroom.
+ * Account eligibility gate for the Mindcrafti Online classroom.
  *
- * The room owner is selected using the server-verified JWT principal, never a
- * user id provided by the browser. The feature is deny-by-default until both
- * ONLINE_CLASSES_ENABLED and ONLINE_CLASSES_PILOT_OWNER_ID are configured.
+ * Uses the server-verified JWT principal and current database account state,
+ * never a user id or role provided by the browser. The feature remains
+ * deny-by-default until ONLINE_CLASSES_ENABLED is configured.
  *
- * Students attached to the pilot teacher may JOIN their assigned classes.
+ * Active teachers and active students of active teachers may use the classroom.
  * The online class service must still verify the particular class membership;
  * this gate is an additional restriction, not a replacement for that check.
  */
@@ -29,17 +29,12 @@ public class OnlineClassPilotAuthorizationManager
 
     private final UserRepository userRepository;
     private final boolean enabled;
-    private final UUID pilotOwnerId;
 
     public OnlineClassPilotAuthorizationManager(
             UserRepository userRepository,
-            @Value("${app.online-classes.enabled:false}") boolean enabled,
-            @Value("${app.online-classes.pilot-owner-id:}") String pilotOwnerId) {
+            @Value("${app.online-classes.enabled:false}") boolean enabled) {
         this.userRepository = userRepository;
         this.enabled = enabled;
-        this.pilotOwnerId = pilotOwnerId == null || pilotOwnerId.isBlank()
-                ? null
-                : UUID.fromString(pilotOwnerId.trim());
     }
 
     @Override
@@ -50,21 +45,20 @@ public class OnlineClassPilotAuthorizationManager
     }
 
     boolean isAllowed(Authentication authentication) {
-        if (!enabled || pilotOwnerId == null || authentication == null
+        if (!enabled || authentication == null
                 || !authentication.isAuthenticated()
                 || !(authentication.getPrincipal() instanceof AuthenticatedUser caller)) {
             return false;
         }
 
         if (caller.role() == Role.TEACHER) {
-            return pilotOwnerId.equals(caller.id());
+            return isEnabledForTeacher(caller.id());
         }
 
-        // Students must be able to join their teacher's test classroom by link.
+        // Students may join their assigned teacher's classroom by link.
         // In addition, the room's own access service enforces class enrollment.
         if (caller.role() == Role.STUDENT) {
-            return userRepository.existsByIdAndTeacherIdAndRoleAndStatusAndArchivedFalse(
-                    caller.id(), pilotOwnerId, Role.STUDENT, UserStatus.ACTIVE);
+            return caller.id() != null && userRepository.existsActiveStudentWithActiveTeacher(caller.id());
         }
 
         // Do not open classroom APIs to administrators or parents by role alone.
@@ -73,6 +67,8 @@ public class OnlineClassPilotAuthorizationManager
 
     /** Also checked by credential-scoped phone endpoints, which have no account JWT. */
     public boolean isEnabledForTeacher(UUID teacherId) {
-        return enabled && pilotOwnerId != null && pilotOwnerId.equals(teacherId);
+        return enabled && teacherId != null
+                && userRepository.existsByIdAndRoleAndStatusAndArchivedFalse(
+                        teacherId, Role.TEACHER, UserStatus.ACTIVE);
     }
 }

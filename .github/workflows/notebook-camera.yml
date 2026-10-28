@@ -8,6 +8,8 @@ on:
       - 'backend/src/main/resources/db/migration/V85__*'
       - 'backend/src/main/java/com/mcschool/flashcard/liveclasses/**'
       - 'backend/src/main/java/com/mcschool/flashcard/config/SecurityConfig.java'
+      - 'backend/src/main/java/com/mcschool/flashcard/auth/OnlineClassPilotAuthorizationManager.java'
+      - 'backend/src/main/java/com/mcschool/flashcard/users/UserRepository.java'
       - 'frontend/src/features/notebook-camera/**'
       - 'frontend/src/api/notebookCameras*'
       - 'frontend/src/lib/phoneCameraRoute*'
@@ -60,3 +62,19 @@ jobs:
       - name: Verify HTTP permissions, bounded grants, migration and concurrent single-use claims
         run: ./mvnw -B -ntp '-Dtest=NotebookCamera*,LiveKitMediaProviderTest,OnlineClassPilotAuthorizationManagerTest' test
         working-directory: backend
+      - name: Require executed multi-teacher isolation and disabled-feature tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+          suites = {
+              'NotebookCameraTeacherIsolationIntegrationTest': 10,
+              'NotebookCameraDisabledIntegrationTest': 2,
+          }
+          for name, minimum in suites.items():
+              report = Path('backend/target/surefire-reports') / f'TEST-com.mcschool.flashcard.notebookcamera.{name}.xml'
+              suite = ElementTree.parse(report).getroot()
+              assert int(suite.get('tests', '0')) >= minimum, f'{name}: missing PostgreSQL coverage'
+              for count in ('skipped', 'failures', 'errors'):
+                  assert int(suite.get(count, '0')) == 0, f'{name}: {count} must be zero'
+          PY

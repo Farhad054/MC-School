@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { Suspense, lazy } from 'react';
 import { AdminStoryTemplatesPage } from './pages/admin/AdminStoryTemplatesPage';
 import { LearningTimeAdminPage } from './pages/admin/LearningTimeAdminPage';
 import { LearningTimeStudentPage } from './pages/admin/LearningTimeStudentPage';
@@ -48,8 +48,16 @@ import { PdfHomeworkWithSubmissionPage } from './pages/student/PdfHomeworkWithSu
 import { SettingsPage } from './pages/student/SettingsPage';
 import { ParentPage } from './pages/parent/ParentPage';
 
-const UpcomingOnlineClassesPage = lazy(() => import('./pages/online-classes/UpcomingOnlineClassesPage').then(m => ({ default: m.UpcomingOnlineClassesPage })));
-const OnlineClassPage = lazy(() => import('./pages/online-classes/OnlineClassPage').then(m => ({ default: m.OnlineClassPage })));
+// Online-class pages pull in the LiveKit SDK (~700 kB). They are lazy-loaded so
+// the flashcard flows — especially on student mobile — do not pay for it.
+const UpcomingOnlineClassesPage = lazy(() =>
+  import('./pages/online-classes/UpcomingOnlineClassesPage').then((m) => ({
+    default: m.UpcomingOnlineClassesPage,
+  })),
+);
+const OnlineClassPage = lazy(() =>
+  import('./pages/online-classes/OnlineClassPage').then((m) => ({ default: m.OnlineClassPage })),
+);
 const LessonBoardPage = lazy(() => import('./pages/lesson-board/LessonBoardPage').then((m) => ({ default: m.LessonBoardPage })));
 const PhoneCameraPage = lazy(() => import('./features/notebook-camera/PhoneCameraPage').then(m => ({ default: m.PhoneCameraPage })));
 const NotebookCameraPage = lazy(() => import('./features/notebook-camera/NotebookCameraPage').then(m => ({ default: m.NotebookCameraPage })));
@@ -100,7 +108,6 @@ export function App() {
       <Route path="/groups/:groupId/cards/:startDate" element={<ProtectedRoute role="TEACHER"><Layout><GroupCardsDetailPage /></Layout></ProtectedRoute>} />
       <Route path="/teacher/lessons" element={<ProtectedRoute role="TEACHER"><Layout><GroupLessonsWithDetailLinks /></Layout></ProtectedRoute>} />
       <Route path="/teacher/lessons/:eventId" element={<ProtectedRoute role="TEACHER"><Layout><LessonDetailWithHomeworkSeries /></Layout></ProtectedRoute>} />
-      <Route path="/online-classes/:classId" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Suspense fallback={<p>Подключаем онлайн-урок…</p>}><OnlineClassPage /></Suspense></ProtectedRoute>} />
       <Route path="/teacher/online-classes" element={<ProtectedRoute role="TEACHER"><Layout><Suspense fallback={<p>Загрузка уроков…</p>}><UpcomingOnlineClassesPage /></Suspense></Layout></ProtectedRoute>} />
       <Route path="/lesson-board/:eventId" element={<ProtectedRoute><Layout><Suspense fallback={<p>Открываем доску…</p>}><LessonBoardPage /></Suspense></Layout></ProtectedRoute>} />
       <Route path="/teacher/settings" element={<ProtectedRoute role="TEACHER"><Layout><SettingsPage /></Layout></ProtectedRoute>} />
@@ -116,6 +123,11 @@ export function App() {
       <Route path="/student/homeworks/:homeworkId" element={<ProtectedRoute role="STUDENT"><Layout><StudentHomeworkDetailPage /></Layout></ProtectedRoute>} />
       <Route path="/student/homeworks/:homeworkId/worksheet" element={<ProtectedRoute role="STUDENT"><Layout><PdfHomeworkWithSubmissionPage /></Layout></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute role="STUDENT"><Layout><SettingsPage /></Layout></ProtectedRoute>} />
+
+      {/* Online classes: teachers and students share these routes; the
+          backend decides who may see or join each class. */}
+      <Route path="/online-classes" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Layout><Suspense fallback={null}><UpcomingOnlineClassesPage /></Suspense></Layout></ProtectedRoute>} />
+      <Route path="/online-classes/:classId" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Suspense fallback={<p>Подключаем онлайн-урок…</p>}><OnlineClassPage /></Suspense></ProtectedRoute>} />
 
       <Route path="/parent" element={<ProtectedRoute role="PARENT"><Layout><ParentPage /></Layout></ProtectedRoute>} />
       <Route path="/parent/settings" element={<ProtectedRoute role="PARENT"><Layout><SettingsPage /></Layout></ProtectedRoute>} />

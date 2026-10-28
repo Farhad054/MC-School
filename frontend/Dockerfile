@@ -22,7 +22,7 @@ RUN npm run build
 # --- Runtime stage: serve the bundle with nginx ---
 FROM nginx:1.29-alpine
 # Rendered at container start by the image's envsubst entrypoint. The filter
-# restricts substitution to LIVEKIT_* so nginx's own $uri/$scheme/$remote_addr
+# restricts substitution to LIVEKIT_* and API_PROXY_* so nginx's own $uri/$scheme/$remote_addr
 # are left untouched.
 ENV NGINX_ENVSUBST_FILTER='LIVEKIT_|API_PROXY_'
 # The Railway host remains the default; backups override these variables.

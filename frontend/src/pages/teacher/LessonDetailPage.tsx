@@ -366,33 +366,30 @@ export function LessonDetailPage() {
             </button>
           )}
           {lesson?.calendarUrl && <a className="btn btn--ghost" href={lesson.calendarUrl} target="_blank" rel="noreferrer">Google Calendar</a>}
-          {lesson?.meetUrl && <a className="btn" href={lesson.meetUrl} target="_blank" rel="noreferrer">Google Meet</a>}
-          {isNickAiPilot && lesson && hasLessonAudience && import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true' && (
+          {lesson && hasLessonAudience && (
             <StartOnlineClassButton eventId={lesson.eventId} />
           )}
-          {isNickAiPilot && lesson && !hasLessonAudience && import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true' && (
+          {lesson?.meetUrl && <a className="btn btn--ghost" href={lesson.meetUrl} target="_blank" rel="noreferrer">{t('onlineClass.meetFallback')}</a>}
+          {lesson && !hasLessonAudience && (
             <p className="muted" style={{ maxWidth: 340, fontSize: 13 }}>{language === 'DE'
               ? 'Ordnen Sie diesem Unterricht einen Schüler zu, damit er teilnehmen kann.'
               : 'Для подключения ученика назначьте его этому уроку'}</p>
           )}
-          {/* Mindcrafti Online will be enabled only after the live-classes API,
-              migrations and LiveKit provider have passed staging acceptance tests.
-              Keep the Google Meet action functional independently. */}
-          {isNickAiPilot && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && (import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED !== 'true' || !hasLessonAudience) && (
+          {/* Retain the configured standalone board for lessons that do not use the video classroom. */}
+          {user?.role === 'TEACHER' && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && (import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED !== 'true' || !hasLessonAudience) && (
             <Link className="btn btn--secondary" to={`/lesson-board/${encodeURIComponent(eventId)}`}>
               Mindcrafti доска (тест)
             </Link>
           )}
         </div>
+        {/* Renders nothing unless an online class was actually held. */}
+        {eventId && <LessonClassArtifacts eventId={eventId} />}
       </div>
 
       {error && <div className="banner banner--error" style={{ marginBottom: 14 }}>{error}</div>}
       {message && <div className="banner banner--success" style={{ marginBottom: 14 }}>{message}</div>}
 
-      {isNickAiPilot && lesson && import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true' && (
-        <LessonClassArtifacts eventId={lesson.eventId} />
-      )}
-            {isNickAiPilot && (
+      {isNickAiPilot && (
         <section className="panel" style={{ padding: 18, margin: '0 0 18px', border: '1px solid var(--teacher-selected-border, #f0c7ad)', background: 'var(--teacher-selected, #fffaf7)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>

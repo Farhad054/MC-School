@@ -71,6 +71,21 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/story-template/download").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/google-calendar/oauth/callback").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/google-meet/events").permitAll()
+                        // LiveKit webhook. Exempt from JWT because the provider
+                        // holds no user token — NOT unverified: the handler
+                        // validates the Authorization JWT against the API
+                        // key/secret and compares a SHA-256 of the raw body
+                        // before touching any state. Scoped to this exact path
+                        // and POST only; never widened to a wildcard.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/online-classes/webhooks/livekit").permitAll()
+                        // Transcript ingestion by the transcription worker.
+                        // Exempt from JWT because the worker acts for no user —
+                        // NOT unauthenticated: the handler requires a matching
+                        // internal shared secret (constant-time compared) and
+                        // rejects everything else with 401.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/internal/online-classes/*/transcript-segments").permitAll()
                         .requestMatchers(
                                 "/.well-known/oauth-protected-resource",
                                 "/.well-known/oauth-protected-resource/**",
@@ -82,16 +97,9 @@ public class SecurityConfig {
                                 "/api/v1/mcp/.well-known/openid-configuration").permitAll()
                         .requestMatchers("/api/v1/integrations/**").permitAll()
                         .requestMatchers("/api/v1/mcp/**").permitAll()
-                        // Webhook bodies are checked against LiveKit's signed JWT by the controller.
-                        // No classroom API is reachable without server-side pilot authorization.
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/online-classes/webhooks/livekit").permitAll()
-                        // Internal transcription workers authenticate with a dedicated
-                        // shared secret verified by the controller, not end-user JWTs.
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/internal/online-classes/*/transcript-segments").permitAll()
-                        .requestMatchers("/api/v1/online-classes/**")
-                                .access(onlineClassPilotAuthorizationManager)
+                        // The online classroom API is governed by app.online-classes.enabled and
+                        // per-class membership checks in the service. Boards and notebook
+                        // cameras also require an active teacher or their active pupil.
                         .requestMatchers("/api/v1/lesson-board/**")
                                 .access(onlineClassPilotAuthorizationManager)
                         .requestMatchers("/api/v1/notebook-cameras/**")

@@ -115,7 +115,7 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
 
     private GroupLessonResponse lesson() {
         return new GroupLessonResponse("event-1", "binding-1", null, null,
-                student.getId(), "Student", List.of(student.getId()), "Maths", LESSON_START, LESSON_END,
+                student.getId(), "Student", java.util.List.of(student.getId()), "Maths", LESSON_START, LESSON_END,
                 "https://meet.example/abc", "https://calendar.example/abc");
     }
 

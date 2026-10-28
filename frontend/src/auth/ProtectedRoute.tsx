@@ -18,7 +18,8 @@ export function ProtectedRoute({ role, children }: { role?: Role | Role[]; child
   if (!user) {
     return <Navigate to="/login" replace />;
   }
-  if (role && !(Array.isArray(role) ? role.includes(user.role) : user.role === role)) {
+  const allowed = role === undefined || (Array.isArray(role) ? role.includes(user.role) : user.role === role);
+  if (!allowed) {
     return <Navigate to={homePathForRole(user.role)} replace />;
   }
   return <>{children}</>;

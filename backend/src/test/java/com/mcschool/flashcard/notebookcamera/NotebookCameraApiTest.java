@@ -20,6 +20,7 @@ import com.mcschool.flashcard.common.ResourceNotFoundException;
 import com.mcschool.flashcard.config.SecurityConfig;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.UserRepository;
+import com.mcschool.flashcard.users.UserStatus;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
         JwtAuthenticationFilter.class, NotebookCameraNoStoreFilter.class, GlobalExceptionHandler.class})
 @TestPropertySource(properties = {
         "app.online-classes.enabled=true",
-        "app.online-classes.pilot-owner-id=14e3c7c1-1fc8-41bd-858a-6c20efdd957a",
         "app.cors.allowed-origins=https://school.invalid"
 })
 class NotebookCameraApiTest {
@@ -93,19 +93,44 @@ class NotebookCameraApiTest {
     }
 
     @Test
-    void exactPilotTeacherCanUseAuthenticatedApiButOtherTeacherCannot() throws Exception {
-        var principal = new AuthenticatedUser(TEACHER, null, Role.TEACHER);
+    void activeTeachersCanReachTheirScopedServiceWithoutAPilotOwnerConfiguration() throws Exception {
+        for (UUID teacherId : List.of(TEACHER, UUID.randomUUID())) {
+            var principal = new AuthenticatedUser(teacherId, null, Role.TEACHER);
+            var auth = UsernamePasswordAuthenticationToken.authenticated(principal, null,
+                    List.of(new SimpleGrantedAuthority("ROLE_TEACHER")));
+            when(users.existsByIdAndRoleAndStatusAndArchivedFalse(teacherId, Role.TEACHER, UserStatus.ACTIVE))
+                    .thenReturn(true);
+            when(service.list(principal, "own-event")).thenReturn(List.of());
+            mvc.perform(get("/api/v1/notebook-cameras/lessons/own-event").with(authentication(auth)))
+                    .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
+            verify(service).list(eq(principal), eq("own-event"));
+        }
+    }
+
+    @Test
+    void inactiveTeacherCannotReachCameraServiceEvenWithAnAuthenticatedPrincipal() throws Exception {
+        var principal = new AuthenticatedUser(UUID.randomUUID(), null, Role.TEACHER);
         var auth = UsernamePasswordAuthenticationToken.authenticated(principal, null,
                 List.of(new SimpleGrantedAuthority("ROLE_TEACHER")));
-        when(service.list(principal, "event-1")).thenReturn(List.of());
         mvc.perform(get("/api/v1/notebook-cameras/lessons/event-1").with(authentication(auth)))
-                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
-        verify(service).list(eq(principal), eq("event-1"));
-        var outsider = UsernamePasswordAuthenticationToken.authenticated(
-                new AuthenticatedUser(UUID.randomUUID(), null, Role.TEACHER), null,
-                List.of(new SimpleGrantedAuthority("ROLE_TEACHER")));
-        mvc.perform(get("/api/v1/notebook-cameras/lessons/event-1").with(authentication(outsider)))
                 .andExpect(status().isForbidden());
+        verify(service, never()).list(any(), anyString());
+    }
+
+    @Test
+    void activePupilEligibilityStillRequiresAnActiveAssignedTeacher() throws Exception {
+        UUID studentId = UUID.randomUUID();
+        var principal = new AuthenticatedUser(studentId, null, Role.STUDENT);
+        var auth = UsernamePasswordAuthenticationToken.authenticated(principal, null,
+                List.of(new SimpleGrantedAuthority("ROLE_STUDENT")));
+        when(users.existsActiveStudentWithActiveTeacher(studentId)).thenReturn(true);
+        when(service.list(principal, "own-event")).thenReturn(List.of());
+        mvc.perform(get("/api/v1/notebook-cameras/lessons/own-event").with(authentication(auth)))
+                .andExpect(status().isOk());
+        when(users.existsActiveStudentWithActiveTeacher(studentId)).thenReturn(false);
+        mvc.perform(get("/api/v1/notebook-cameras/lessons/other-event").with(authentication(auth)))
+                .andExpect(status().isForbidden());
+        verify(service, never()).list(any(), eq("other-event"));
     }
 
     @Test
