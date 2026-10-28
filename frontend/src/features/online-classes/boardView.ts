@@ -86,6 +86,23 @@ export function clampView(view: PageView, board: { width: number; height: number
   };
 }
 
+/** Keep a zoomed board at the same relative position after its container resizes.
+ * Normal zoom (1) always shows the entire page. Annotations themselves remain
+ * normalized and are never changed by resizing the teacher answers sidebar. */
+export function resizeView(
+  view: PageView,
+  previous: { width: number; height: number },
+  next: { width: number; height: number },
+): PageView {
+  if (next.width <= 0 || next.height <= 0) return view;
+  if (previous.width <= 0 || previous.height <= 0) return clampView(view, next);
+  return clampView({
+    zoom: view.zoom,
+    panX: view.panX * next.width / previous.width,
+    panY: view.panY * next.height / previous.height,
+  }, next);
+}
+
 export interface Point {
   x: number;
   y: number;

@@ -1,5 +1,7 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useState, type ReactNode } from 'react';
+import { TeacherShell } from './TeacherShell';
+import { StudentShell } from './StudentShell';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n/I18nContext';
 import { api, setAccessToken, setSessionAccessToken } from '../api/client';
@@ -11,7 +13,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout, setUser } = useAuth();
   const { language, t } = useI18n();
   const navigate = useNavigate();
-  const [teacherMenuOpen, setTeacherMenuOpen] = useState(false);
+  const { pathname } = useLocation();
+  const isStoriesWorkspace = user?.role === 'ADMIN' && pathname === '/admin/stories';
   const [returningToAdmin, setReturningToAdmin] = useState(false);
 
   const isStudent = user?.role === 'STUDENT';
@@ -59,132 +62,15 @@ export function Layout({ children }: { children: ReactNode }) {
   }
 
   if (isTeacher) {
-    const teacherLinks = [
-      { to: '/students', label: 'Мои ученики', end: true },
-      { to: '/parents', label: 'Родители' },
-      { to: '/groups', label: 'Мои группы' },
-      { to: '/teacher/lessons', label: 'Уроки' },
-      ...(onlineClassesAvailable ? [{ to: '/online-classes', label: t('nav.onlineClasses') }] : []),
-      { to: '/skills', label: 'Навыки' },
-      { to: '/teacher/settings', label: 'Настройки' },
-      { to: '/students', label: 'Домашние задания', disabled: true },
-      { to: '/students', label: 'Материалы', disabled: true },
-      { to: '/students', label: 'Карточки', disabled: true },
-      { to: '/students', label: 'Прогресс', disabled: true },
-      { to: '/students', label: 'Сообщения', disabled: true },
-      { to: '/students', label: 'Уведомления', disabled: true },
-    ];
+    return <TeacherShell user={user} isImpersonating={isImpersonating} returningToAdmin={returningToAdmin}
+      onlineClassesAvailable={onlineClassesAvailable}
+      onReturnToAdmin={() => void returnToAdmin()} onLogout={fullLogout}>{children}</TeacherShell>;
+  }
 
-    return (
-      <div
-        className="app teacher-shell"
-        data-variant="staff"
-        style={{ gridTemplateColumns: teacherMenuOpen ? undefined : 'minmax(0, 1fr)' }}
-      >
-        {teacherMenuOpen && (
-          <aside className="teacher-sidebar">
-            <div className="teacher-brand">
-              <img
-                className="teacher-brand__logo"
-                src="/brand/Mindcrafti_Logo_M_OFFICIAL.webp"
-                alt="Mindcrafti School"
-              />
-              <div className="teacher-brand__text"><span>Mindcrafti</span> School</div>
-              <button
-                type="button"
-                className="teacher-brand__close"
-                aria-label="Скрыть меню"
-                title="Скрыть меню"
-                onClick={() => setTeacherMenuOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-
-            <nav className="teacher-sidebar__nav">
-              {teacherLinks.map((link, index) => link.disabled ? (
-                <div key={`${link.label}-${index}`} className="teacher-nav-item teacher-nav-item--disabled" title="Раздел появится позже">
-                  <span>{link.label}</span>
-                </div>
-              ) : (
-                <NavLink
-                  key={link.to}
-                  to={link.to}
-                  end={link.end}
-                  className="teacher-nav-item"
-                  onClick={() => setTeacherMenuOpen(false)}
-                >
-                  <span>{link.label}</span>
-                </NavLink>
-              ))}
-            </nav>
-
-            <div className="teacher-help">
-              <div>
-                <strong>Нужна помощь?</strong>
-                <span>Свяжитесь с поддержкой</span>
-              </div>
-            </div>
-          </aside>
-        )}
-
-        <section
-          className="teacher-workspace"
-          style={{ borderRadius: teacherMenuOpen ? undefined : 28 }}
-        >
-          {isImpersonating && (
-            <div style={{ background: '#fff3ec', borderBottom: '1px solid #ffd5bd', padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <div style={{ fontWeight: 750, color: '#9a3e00' }}>
-                Режим администратора: вы смотрите школу как {impersonation?.userName || user.fullName}.
-              </div>
-              <button className="btn" type="button" disabled={returningToAdmin} onClick={() => void returnToAdmin()}>
-                {returningToAdmin ? 'Возвращаемся…' : 'Вернуться в админку'}
-              </button>
-            </div>
-          )}
-
-          <header className="teacher-topbar">
-            <button
-              type="button"
-              aria-expanded={teacherMenuOpen}
-              aria-label={teacherMenuOpen ? 'Скрыть меню' : 'Показать меню'}
-              onClick={() => setTeacherMenuOpen((current) => !current)}
-              style={{
-                minHeight: 40,
-                padding: '0 14px',
-                borderRadius: 10,
-                border: '1px solid #e1e5ec',
-                background: teacherMenuOpen ? '#fff' : '#fff3ec',
-                color: teacherMenuOpen ? '#273653' : '#ff5b00',
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-            >
-              {teacherMenuOpen ? 'Скрыть меню' : 'Меню'}
-            </button>
-            <div className="teacher-topbar__right">
-              <div className="teacher-profile">
-                <div className="teacher-profile__avatar">{initials(user.fullName)}</div>
-                <div className="teacher-profile__text">
-                  <strong>{user.fullName}</strong>
-                  <span>{isImpersonating ? 'Преподаватель · просмотр администратором' : 'Преподаватель'}</span>
-                </div>
-                <button
-                  type="button"
-                  className="teacher-profile__logout"
-                  title={t('common.logout')}
-                  onClick={fullLogout}
-                >
-                  {t('common.logout')}
-                </button>
-              </div>
-            </div>
-          </header>
-          <main className="content teacher-content">{children}</main>
-        </section>
-      </div>
-    );
+  if (isStudent) {
+    return <StudentShell name={user.fullName} isImpersonating={isImpersonating} returningToAdmin={returningToAdmin}
+      onlineClassesAvailable={onlineClassesAvailable}
+      onReturnToAdmin={() => void returnToAdmin()} onLogout={fullLogout}>{children}</StudentShell>;
   }
 
   const links: { to: string; label: TranslationKey | string }[] = isStudent
@@ -204,6 +90,7 @@ export function Layout({ children }: { children: ReactNode }) {
         ? [
             { to: '/teachers', label: language === 'DE' ? 'Lehrer' : 'Учителя' },
             { to: '/admin/accounts', label: language === 'DE' ? 'Konten' : 'Ученики и родители' },
+            { to: '/admin/learning-time', label: language === 'DE' ? 'Lernzeit' : 'Время обучения' },
             { to: '/admin/lessons', label: language === 'DE' ? 'Unterricht' : 'Уроки школы' },
             { to: '/admin/trial-lessons', label: language === 'DE' ? 'Probestunden' : 'Пробные уроки' },
             { to: '/admin/leads', label: language === 'DE' ? 'Anfragen' : 'Заявки' },
@@ -249,16 +136,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
         )}
       </header>
-      <main className="content">{children}</main>
+      <main className={`content${isStoriesWorkspace ? ' content--stories-workspace' : ''}`}>{children}</main>
     </div>
   );
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('') || 'T';
 }

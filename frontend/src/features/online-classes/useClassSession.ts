@@ -53,7 +53,7 @@ function phaseForError(error: unknown): { phase: SessionPhase; message: string |
   if (error.status === 409) {
     const message = error.message ?? '';
     // A declined student must not wait forever for an answer that has been given.
-    if (/declined/i.test(message)) return { phase: 'denied', message };
+    if (/declined|removed/i.test(message)) return { phase: 'denied', message };
     if (/admit/i.test(message)) return { phase: 'waiting', message };
     if (/not available|not configured/i.test(message)) return { phase: 'unavailable', message };
     return { phase: 'notOpen', message };
@@ -76,6 +76,9 @@ export function useClassSession(classId: string | undefined): ClassSession {
   // Guards against a duplicate in-flight connection request (double-clicked
   // join button) and against setting state after unmount.
   const requestInFlight = useRef(false);
+  const attemptVersion = useRef(0);
+  const terminal = useRef(false);
+  const loadSequence = useRef(0);
   const mounted = useRef(true);
   const waitTimer = useRef<number | undefined>(undefined);
 
@@ -88,28 +91,54 @@ export function useClassSession(classId: string | undefined): ClassSession {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      attemptVersion.current += 1;
       window.clearTimeout(waitTimer.current);
     };
   }, []);
 
   const reload = useCallback(async () => {
     if (!classId) return;
+    const sequence = ++loadSequence.current;
     try {
       const loaded = await onlineClassesApi.get(classId);
-      if (!mounted.current) return;
+      if (!mounted.current || sequence !== loadSequence.current) return;
+      if (terminal.current && loaded.status !== 'ENDED' && loaded.status !== 'CANCELLED') return;
       setOnlineClass(loaded);
-      setPhase((current) => (current === 'loading' ? 'ready' : current));
+      if (loaded.status === 'ENDED' || loaded.status === 'CANCELLED') {
+        terminal.current = true;
+        attemptVersion.current += 1;
+        stopWaiting();
+        setConnection(null);
+        setPhase('notOpen');
+        setErrorMessage(null);
+      } else {
+        setPhase((current) => (current === 'loading' || current === 'notOpen' ? 'ready' : current));
+      }
     } catch (error) {
-      if (!mounted.current) return;
+      if (!mounted.current || sequence !== loadSequence.current || terminal.current) return;
       const mapped = phaseForError(error);
       setPhase(mapped.phase);
       setErrorMessage(mapped.message);
     }
-  }, [classId]);
+  }, [classId, stopWaiting]);
 
   useEffect(() => {
+    terminal.current = false;
+    attemptVersion.current += 1;
+    requestInFlight.current = false;
+    setConnection(null);
+    setOnlineClass(null);
+    setPhase('loading');
+    stopWaiting();
     void reload();
-  }, [reload]);
+    const timer = window.setInterval(() => void reload(), WAIT_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+      loadSequence.current += 1;
+      attemptVersion.current += 1;
+      stopWaiting();
+    };
+  }, [reload, stopWaiting]);
 
   /**
    * One attempt to get a token. A student who is not admitted yet knocks once,
@@ -118,15 +147,16 @@ export function useClassSession(classId: string | undefined): ClassSession {
    */
   const attempt = useCallback(
     async (firstTry: boolean): Promise<void> => {
-      if (!classId) return;
+      if (!classId || terminal.current) return;
+      const version = attemptVersion.current;
       try {
         const issued = await onlineClassesApi.connect(classId);
-        if (!mounted.current) return;
+        if (!mounted.current || version !== attemptVersion.current || terminal.current) return;
         stopWaiting();
         setConnection(issued);
         setPhase('connected');
       } catch (error) {
-        if (!mounted.current) return;
+        if (!mounted.current || version !== attemptVersion.current || terminal.current) return;
         const mapped = phaseForError(error);
         setPhase(mapped.phase);
         setErrorMessage(mapped.message);
@@ -145,7 +175,7 @@ export function useClassSession(classId: string | undefined): ClassSession {
   );
 
   const requestConnection = useCallback(async () => {
-    if (!classId || requestInFlight.current) return;
+    if (!classId || requestInFlight.current || terminal.current) return;
     requestInFlight.current = true;
     stopWaiting();
     setPhase('requesting');
@@ -162,13 +192,15 @@ export function useClassSession(classId: string | undefined): ClassSession {
   // discard the stale token and offer a fresh connection on the same page.
   // Do not call the server's /leave endpoint for a transport failure.
   const transportDisconnected = useCallback(() => {
+    attemptVersion.current += 1;
     stopWaiting();
     setConnection(null);
-    setPhase('disconnected');
+    setPhase(terminal.current ? 'notOpen' : 'disconnected');
     setErrorMessage(null);
   }, [stopWaiting]);
 
   const release = useCallback(() => {
+    attemptVersion.current += 1;
     stopWaiting();
     setConnection(null);
     setPhase('ready');

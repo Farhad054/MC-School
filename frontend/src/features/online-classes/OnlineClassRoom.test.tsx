@@ -1,20 +1,34 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { lessonPreparationApi } from '../../api/lessonPreparation';
 import { onlineClassesApi, type OnlineClassConnection } from '../../api/onlineClasses';
 import { I18nProvider } from '../../i18n/I18nContext';
+import type { NotebookCameraVideoSource } from '../notebook-camera/NotebookCameraViewer';
+import type { CameraModule } from '../notebook-camera/cameraModules';
 
 let screenShares: unknown[] = [];
+const notebookFixture = vi.hoisted(() => ({ camerasByOwner: new Map(), viewerProps: new Map(), panelProps: [] as Record<string, any>[] }));
 
 vi.mock('@livekit/components-react', () => ({
-  LiveKitRoom: ({ children, onDisconnected }: {
+  LiveKitRoom: ({ children, onDisconnected, onConnected, onError }: {
     children: React.ReactNode;
     onDisconnected?: (reason?: number) => void;
+    onConnected?: () => void;
+    onError?: (error: Error) => void;
   }) => (
     <div>
       <button type="button" onClick={() => onDisconnected?.(1)}>
         Simulate LiveKit disconnect
+      </button>
+      <button type="button" onClick={() => onDisconnected?.(0)}>
+        Simulate unknown disconnect
+      </button>
+      <button type="button" onClick={() => onConnected?.()}>
+        Simulate media connected
+      </button>
+      <button type="button" onClick={() => onError?.(new Error('WebSocket handshake rejected'))}>
+        Simulate signaling error
       </button>
       {children}
     </div>
@@ -28,6 +42,28 @@ vi.mock('@livekit/components-react', () => ({
   useTracks: () => screenShares,
 }));
 vi.mock('./CameraColumn', () => ({ CameraColumn: () => <ul aria-label="cameras" /> }));
+vi.mock('../notebook-camera/useLessonNotebookCameras', () => ({
+  useLessonNotebookCameras: () => ({ cameras: [...notebookFixture.camerasByOwner.values()], camerasByOwner: notebookFixture.camerasByOwner, error: null }),
+}));
+vi.mock('../notebook-camera/NotebookCameraViewer', () => ({
+  NotebookCameraViewer: (props: Record<string, any>) => {
+    notebookFixture.viewerProps.set(props.cameraId, props);
+    return <video title={props.title} />;
+  },
+}));
+vi.mock('../notebook-camera/NotebookCameraPanel', () => ({
+  NotebookCameraPanel: (props: Record<string, any>) => {
+    notebookFixture.panelProps.push(props);
+    return <section aria-label="Встроенная тетрадь" data-testid="notebook-session"
+    data-event={props.eventId} data-class={props.classId} data-owner={props.currentUserId}
+    data-teacher={String(props.isTeacher)} data-auto-pair={String(props.autoPair)}
+    data-presentation={props.presentation} data-settings-open={String(props.settingsOpen)} data-roster={props.students?.length ?? 0}>
+    <iframe title="Notebook processor" />
+    <canvas data-testid="notebook-qr-fixture" />
+    <button type="button" onClick={props.onClose}>{props.closeLabel}</button>
+  </section>;
+  },
+}));
 vi.mock('./ChatPanel', () => ({ ChatPanel: () => null }));
 vi.mock('./CaptionsPanel', () => ({ CaptionsPanel: () => null }));
 const recordingProps: Record<string, any>[] = [];
@@ -41,14 +77,18 @@ vi.mock('./TranscriptionControls', () => ({ TranscriptionControls: () => null })
 vi.mock('./ParticipantListPanel', () => ({ ParticipantListPanel: () => null }));
 vi.mock('./WaitingRoomPanel', () => ({ WaitingRoomPanel: () => null }));
 vi.mock('./useBoardDocument', () => ({ useBoardDocument: () => null }));
+vi.mock('./useClassEvents', () => ({ useClassEvents: () => ({ publish: vi.fn() }) }));
+vi.mock('./useHostUserId', () => ({ useHostUserId: () => 'me' }));
 vi.mock('./usePdf', () => ({ usePdf: () => ({ status: 'idle' }), usePdfPage: () => null }));
+vi.mock('./pdfDocument', () => ({ openPdf: vi.fn(async () => ({ pageCount: 1, renderPage: vi.fn(), destroy: vi.fn() })) }));
 
 const boardProps: Record<string, any>[] = [];
 vi.mock('./WhiteboardPanel', () => ({
   WhiteboardPanel: (props: Record<string, any>) => {
     boardProps.push(props);
     return (
-      <section data-testid={`board-${props.targetId}`} data-active={String(props.active)}>
+      <section data-testid={`board-${props.targetId}${props.targetType === 'NOTEBOOK_CAMERA' ? '-camera' : ''}`} data-active={String(props.active)}>
+        {props.fileAction}
         {props.hostActions}
       </section>
     );
@@ -56,11 +96,11 @@ vi.mock('./WhiteboardPanel', () => ({
 }));
 
 vi.mock('../../api/lessonPreparation', () => ({
-  lessonPreparationApi: { get: vi.fn(), answersBytes: vi.fn() },
+  lessonPreparationApi: { get: vi.fn(), answersBytes: vi.fn(), uploadAnswers: vi.fn(), appendWorkbook: vi.fn() },
 }));
 vi.mock('../../api/onlineClasses', async () => {
   const actual = await vi.importActual<typeof import('../../api/onlineClasses')>('../../api/onlineClasses');
-  return { ...actual, onlineClassesApi: { listParticipants: vi.fn() } };
+  return { ...actual, onlineClassesApi: { listParticipants: vi.fn(), documentBytes: vi.fn(), documentVersion: vi.fn() } };
 });
 
 import { OnlineClassRoom } from './OnlineClassRoom';
@@ -70,8 +110,8 @@ const connection = (host: boolean): OnlineClassConnection => ({
   recordingActive: false, transcriptionActive: false,
 });
 
-function mount(host: boolean, extra: Partial<React.ComponentProps<typeof OnlineClassRoom>> = {}) {
-  return render(
+function classroom(host: boolean, extra: Partial<React.ComponentProps<typeof OnlineClassRoom>> = {}) {
+  return (
     <I18nProvider>
       <OnlineClassRoom
         classId="c1"
@@ -84,9 +124,106 @@ function mount(host: boolean, extra: Partial<React.ComponentProps<typeof OnlineC
         onConnectionLost={vi.fn()}
         {...extra}
       />
-    </I18nProvider>,
+    </I18nProvider>
   );
 }
+function mount(host: boolean, extra: Partial<React.ComponentProps<typeof OnlineClassRoom>> = {}) {
+  return render(classroom(host, extra));
+}
+function pupilCameraSource(overrides: Partial<NotebookCameraVideoSource> = {}): NotebookCameraVideoSource {
+  return { video: document.createElement('canvas'), width: 1080, height: 1920,
+    rawVideo: document.createElement('video'), rawWidth: 1920, rawHeight: 1080,
+    view: { type: 'document-view', version: 1, corners: null, ratio: null, turn: 1, sourceAspect: 16 / 9 },
+    renderer: {} as CameraModule, ...overrides };
+}
+function emitPupilCamera(cameraId: string, source: NotebookCameraVideoSource | null) {
+  act(() => notebookFixture.panelProps.at(-1)!.onBoardVideoChange(cameraId, source));
+}
+
+describe('PDF upload contract', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([]);
+    vi.mocked(lessonPreparationApi.get).mockResolvedValue({ hasAnswers: false } as never);
+    vi.mocked(onlineClassesApi.documentVersion).mockResolvedValue({ version: 2 });
+  });
+
+  it('opens the real workbook picker from the compact board action', async () => {
+    const view = mount(true, { lessonTitle: 'Алгебра' });
+    const action = await screen.findByRole('menuitem', { name: 'Добавить документ' });
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    const picker = vi.spyOn(input, 'click').mockImplementation(() => undefined);
+    await userEvent.click(action);
+    expect(picker).toHaveBeenCalledOnce();
+    expect(screen.getByText('Алгебра')).toBeInTheDocument();
+    expect(lessonPreparationApi.appendWorkbook).not.toHaveBeenCalled();
+  });
+
+  it('uploads a PDF and verifies that the classroom can read it', async () => {
+    vi.mocked(lessonPreparationApi.appendWorkbook).mockResolvedValue({ hasWorkbook: true } as never);
+    vi.mocked(onlineClassesApi.documentBytes).mockResolvedValue(new ArrayBuffer(16));
+    const refresh = vi.fn();
+    window.addEventListener('mc-workbook-updated', refresh);
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['%PDF-1.4 sample'], 'lesson.pdf', { type: 'application/pdf' });
+    await userEvent.upload(input, file);
+    await waitFor(() => expect(lessonPreparationApi.appendWorkbook).toHaveBeenCalledWith('e1', file));
+    await waitFor(() => expect(onlineClassesApi.documentBytes).toHaveBeenCalledWith('c1'));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    window.removeEventListener('mc-workbook-updated', refresh);
+  });
+
+  it('appends multiple PDFs in the selected order and keeps existing pages', async () => {
+    vi.mocked(lessonPreparationApi.appendWorkbook).mockResolvedValue({ hasWorkbook: true } as never);
+    vi.mocked(onlineClassesApi.documentBytes).mockResolvedValue(new ArrayBuffer(32));
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    const a = new File(['%PDF-1.4 first'], 'first.pdf', { type: 'application/pdf' });
+    const b = new File(['%PDF-1.4 second'], 'second.pdf', { type: 'application/pdf' });
+    await userEvent.upload(input, [a, b]);
+    await waitFor(() => expect(lessonPreparationApi.appendWorkbook).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(lessonPreparationApi.appendWorkbook).mock.calls).toEqual([['e1', a], ['e1', b]]);
+    expect(onlineClassesApi.documentVersion).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports when the saved PDF cannot be opened from the classroom', async () => {
+    vi.mocked(lessonPreparationApi.appendWorkbook).mockResolvedValue({ hasWorkbook: true } as never);
+    vi.mocked(onlineClassesApi.documentBytes).mockResolvedValue(null);
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, new File(['pdf'], 'lesson.pdf', { type: 'application/pdf' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('PDF сохранён, но пока недоступен на доске');
+    expect(onlineClassesApi.documentBytes).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not report success if iPad upload was stored in the wrong slot', async () => {
+    vi.mocked(lessonPreparationApi.appendWorkbook).mockResolvedValue({ hasWorkbook: false } as never);
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, new File(['%PDF-1.4 sample'], 'math_answers.pdf', { type: 'application/pdf' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('не сохранил его как рабочую тетрадь');
+    expect(onlineClassesApi.documentBytes).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty iPad file before asking the server to store it', async () => {
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, new File([], 'empty.pdf', { type: 'application/pdf' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Выбранный файл пустой');
+    expect(lessonPreparationApi.appendWorkbook).not.toHaveBeenCalled();
+  });
+
+  it('reports a rejected upload instead of spinning forever', async () => {
+    vi.mocked(lessonPreparationApi.appendWorkbook).mockRejectedValue(new Error('HTTP 413'));
+    const view = mount(true);
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, new File(['pdf'], 'large.pdf', { type: 'application/pdf' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('HTTP 413');
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Добавить документ' })).toBeEnabled());
+  });
+});
 
 describe('OnlineClassRoom', () => {
   beforeEach(() => {
@@ -94,6 +231,9 @@ describe('OnlineClassRoom', () => {
     boardProps.length = 0;
     recordingProps.length = 0;
     screenShares = [];
+    notebookFixture.camerasByOwner.clear();
+    notebookFixture.viewerProps.clear();
+    notebookFixture.panelProps.length = 0;
     vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([
       { userId: 'u1', displayName: 'Alice', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
     ]);
@@ -106,8 +246,27 @@ describe('OnlineClassRoom', () => {
     mount(true, { onLeave, onConnectionLost });
     await screen.findByTestId('board-board-1');
     await userEvent.click(screen.getByRole('button', { name: 'Simulate LiveKit disconnect' }));
-    expect(onConnectionLost).toHaveBeenCalledWith('1');
+    expect(onConnectionLost).toHaveBeenCalledWith('1', false);
     expect(onLeave).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes initial LiveKit handshake failure from a drop after connection', async () => {
+    const onConnectionLost = vi.fn();
+    const onMediaError = vi.fn();
+    const room = mount(true, { onConnectionLost, onMediaError });
+    await screen.findByTestId('board-board-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Simulate signaling error' }));
+    expect(onMediaError).toHaveBeenCalledWith('signaling');
+    await userEvent.click(screen.getByRole('button', { name: 'Simulate unknown disconnect' }));
+    expect(onConnectionLost).toHaveBeenLastCalledWith('0', false);
+    room.unmount();
+
+    const onConnectedThenLost = vi.fn();
+    mount(true, { onConnectionLost: onConnectedThenLost });
+    await screen.findByTestId('board-board-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Simulate media connected' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Simulate unknown disconnect' }));
+    expect(onConnectedThenLost).toHaveBeenLastCalledWith('0', true);
   });
 
   it('shows a student no answers button and never asks for the answers', async () => {
@@ -116,6 +275,41 @@ describe('OnlineClassRoom', () => {
     expect(screen.queryByRole('button', { name: /Ответы/ })).not.toBeInTheDocument();
     expect(lessonPreparationApi.get).not.toHaveBeenCalled();
     expect(lessonPreparationApi.answersBytes).not.toHaveBeenCalled();
+    expect(lessonPreparationApi.uploadAnswers).not.toHaveBeenCalled();
+  });
+
+  it('keeps one teacher answers entry on the board and a lesson title without a logo', async () => {
+    const view = mount(true, { lessonTitle: 'Группа 1' });
+    const board = await screen.findByTestId('board-board-1');
+    expect(await within(board).findByRole('button', { name: 'Ответы' })).toBeEnabled();
+    expect(screen.getAllByRole('button', { name: 'Ответы' })).toHaveLength(1);
+    const topbar = view.container.querySelector('.online-class-room__topbar') as HTMLElement;
+    expect(within(topbar).queryByRole('button', { name: /Ответы|Решения/ })).not.toBeInTheDocument();
+    expect(within(topbar).getByText('Группа 1')).toBeInTheDocument();
+    expect(within(topbar).queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('opens board toolbar answers in the same separate teacher sidebar', async () => {
+    const previous = globalThis.ResizeObserver;
+    class FakeResizeObserver {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    try {
+      mount(true);
+      const board = await screen.findByTestId('board-board-1');
+      const button = await within(board).findByRole('button', { name: 'Ответы' });
+      await userEvent.click(button);
+      const sidebar = screen.getByRole('complementary', { name: 'Панель ответов' });
+      expect(sidebar.parentElement).toHaveClass('online-class-room__stage');
+      expect(sidebar.nextElementSibling).toHaveClass('online-class-room__main');
+      expect(boardProps.at(-1)?.overlay).toBeUndefined();
+    } finally {
+      if (previous) vi.stubGlobal('ResizeObserver', previous);
+      else vi.unstubAllGlobals();
+    }
   });
 
   it('gives the teacher the answers button on the board they are looking at', async () => {
@@ -124,9 +318,257 @@ describe('OnlineClassRoom', () => {
     expect(await within(board).findByRole('button', { name: 'Ответы' })).toBeEnabled();
   });
 
+  it('uploads the first teacher answers PDF through the only board answers action', async () => {
+    const previous = globalThis.ResizeObserver;
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} });
+    try {
+      vi.mocked(lessonPreparationApi.get).mockResolvedValue({ hasAnswers: false } as never);
+      vi.mocked(lessonPreparationApi.uploadAnswers).mockResolvedValue({ hasAnswers: true, answersFilename: 'solutions.pdf' } as never);
+      vi.mocked(lessonPreparationApi.answersBytes).mockResolvedValue(new ArrayBuffer(16));
+      mount(true);
+      const board = await screen.findByTestId('board-board-1');
+      const action = await within(board).findByRole('button', { name: 'Ответы' });
+      await waitFor(() => expect(action).toBeEnabled());
+      await userEvent.click(action);
+      const sidebar = screen.getByRole('complementary', { name: 'Панель ответов' });
+      expect(sidebar.parentElement).toHaveClass('online-class-room__stage');
+      expect(within(sidebar).getByText('Добавьте PDF с решениями')).toBeInTheDocument();
+      const file = new File(['%PDF-1.4 solutions'], 'solutions.pdf', { type: 'application/pdf' });
+      await userEvent.upload(within(sidebar).getByLabelText('PDF решений'), file);
+      await waitFor(() => expect(lessonPreparationApi.uploadAnswers).toHaveBeenCalledWith('e1', file));
+      await waitFor(() => expect(lessonPreparationApi.answersBytes).toHaveBeenCalledWith('e1'));
+      await waitFor(() => expect(action).toHaveAttribute('title', 'Ответы'));
+      expect(screen.getAllByRole('button', { name: 'Ответы' })).toHaveLength(1);
+    } finally {
+      if (previous) vi.stubGlobal('ResizeObserver', previous);
+      else vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps homework out of the pupil classroom while notebook pairing remains available', async () => {
+    mount(false);
+    await screen.findByTestId('board-board-1');
+    expect(screen.queryByRole('button', { name: 'Домашнее задание' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'Домашнее задание' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Настройки тетради' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Подключить тетрадь' })).not.toBeInTheDocument();
+  });
+
   it('shows the camera column next to the board', async () => {
     mount(false);
+    await userEvent.click(screen.getByRole('button', { name: '‹ Видео' }));
     expect(await screen.findByRole('list', { name: 'cameras' })).toBeInTheDocument();
+  });
+
+  it('keeps one class-bound pupil session mounted and opens its settings from the footer without hiding the board', async () => {
+    const view = mount(false);
+    const board = await screen.findByTestId('board-board-1');
+    const toggle = screen.getByRole('button', { name: 'Настройки тетради' });
+    expect(view.container.querySelector('.online-class-room__controls')).toContainElement(toggle);
+    expect(view.container.querySelector('.online-class-room__topbar')).not.toContainElement(toggle);
+    const processor = screen.getByTitle('Notebook processor');
+    const qr = screen.getByTestId('notebook-qr-fixture');
+    const session = screen.getByTestId('notebook-session');
+    expect(session).not.toBeVisible();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(toggle);
+    const notebook = screen.getByRole('region', { name: 'Встроенная тетрадь' });
+    expect(notebook).toHaveAttribute('data-event', 'e1');
+    expect(notebook).toHaveAttribute('data-class', 'c1');
+    expect(notebook).toHaveAttribute('data-owner', 'me');
+    expect(notebook).toHaveAttribute('data-auto-pair', 'true');
+    expect(notebook).toHaveAttribute('data-teacher', 'false');
+    expect(notebook).toHaveAttribute('data-presentation', 'lesson');
+    expect(notebook).toHaveAttribute('data-settings-open', 'true');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(board).toHaveAttribute('data-active', 'true');
+    expect(screen.getByRole('list', { name: 'cameras', hidden: true })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Закрыть настройки' }));
+    expect(board).toHaveAttribute('data-active', 'true');
+    expect(processor).toBeInTheDocument();
+    expect(processor).not.toBeVisible();
+    expect(toggle).toHaveFocus();
+    await userEvent.click(toggle);
+    expect(screen.getByTitle('Notebook processor')).toBe(processor);
+    expect(screen.getByTestId('notebook-qr-fixture')).toBe(qr);
+    expect(screen.getByTestId('notebook-session')).toBe(session);
+    expect(screen.getByTestId('board-board-1')).toBe(board);
+    expect(processor).toBeVisible();
+  });
+
+  it('uses the existing pupil board picker instead of a separate teacher notebook workspace', async () => {
+    mount(true);
+    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
+    expect(screen.queryByRole('button', { name: 'Тетради учеников' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Настройки тетради' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('notebook-session')).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    expect(screen.getByTestId('board-personal-u1')).toHaveAttribute('data-active', 'true');
+    expect(boardProps.filter(p => p.targetId === 'personal-u1').at(-1)).toMatchObject({ compactPreview: false });
+    expect(screen.queryByRole('region', { name: 'Встроенная тетрадь' })).not.toBeInTheDocument();
+  });
+
+  it('uses the ordinary drawing panel with a private camera target and live video, without the pupil PDF', async () => {
+    notebookFixture.camerasByOwner.set('u1', { cameraId: 'camera-u1', ownerId: 'u1', status: 'CONNECTED' });
+    mount(true);
+    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    const paper = await screen.findByTestId('board-personal-u1');
+    const video = document.createElement('video');
+    const view = { type: 'document-view', version: 1, corners: null, ratio: null, turn: 2, sourceAspect: 16 / 9 };
+    const renderer = {};
+    act(() => {
+      notebookFixture.viewerProps.get('camera-u1').onVideoAvailableChange(true);
+      notebookFixture.viewerProps.get('camera-u1').onBoardVideoChange({ video: document.createElement('canvas'), width: 1080, height: 1920,
+        rawVideo: video, rawWidth: 1920, rawHeight: 1080, view, renderer });
+    });
+    const camera = await screen.findByTestId('board-personal-u1-camera');
+    const props = boardProps.filter(p => p.targetType === 'NOTEBOOK_CAMERA').at(-1)!;
+    expect(props).toMatchObject({ targetId: 'personal-u1', isHost: true, canAnnotate: true, active: true,
+      liveBackground: { source: video, width: 1920, height: 1080, notebookView: { view, rawWidth: 1920, rawHeight: 1080, renderer } } });
+    expect(props.document).toBeUndefined();
+    expect(props.observedPage).toBeUndefined();
+    expect(props.onSaveLessonDocuments).toBeUndefined();
+    expect(notebookFixture.viewerProps.get('camera-u1').presentation).toBe('board');
+    expect(paper).toHaveAttribute('data-active', 'false');
+    expect(await within(camera).findByRole('button', { name: 'Ответы' })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    expect(screen.getByTestId('board-personal-u1-camera')).toBe(camera);
+    expect(boardProps.filter(p => p.targetType === 'NOTEBOOK_CAMERA').at(-1)).toMatchObject({ canAnnotate: false, active: true, compactPreview: true });
+  });
+
+  it('automatically opens the pupil’s private ordinary drawing surface on its first live camera frame', async () => {
+    mount(false);
+    const shared = await screen.findByTestId('board-board-1');
+    const session = screen.getByTestId('notebook-session');
+    expect(session).not.toBeVisible();
+    expect(notebookFixture.panelProps.at(-1)).toMatchObject({ presentation: 'lesson', settingsOpen: false,
+      currentUserId: 'me', isTeacher: false, autoPair: true });
+    const source = pupilCameraSource(); emitPupilCamera('camera-me', source);
+    const camera = await screen.findByTestId('board-personal-me-camera');
+    expect(camera).toBeVisible(); expect(camera).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('board-board-1')).toBe(shared); expect(shared).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('board-personal-me')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByRole('button', { name: 'Моя доска' })).toHaveAttribute('aria-pressed', 'true');
+    const props = boardProps.filter(item => item.targetType === 'NOTEBOOK_CAMERA').at(-1)!;
+    expect(props).toMatchObject({ targetId: 'personal-me', actorId: 'me', isHost: false, canAnnotate: true, active: true,
+      liveBackground: { source: source.rawVideo, width: 1920, height: 1080,
+        notebookView: { view: source.view, rawWidth: 1920, rawHeight: 1080, renderer: source.renderer } } });
+    expect(props.document).toBeUndefined(); expect(props.observedPage).toBeUndefined();
+    expect(props.onSaveLessonDocuments).toBeUndefined(); expect(props.hostActions).toBeUndefined();
+    expect(screen.queryByRole('button', { name: /Ответы|Сохранить документы урока/ })).not.toBeInTheDocument();
+    expect(notebookFixture.viewerProps.size).toBe(0);
+    expect(screen.getByTestId('notebook-session')).toBe(session);
+  });
+
+  it('auto-selects once per camera and never steals a manual shared-board selection on geometry updates or restart', async () => {
+    mount(false);
+    await screen.findByTestId('board-board-1');
+    const first = pupilCameraSource(); emitPupilCamera('camera-first', first);
+    const camera = await screen.findByTestId('board-personal-me-camera');
+    await userEvent.click(screen.getByRole('button', { name: 'Общая доска' }));
+    const shared = screen.getByTestId('board-board-1');
+    expect(shared).toHaveAttribute('data-active', 'true'); expect(camera).not.toBeVisible();
+    emitPupilCamera('camera-first', { ...first, view: { ...first.view, turn: 3 } });
+    expect(shared).toHaveAttribute('data-active', 'true');
+    emitPupilCamera('camera-first', null); emitPupilCamera('camera-first', first);
+    expect(shared).toHaveAttribute('data-active', 'true'); expect(camera).not.toBeVisible();
+    const replacement = pupilCameraSource(); emitPupilCamera('camera-replacement', replacement);
+    expect(shared).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('board-personal-me-camera')).toBe(camera);
+    expect(camera).toHaveAttribute('data-active', 'true'); expect(camera).toBeVisible();
+    emitPupilCamera('camera-first', null);
+    expect(camera).toHaveAttribute('data-active', 'true');
+    expect(boardProps.filter(item => item.targetType === 'NOTEBOOK_CAMERA').at(-1)!.liveBackground.source).toBe(replacement.rawVideo);
+  });
+
+  it('falls back to the personal whiteboard on Stop and resumes the same camera board, QR and settings session', async () => {
+    mount(false);
+    await screen.findByTestId('board-board-1');
+    const session = screen.getByTestId('notebook-session'), processor = screen.getByTitle('Notebook processor');
+    const qr = screen.getByTestId('notebook-qr-fixture'), toggle = screen.getByRole('button', { name: 'Настройки тетради' });
+    const source = pupilCameraSource(); emitPupilCamera('camera-me', source);
+    const camera = await screen.findByTestId('board-personal-me-camera'), paper = screen.getByTestId('board-personal-me');
+    await userEvent.click(toggle);
+    expect(camera).toBeVisible(); expect(camera).toHaveAttribute('data-active', 'true');
+    emitPupilCamera('camera-me', null);
+    expect(paper).toBeVisible(); expect(paper).toHaveAttribute('data-active', 'true');
+    expect(camera).not.toBeVisible(); expect(camera).toHaveAttribute('data-active', 'false');
+    expect(boardProps.filter(item => item.targetType === 'NOTEBOOK_CAMERA').at(-1)!.liveBackground).toBeNull();
+    emitPupilCamera('camera-me', source);
+    expect(screen.getByTestId('board-personal-me-camera')).toBe(camera); expect(camera).toBeVisible();
+    expect(screen.getByTestId('board-personal-me')).toBe(paper); expect(paper).not.toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Закрыть настройки' }));
+    expect(camera).toBeVisible(); expect(camera).toHaveAttribute('data-active', 'true');
+    expect(processor).not.toBeVisible(); expect(toggle).toHaveFocus();
+    await userEvent.click(toggle);
+    expect(screen.getByTestId('notebook-session')).toBe(session);
+    expect(screen.getByTitle('Notebook processor')).toBe(processor);
+    expect(screen.getByTestId('notebook-qr-fixture')).toBe(qr);
+    expect(camera).toHaveAttribute('data-active', 'true');
+  });
+
+  it('keeps old lesson or owner sources outside the new camera board scope', async () => {
+    const view = mount(false);
+    await screen.findByTestId('board-board-1');
+    const previousSource = pupilCameraSource(); emitPupilCamera('old-camera', previousSource);
+    await screen.findByTestId('board-personal-me-camera');
+    const oldCallback = notebookFixture.panelProps.at(-1)!.onBoardVideoChange;
+    view.rerender(classroom(false, { classId: 'c2', eventId: 'e2', currentUserId: 'next-pupil' }));
+    expect(screen.queryByTestId('board-personal-me-camera')).not.toBeInTheDocument();
+    act(() => oldCallback('old-camera', previousSource));
+    expect(screen.queryByTestId('board-personal-next-pupil-camera')).not.toBeInTheDocument();
+    const currentSource = pupilCameraSource(); emitPupilCamera('new-camera', currentSource);
+    const camera = await screen.findByTestId('board-personal-next-pupil-camera');
+    expect(camera).toBeVisible(); expect(camera).toHaveAttribute('data-active', 'true');
+    act(() => oldCallback('old-camera', null));
+    expect(camera).toHaveAttribute('data-active', 'true');
+    act(() => oldCallback('old-camera', previousSource));
+    expect(camera).toBeVisible(); expect(camera).toHaveAttribute('data-active', 'true');
+    expect(boardProps.filter(item => item.targetType === 'NOTEBOOK_CAMERA').at(-1)).toMatchObject({ classId: 'c2', actorId: 'next-pupil', targetId: 'personal-next-pupil' });
+    expect(boardProps.filter(item => item.targetType === 'NOTEBOOK_CAMERA').at(-1)!.liveBackground.source).toBe(currentSource.rawVideo);
+  });
+
+  it('keeps the selected personal board active while settings are open and restores focus on Escape', async () => {
+    mount(false);
+    await screen.findByTestId('board-board-1');
+    const toggle = screen.getByRole('button', { name: 'Настройки тетради' });
+    await userEvent.click(toggle);
+    const processor = screen.getByTitle('Notebook processor');
+    await userEvent.click(screen.getByRole('button', { name: 'Моя доска' }));
+    expect(screen.getByTestId('board-personal-me')).toHaveAttribute('data-active', 'true');
+    expect(processor).toBeVisible();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(processor).not.toBeVisible(); expect(toggle).toHaveFocus();
+    expect(screen.getByTestId('board-personal-me')).toHaveAttribute('data-active', 'true');
+    await userEvent.click(toggle);
+    expect(screen.getByTitle('Notebook processor')).toBe(processor);
+  });
+
+  it('keeps the same settings session when a screen share starts or ends', async () => {
+    const view = mount(false);
+    await screen.findByTestId('board-board-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Настройки тетради' }));
+    const processor = screen.getByTitle('Notebook processor');
+    screenShares = [{ participant: { identity: 'teacher' }, source: 'screen_share', publication: {} }];
+    view.rerender(classroom(false));
+    expect(processor).toBeVisible();
+    expect(screen.getByTestId('screen')).toBeVisible();
+    screenShares = [];
+    view.rerender(classroom(false));
+    expect(processor).toBeVisible();
+    expect(screen.getByTitle('Notebook processor')).toBe(processor);
+    expect(screen.queryByTestId('screen')).not.toBeInTheDocument();
+  });
+
+  it('does not offer notebook pairing for a room without a calendar lesson', async () => {
+    mount(false, { eventId: undefined });
+    await screen.findByTestId('board-board-1');
+    expect(screen.queryByRole('button', { name: 'Настройки тетради' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('notebook-session')).not.toBeInTheDocument();
   });
 
   it('opens a student’s own personal board, leaving the shared one mounted', async () => {
@@ -175,14 +617,15 @@ describe('OnlineClassRoom', () => {
     expect(boardProps.some((p) => p.targetId === 'board-1' && p.canAnnotate)).toBe(true);
   });
 
-  it('gives only the teacher the switch for student screen sharing', async () => {
+  it('keeps the removed class screen-sharing permission switch out of the lesson toolbar', async () => {
     const student = mount(false);
     await screen.findByTestId('board-board-1');
     expect(screen.queryByRole('button', { name: /показывать экран/i })).not.toBeInTheDocument();
     student.unmount();
 
     mount(true);
-    expect(await screen.findByRole('button', { name: /показывать экран/i })).toBeInTheDocument();
+    await screen.findByTestId('board-board-1');
+    expect(screen.queryByRole('button', { name: /показывать экран/i })).not.toBeInTheDocument();
   });
 
   it('tells the recording button what the server can do, so it is not offered when it cannot work', async () => {

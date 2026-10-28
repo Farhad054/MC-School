@@ -38,6 +38,8 @@ const sampleClass: OnlineClass = {
   actualStartAt: null,
   actualEndAt: null,
   viewerIsHost: false,
+  recordingAvailable: false,
+  transcriptionAvailable: false,
   joinWindowOpen: true,
 };
 
@@ -102,6 +104,42 @@ describe('useClassSession', () => {
     });
     expect(result.current.phase).toBe('connected');
     expect(api.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops an active connection when the server reports End for everyone', async () => {
+    const { result } = renderHook(() => useClassSession('class-1'));
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    await act(async () => { await result.current.requestConnection(); });
+    api.get.mockResolvedValue({ ...sampleClass, status: 'ENDED', joinWindowOpen: false });
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.connection).toBeNull();
+    expect(result.current.phase).toBe('notOpen');
+    await act(async () => { await result.current.requestConnection(); });
+    expect(api.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not disconnect an ongoing lesson just because the entry day closed', async () => {
+    const { result } = renderHook(() => useClassSession('class-1'));
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    await act(async () => { await result.current.requestConnection(); });
+    api.get.mockResolvedValue({ ...sampleClass, joinWindowOpen: false, entryState: 'DAY_CLOSED' });
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.connection?.token).toBe('issued-token');
+    expect(result.current.phase).toBe('connected');
+  });
+
+  it('ignores a token response that arrives after the lesson was ended', async () => {
+    let resolve!: (connection: OnlineClassConnection) => void;
+    api.connect.mockReturnValue(new Promise(done => { resolve = done; }));
+    const { result } = renderHook(() => useClassSession('class-1'));
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.requestConnection(); });
+    api.get.mockResolvedValue({ ...sampleClass, status: 'ENDED' });
+    await act(async () => { await result.current.reload(); });
+    await act(async () => { resolve(sampleConnection); await pending; });
+    expect(result.current.connection).toBeNull();
+    expect(result.current.phase).toBe('notOpen');
   });
 
   it('does not fire a duplicate connection request', async () => {

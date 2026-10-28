@@ -6,15 +6,26 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 
 public interface OnlineClassRepository extends JpaRepository<OnlineClass, UUID> {
 
     /** Guards duplicate materialization of the same calendar occurrence. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<OnlineClass> findByTeacherIdAndEventIdAndScheduledStartAt(
             UUID teacherId, String eventId, Instant scheduledStartAt);
 
     Optional<OnlineClass> findByRoomName(String roomName);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM OnlineClass c WHERE c.id = :id")
+    Optional<OnlineClass> findForUpdate(@Param("id") UUID id);
+
+    List<OnlineClass> findAllByStatusIn(List<OnlineClassStatus> statuses);
+
+    List<OnlineClass> findAllByMediaClosePendingTrue();
 
     /** Retention sweep: classes that ended before a cutoff. */
     List<OnlineClass> findAllByStatusAndActualEndAtBefore(OnlineClassStatus status, Instant cutoff);
@@ -36,8 +47,19 @@ public interface OnlineClassRepository extends JpaRepository<OnlineClass, UUID> 
      */
     @Query("""
             SELECT c FROM OnlineClass c
-            WHERE c.scheduledStartAt >= :from
+            WHERE (c.scheduledStartAt >= :from OR (
+                    c.status IN :openStatuses AND EXISTS (
+                        SELECT p.id FROM OnlineClassParticipant p
+                        WHERE p.onlineClass.id = c.id AND p.user.id = :studentId
+                          AND p.firstJoinedAt IS NOT NULL
+                    )
+                  ))
               AND c.status IN :statuses
+              AND NOT EXISTS (
+                  SELECT h.eventId FROM LessonHistoryEntry h
+                  WHERE h.teacher.id = c.teacher.id AND h.eventId = c.eventId
+                    AND h.deletedAt IS NOT NULL
+              )
               AND (
                     c.student.id = :studentId
                  OR c.group.id IN (
@@ -48,5 +70,6 @@ public interface OnlineClassRepository extends JpaRepository<OnlineClass, UUID> 
             """)
     List<OnlineClass> findVisibleToStudent(@Param("studentId") UUID studentId,
                                            @Param("from") Instant from,
+                                           @Param("openStatuses") List<OnlineClassStatus> openStatuses,
                                            @Param("statuses") List<OnlineClassStatus> statuses);
 }

@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 import { useScreenshotGuard } from './useScreenshotGuard';
+import { useActiveLearningTime } from '../../hooks/useActiveLearningTime';
 
 type Feedback = {
   correct: boolean;
@@ -25,6 +26,7 @@ type Feedback = {
  */
 export function SessionPage() {
   const { sessionId = '' } = useParams();
+  useActiveLearningTime('CARDS', sessionId);
   const { t } = useI18n();
   const { user } = useAuth();
   const navigate = useNavigate();

@@ -95,6 +95,18 @@ public class OnlineClass {
     @Column(name = "actual_end_at")
     private Instant actualEndAt;
 
+    /** Explicit teacher opening may move a lesson later than its calendar slot. */
+    @Column(name = "student_join_until")
+    private Instant studentJoinUntil;
+
+    /** First successful provider observation of an empty open room. */
+    @Column(name = "empty_since")
+    private Instant emptySince;
+
+    /** Retry room teardown after a provider outage; ending locally is final. */
+    @Column(name = "media_close_pending", nullable = false)
+    private boolean mediaClosePending;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -145,6 +157,16 @@ public class OnlineClass {
                 null, group);
     }
 
+    /** Updating the lesson schedule must never change room ID or recorded attendance. */
+    public void reschedule(java.time.Instant start, java.time.Instant end) {
+        if (start == null || end == null || !end.isAfter(start)) {
+            throw new IllegalArgumentException("Invalid classroom schedule");
+        }
+        scheduledStartAt = start;
+        scheduledEndAt = end;
+        studentJoinUntil = com.mcschool.flashcard.liveclasses.LessonEntryPolicy.dayEnd(start);
+    }
+
     public boolean isGroupClass() {
         return group != null;
     }
@@ -169,6 +191,22 @@ public class OnlineClass {
         }
         requireNonTerminal("open the lobby for");
         this.status = OnlineClassStatus.LOBBY_OPEN;
+    }
+
+    public void observeEmpty(Instant now) {
+        if (emptySince == null) emptySince = now;
+    }
+
+    public void observeOccupied() {
+        emptySince = null;
+    }
+
+    public void setMediaClosePending(boolean pending) {
+        mediaClosePending = pending;
+    }
+
+    public void allowStudentJoiningUntil(Instant expiresAt) {
+        this.studentJoinUntil = expiresAt;
     }
 
     /** Idempotent; records the first actual start only. */

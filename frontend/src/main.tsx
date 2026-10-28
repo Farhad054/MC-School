@@ -5,6 +5,7 @@ import { App } from './App';
 import { AuthProvider } from './auth/AuthContext';
 import { I18nProvider } from './i18n/I18nContext';
 import { installLessonStartFlow } from './lesson-start-flow';
+import { phoneCameraEntryRoute } from './lib/phoneCameraRoute';
 import './index.css';
 import './teacher-groups.css';
 import './teacher-detail.css';
@@ -14,6 +15,7 @@ import './online-classes.css';
 import './pdf-homework.css';
 import './student-menu.css';
 import './student-today-status.css';
+import './teacher-theme.css';
 
 // mindcrafti.de is served by a host that can return its root document but does
 // not consistently fall back to index.html for direct client-side routes such
@@ -30,6 +32,8 @@ function restoreLessonReturnRoute() {
   window.history.replaceState({}, '', `/teacher/lessons${query ? `?${query}` : ''}`);
 }
 
+const cameraEntryRoute = phoneCameraEntryRoute(window.location.pathname, window.location.search, window.location.hash);
+if (cameraEntryRoute) window.history.replaceState({}, '', cameraEntryRoute);
 restoreLessonReturnRoute();
 installLessonStartFlow();
 

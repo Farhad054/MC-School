@@ -5,16 +5,15 @@ import { PageNavigator } from './PageNavigator';
 import { MAX_ANSWERS_ZOOM, MIN_ANSWERS_ZOOM, type AnswersView } from './useAnswersPanel';
 import type { PdfState } from './usePdf';
 import { usePdfPage } from './usePdf';
+import { usePinchZoom } from './usePinchZoom';
 
 const ZOOM_STEP = 0.25;
 
 /**
- * Fixed-width answers panel pinned to the left, over the board.
+ * Teacher answers are a separate side column beside the lesson board.
  *
- * It floats above the board without resizing it, so the board's page, zoom,
- * tool and marks are untouched by opening or closing. The close "×" sits on the
- * panel's right border. Page, zoom and scroll are owned by the parent so they
- * survive close/reopen.
+ * Page, zoom and scroll stay independent of the board and survive reopening.
+ * Teacher can pinch-zoom on iPad without zooming the classroom canvas.
  */
 export function AnswersPanel({
   pdf,
@@ -23,6 +22,9 @@ export function AnswersPanel({
   onViewChange,
   onScroll,
   onClose,
+  onUpload,
+  uploading = false,
+  uploadError = null,
 }: {
   pdf: PdfState;
   view: AnswersView;
@@ -30,12 +32,17 @@ export function AnswersPanel({
   onViewChange: (patch: Partial<AnswersView>) => void;
   onScroll: (top: number, left: number) => void;
   onClose: () => void;
+  onUpload?: (file: File) => void | Promise<void>;
+  uploading?: boolean;
+  uploadError?: string | null;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const uploadRef = useRef<HTMLInputElement | null>(null);
   const [width, setWidth] = useState(0);
   const doc = pdf.status === 'ready' ? pdf.doc : null;
+  usePinchZoom(scrollRef, view.zoom, (zoom) => onViewChange({ zoom }), MIN_ANSWERS_ZOOM, MAX_ANSWERS_ZOOM);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -53,6 +60,13 @@ export function AnswersPanel({
   // Draw the rendered page into the visible canvas, then put the scroll back
   // where the teacher left it (first paint after a reopen).
   const restored = useRef(false);
+  const shownDocument = useRef(doc);
+  useLayoutEffect(() => {
+    if (!doc || shownDocument.current === doc) return;
+    shownDocument.current = doc; restored.current = false;
+    const saved = getView();
+    if (scrollRef.current) { scrollRef.current.scrollTop = saved.scrollTop; scrollRef.current.scrollLeft = saved.scrollLeft; }
+  }, [doc, getView]);
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !page) return;
@@ -84,6 +98,8 @@ export function AnswersPanel({
 
   return (
     <aside id="answers-panel" className="answers-panel" aria-label={t('onlineClass.answers.title')}>
+      <header className="answers-panel__heading">
+        <strong>{language === 'DE' ? 'Lösungen für Lehrkräfte' : 'Решения для учителя'}</strong>
       <button
         type="button"
         className="answers-panel__close"
@@ -92,6 +108,19 @@ export function AnswersPanel({
       >
         <span aria-hidden="true">×</span>
       </button>
+      </header>
+      <p className="answers-panel__private">{language === 'DE' ? 'Nur für die Lehrkraft sichtbar' : 'Видны только преподавателю'}</p>
+      {onUpload && <div className="answers-panel__upload">
+        <button type="button" disabled={uploading} onClick={() => uploadRef.current?.click()}>
+          {uploading ? (language === 'DE' ? 'Wird hochgeladen…' : 'Загрузка…')
+            : doc ? (language === 'DE' ? 'Lösungs-PDF ersetzen' : 'Заменить PDF решений')
+              : (language === 'DE' ? 'Lösungs-PDF hochladen' : 'Загрузить PDF решений')}
+        </button>
+        <input ref={uploadRef} type="file" accept=".pdf,application/pdf" hidden disabled={uploading}
+          aria-label={language === 'DE' ? 'Lösungs-PDF' : 'PDF решений'}
+          onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void onUpload(file); }} />
+      </div>}
+      {uploadError && <p className="answers-panel__upload-error" role="alert">{uploadError}</p>}
 
       <div
         ref={scrollRef}
@@ -100,6 +129,7 @@ export function AnswersPanel({
       >
         {pdf.status === 'loading' && <p role="status">{t('onlineClass.answers.loading')}</p>}
         {pdf.status === 'error' && <p role="alert">{t('onlineClass.answers.error')}</p>}
+        {pdf.status === 'idle' && <p>{language === 'DE' ? 'Fügen Sie ein PDF mit Lösungen hinzu' : 'Добавьте PDF с решениями'}</p>}
         {doc && (
           <canvas
             ref={canvasRef}
@@ -130,6 +160,7 @@ export function AnswersPanel({
             >
               −
             </button>
+            <span>{Math.round(view.zoom * 100)}%</span>
             <button
               type="button"
               onClick={() => onViewChange({ zoom: Math.min(MAX_ANSWERS_ZOOM, view.zoom + ZOOM_STEP) })}

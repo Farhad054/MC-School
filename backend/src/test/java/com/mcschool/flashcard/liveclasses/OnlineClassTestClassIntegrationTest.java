@@ -59,7 +59,8 @@ class OnlineClassTestClassIntegrationTest extends AbstractIntegrationTest {
         assertThat(created.title()).isEqualTo("QA class");
         assertThat(created.viewerIsHost()).isTrue();
         // Immediately joinable so a tester is not left waiting.
-        assertThat(created.joinWindowOpen()).isTrue();
+        assertThat(created.joinWindowOpen()).isFalse();
+        assertThat(created.entryState()).isEqualTo("WAITING_FOR_TEACHER");
     }
 
     @Test

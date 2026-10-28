@@ -67,6 +67,17 @@ public class LessonHistoryEntry {
     @Column(name = "ends_at", nullable = false)
     private Instant endsAt;
 
+    /** Tombstone: keeps notes, history and finished room artifacts available for audits. */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    public void removeFromSchedule(Instant when) {
+        if (deletedAt == null) deletedAt = when;
+    }
+
+    @Column(name = "schedule_manually_edited", nullable = false)
+    private boolean scheduleManuallyEdited;
+
     @Column(name = "meet_url", columnDefinition = "text")
     private String meetUrl;
 
@@ -106,10 +117,28 @@ public class LessonHistoryEntry {
             this.participantStudentIds = encodeParticipants(lesson.participantStudentIds());
         }
         this.title = lesson.title();
-        this.startsAt = lesson.startsAt();
-        this.endsAt = lesson.endsAt();
+        if (!scheduleManuallyEdited) {
+            this.startsAt = lesson.startsAt();
+            this.endsAt = lesson.endsAt();
+        }
         this.meetUrl = lesson.meetUrl();
         this.calendarUrl = lesson.calendarUrl();
+    }
+
+    /** Teacher correction to the scheduled date/time, including a past lesson. */
+    public void reschedule(java.time.Instant start, java.time.Instant end) {
+        if (start == null || end == null || !end.isAfter(start)) {
+            throw new IllegalArgumentException("Invalid lesson schedule");
+        }
+        this.startsAt = start;
+        this.endsAt = end;
+        this.scheduleManuallyEdited = true;
+    }
+
+    /** Explicit reassignment replaces the enrollment snapshot for a native lesson. */
+    public void reassign(GroupLessonResponse lesson) {
+        sync(lesson);
+        this.participantStudentIds = encodeParticipants(lesson.participantStudentIds());
     }
 
     public GroupLessonResponse toResponse() {

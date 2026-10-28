@@ -1,0 +1,47 @@
+name: Owner workbook v3 pilot
+
+on:
+  push:
+    branches:
+      - integration/railway-and-ux
+    paths:
+      - 'backend/src/main/java/com/mcschool/flashcard/lessons/MindcraftiMcpController.java'
+      - 'backend/src/main/java/com/mcschool/flashcard/lessons/OwnerWorkbookPdfRenderService.java'
+      - 'backend/src/main/java/com/mcschool/flashcard/lessons/LessonPdfDraftService.java'
+      - 'backend/src/test/java/com/mcschool/flashcard/lessons/OwnerWorkbookPdfRenderServiceTest.java'
+      - 'backend/src/main/resources/owner-workbook-generator/**'
+      - 'backend/Dockerfile'
+      - '.github/workflows/owner-workbook-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-workbook-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile backend and run owner-only workbook unit tests
+        working-directory: backend
+        run: mvn -B -ntp -Dtest=OwnerWorkbookPdfRenderServiceTest test
+      - name: Package backend
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests package
+      - name: Check SVG and geometry generator
+        working-directory: backend/src/main/resources/owner-workbook-generator
+        run: node diagrams.test.mjs

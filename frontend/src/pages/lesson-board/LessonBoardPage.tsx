@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { lessonBoardApi, type BoardAction, type BoardOperation, type BoardPoint } from '../../api/lessonBoard';
+import { NotebookCameraButton } from '../../features/notebook-camera/NotebookCameraPanel';
 
 const BOARD_WIDTH = 1400;
 const BOARD_HEIGHT = 900;
@@ -93,6 +94,10 @@ export function LessonBoardPage() {
   const { user } = useAuth();
   const isTeacher = user?.role === 'TEACHER' && user.id === PILOT_TEACHER_ID;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const touchesRef = useRef(new Map<number, { x: number; y: number }>());
+  const gestureRef = useRef<{ x: number; y: number; distance: number; zoom: number; offsetX: number; offsetY: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
   const draftRef = useRef<BoardAction | null>(null);
   const operationRef = useRef<BoardOperation[]>([]);
   const cursorRef = useRef(0);
@@ -188,6 +193,7 @@ export function LessonBoardPage() {
   }
 
   function pointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType === 'touch') return;
     if (!ready || working) return;
     const point = position(event);
     if (tool === 'text') {
@@ -209,6 +215,7 @@ export function LessonBoardPage() {
   }
 
   function pointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType === 'touch') return;
     const draft = draftRef.current;
     if (!draft || !draft.points) return;
     const p = position(event);
@@ -219,10 +226,55 @@ export function LessonBoardPage() {
     redraw();
   }
 
-  function pointerUp() {
+  function pointerUp(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType === 'touch') return;
     const draft = draftRef.current;
     if (!draft) return;
     void commit(draft);
+  }
+
+  // Finger gestures are viewport-only: Apple Pencil still writes to the canvas.
+  function touchStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== 'touch') return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    touchesRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    gestureRef.current = null;
+  }
+
+  function touchMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== 'touch' || !touchesRef.current.has(event.pointerId)) return;
+    const touches = touchesRef.current;
+    const previous = touches.get(event.pointerId)!;
+    touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const points = [...touches.values()];
+    if (points.length === 1) {
+      setOffset((old) => ({ x: old.x + event.clientX - previous.x, y: old.y + event.clientY - previous.y }));
+      return;
+    }
+    const [a, b] = points;
+    const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+    const x = (a.x + b.x) / 2;
+    const y = (a.y + b.y) / 2;
+    const viewport = event.currentTarget.getBoundingClientRect();
+    if (!gestureRef.current) {
+      gestureRef.current = { x, y, distance, zoom, offsetX: offset.x, offsetY: offset.y };
+      return;
+    }
+    const start = gestureRef.current;
+    const nextZoom = Math.min(5, Math.max(0.5, start.zoom * distance / start.distance));
+    const anchorX = start.x - viewport.left;
+    const anchorY = start.y - viewport.top;
+    setZoom(nextZoom);
+    setOffset({
+      x: x - viewport.left - (anchorX - start.offsetX) * nextZoom / start.zoom,
+      y: y - viewport.top - (anchorY - start.offsetY) * nextZoom / start.zoom,
+    });
+  }
+
+  function touchEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== 'touch') return;
+    touchesRef.current.delete(event.pointerId);
+    gestureRef.current = null;
   }
 
   async function undo() {
@@ -280,6 +332,7 @@ export function LessonBoardPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {user && ['TEACHER', 'STUDENT'].includes(user.role) && <NotebookCameraButton eventId={eventId} currentUserId={user.id} isTeacher={user.role === 'TEACHER'} />}
           {isTeacher && (
             <button type="button" className="btn btn--secondary" onClick={() => {
               void navigator.clipboard.writeText(window.location.href)
@@ -326,6 +379,7 @@ export function LessonBoardPage() {
               onClick={() => void clearBoard()}>Очистить</button>
           )}
           <div style={{ flex: 1 }}/>
+          <button type="button" className="btn btn--secondary" onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }} aria-label="Сбросить масштаб">{Math.round(zoom * 100)}%</button>
           <button type="button" className="btn btn--secondary" disabled={!ready}
             onClick={exportPng}>PNG</button>
           <button type="button" className="btn btn--secondary" disabled={!ready}
@@ -333,7 +387,9 @@ export function LessonBoardPage() {
         </div>
 
         <div style={{ background: '#e8edf4', padding: 5, borderRadius: 12,
-          overflow: 'hidden', border: '1px solid #ccd5e2' }}>
+          overflow: 'hidden', border: '1px solid #ccd5e2', touchAction: 'none' }}
+          onPointerDown={touchStart} onPointerMove={touchMove}
+          onPointerUp={touchEnd} onPointerCancel={touchEnd}>
           <canvas
             ref={canvasRef}
             width={BOARD_WIDTH}
@@ -345,7 +401,8 @@ export function LessonBoardPage() {
             onPointerCancel={pointerUp}
             style={{ display: 'block', width: '100%', height: 'auto',
               background: 'white', borderRadius: 8, cursor: tool === 'text' ? 'text' : 'crosshair',
-              touchAction: 'none', userSelect: 'none' }}
+              touchAction: 'none', userSelect: 'none', transformOrigin: 'top left',
+              transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})` }}
           />
         </div>
         <div className="muted" style={{ padding: '10px 3px 2px', fontSize: 12 }}>

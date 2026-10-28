@@ -3,6 +3,7 @@ import {
   addPage,
   clampPage,
   clampView,
+  resizeView,
   DEFAULT_VIEW,
   ensurePageCount,
   goToPage,
@@ -69,6 +70,26 @@ describe('view clamping', () => {
   it('limits zoom to the supported range and survives garbage', () => {
     expect(clampView({ zoom: 99, panX: 0, panY: 0 }, board).zoom).toBe(5);
     expect(clampView({ zoom: Number.NaN, panX: Number.NaN, panY: 0 }, board)).toEqual(DEFAULT_VIEW);
+  });
+});
+
+describe('teacher answers sidebar resize', () => {
+  it('keeps the entire worksheet visible at normal zoom', () => {
+    expect(resizeView(DEFAULT_VIEW, { width: 1024, height: 700 }, { width: 745, height: 700 }))
+      .toEqual(DEFAULT_VIEW);
+  });
+
+  it('preserves the relative position of a zoomed page', () => {
+    const old = { zoom: 2, panX: -500, panY: -180 };
+    const next = resizeView(old, { width: 1000, height: 600 }, { width: 700, height: 600 });
+    expect(next).toEqual({ zoom: 2, panX: -350, panY: -180 });
+    expect(resizeView(next, { width: 700, height: 600 }, { width: 1000, height: 600 })).toEqual(old);
+  });
+
+  it('clamps old pan offsets within the smaller board', () => {
+    expect(resizeView({ zoom: 2, panX: -9000, panY: -8000 },
+      { width: 1000, height: 700 }, { width: 650, height: 500 }))
+      .toEqual({ zoom: 2, panX: -650, panY: -500 });
   });
 });
 

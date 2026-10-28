@@ -16,6 +16,10 @@ export const CONTROL_TOPIC = 'mc.class.control.v1';
 export const VIEW_TOPIC = 'mc.class.view.v1';
 /** In-progress strokes, shown to others while the pen is still down. */
 export const STROKE_TOPIC = 'mc.class.stroke.v1';
+/** Private notebook previews stay separate from the same pupil's paper board. */
+export const NOTEBOOK_STROKE_TOPIC = 'mc.class.notebook-stroke.v1';
+/** New workbook pages are available to the class. */
+export const DOCUMENT_TOPIC = 'mc.class.document.v1';
 
 /** Hard cap per packet; annotation batches are chunked below this. */
 export const MAX_PACKET_BYTES = 8192;
@@ -29,6 +33,11 @@ interface BaseEvent {
   classId: string;
   id: string;
   at: number;
+}
+
+export interface DocumentEvent extends BaseEvent {
+  type: 'document';
+  version: number;
 }
 
 export interface HandEvent extends BaseEvent {
@@ -54,6 +63,13 @@ export interface PointerEvent_ extends BaseEvent {
   y: number;
 }
 
+/** Point on `event.page` beneath the clear scroll viewport's centre. */
+export interface DocumentViewport {
+  zoom: number;
+  x: number;
+  y: number;
+}
+
 /**
  * The teacher's view of the shared board. Pan is a fraction of the board size,
  * not pixels, so a tablet and a laptop land on the same part of the page.
@@ -68,6 +84,8 @@ export interface ViewEvent extends BaseEvent {
   panY: number;
   /** Whether students are currently locked to this view. */
   follow: boolean;
+  /** Optional whole-document zoom/anchor; absent for legacy paged navigation. */
+  documentView?: DocumentViewport;
 }
 
 /**
@@ -96,6 +114,7 @@ export interface LiveShape {
   color: string;
   width: number;
   points?: [number, number][];
+  pressures?: number[];
   x?: number;
   y?: number;
   w?: number;
@@ -117,6 +136,10 @@ export interface StrokeEvent extends BaseEvent {
   page: number;
   active: boolean;
   shape?: LiveShape;
+  /** Stable operation ID of the stroke: the saved annotation uses this same ID. */
+  strokeId?: string;
+  /** Increasing packet number: prevents delayed old previews from rewinding a line. */
+  revision?: number;
 }
 
 /** Server-authored. Clients render these but never send them. */
@@ -129,6 +152,7 @@ export interface ControlEvent {
 }
 
 export type ClassEvent =
+  | DocumentEvent
   | HandEvent
   | ReactionEvent
   | ChatEvent
@@ -139,6 +163,11 @@ export type ClassEvent =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+export function isDocumentViewport(value: unknown): value is DocumentViewport {
+  return isRecord(value) && !Array.isArray(value)
+    && isFiniteIn(value.zoom, 1, 5) && isFiniteIn(value.x, -10, 10) && isFiniteIn(value.y, -10, 10);
 }
 
 function hasBase(value: Record<string, unknown>, classId: string): boolean {
@@ -168,6 +197,8 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
   if (!isRecord(parsed) || !hasBase(parsed, classId)) return null;
 
   switch (parsed.type) {
+    case 'document':
+      return isInt(parsed.version, 1, Number.MAX_SAFE_INTEGER) ? (parsed as unknown as DocumentEvent) : null;
     case 'hand':
       return typeof parsed.raised === 'boolean' ? (parsed as unknown as HandEvent) : null;
     case 'reaction':
@@ -200,7 +231,8 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
         isFiniteIn(parsed.zoom, 1, 5) &&
         isFiniteIn(parsed.panX, -5, 0) &&
         isFiniteIn(parsed.panY, -5, 0) &&
-        typeof parsed.follow === 'boolean'
+        typeof parsed.follow === 'boolean' &&
+        (parsed.documentView === undefined || isDocumentViewport(parsed.documentView))
         ? (parsed as unknown as ViewEvent)
         : null;
     case 'annotation':
@@ -214,7 +246,16 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
     case 'stroke': {
       if (typeof parsed.targetId !== 'string' || !isInt(parsed.page, 0, 10_000)) return null;
       if (typeof parsed.active !== 'boolean') return null;
-      if (!parsed.active) return parsed as unknown as StrokeEvent;
+      if (parsed.strokeId !== undefined &&
+          (typeof parsed.strokeId !== 'string' ||
+           !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed.strokeId))) {
+        return null;
+      }
+      if (parsed.revision !== undefined && !isInt(parsed.revision, 0, 1_000_000_000)) return null;
+      if (!parsed.active) {
+        return parsed.shape === undefined || parseLiveShape(parsed.shape)
+          ? (parsed as unknown as StrokeEvent) : null;
+      }
       return parseLiveShape(parsed.shape) ? (parsed as unknown as StrokeEvent) : null;
     }
     default:
@@ -240,6 +281,11 @@ function parseLiveShape(value: unknown): value is LiveShape {
       if (!Array.isArray(point) || point.length !== 2) return false;
       if (!isFiniteIn(point[0], -2, 2) || !isFiniteIn(point[1], -2, 2)) return false;
     }
+  }
+  if (value.pressures !== undefined) {
+    if (!Array.isArray(value.points) || !Array.isArray(value.pressures)) return false;
+    if (value.pressures.length !== value.points.length) return false;
+    if (!value.pressures.every((p: unknown) => isFiniteIn(p, 0, 1))) return false;
   }
   return true;
 }
@@ -273,6 +319,10 @@ function newId(): string {
 
 export function encodeEvent(event: ClassEvent): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(event));
+}
+
+export function documentEvent(classId: string, version: number): DocumentEvent {
+  return { v: 1, type: 'document', classId, id: newId(), at: Date.now(), version };
 }
 
 export function handEvent(classId: string, raised: boolean): HandEvent {
@@ -311,6 +361,8 @@ export function strokeEvent(
   page: number,
   active: boolean,
   shape?: LiveShape,
+  strokeId?: string,
+  revision?: number,
 ): StrokeEvent {
-  return { v: 1, type: 'stroke', classId, id: newId(), at: Date.now(), targetId, page, active, shape };
+  return { v: 1, type: 'stroke', classId, id: newId(), at: Date.now(), targetId, page, active, shape, strokeId, revision };
 }

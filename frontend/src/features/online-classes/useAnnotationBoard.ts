@@ -153,13 +153,19 @@ export function useAnnotationBoard({
   }, [classId, targetType, targetId, pageIndex, sourceWidth, sourceHeight, update]);
 
   const shapes = useMemo(() => foldOperations(operations), [operations]);
+  // A durable ADD can already be hidden by a following undo/clear in the same
+  // replay batch. Its live preview is still settled by that authoritative ADD;
+  // optimistic negative sequences must never acknowledge a remote preview.
+  const confirmedStrokeIds = useMemo(() => operations
+    .filter(operation => operation.operationType === 'ADD' && operation.sequence > 0)
+    .map(operation => operation.operationId), [operations]);
   const undoable = useMemo(() => undoableOperations(operations, actorId), [operations, actorId]);
 
   const submit = useCallback(
-    async (operationType: Operation['operationType'], payload: string) => {
-      if (!document) return;
+    async (operationType: Operation['operationType'], payload: string, providedOperationId?: string) => {
+      if (!document) return false;
       const page = pageIndex;
-      const operationId = newId();
+      const operationId = providedOperationId ?? newId();
       const optimistic: Operation = {
         operationId,
         sequence: optimisticSequence.current--,
@@ -182,6 +188,7 @@ export function useAnnotationBoard({
           merge(page, saved);
           onSavedRef.current?.(saved, document.id);
         }
+        return true;
       } catch {
         // The server rejected it (validation, or the class ended): drop the
         // optimistic shape rather than showing something nobody else has.
@@ -191,12 +198,13 @@ export function useAnnotationBoard({
             operations: state.operations.filter((item) => item.operationId !== operationId),
           }));
         }
+        return false;
       }
     },
     [actorId, classId, document, merge, pageIndex, update],
   );
 
-  const addShape = useCallback((shape: Shape) => submit('ADD', JSON.stringify(shape)), [submit]);
+  const addShape = useCallback((shape: Shape, operationId?: string) => submit('ADD', JSON.stringify(shape), operationId), [submit]);
 
   const undo = useCallback(() => {
     const last = undoable[undoable.length - 1];
@@ -269,6 +277,7 @@ export function useAnnotationBoard({
   return {
     document,
     shapes,
+    confirmedStrokeIds,
     canUndo: undoable.length > 0,
     canRedo: redoStack.length > 0,
     addShape,

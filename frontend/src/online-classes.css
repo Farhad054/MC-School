@@ -1233,3 +1233,829 @@
 .online-class-reconnect__actions .prejoin__retry {
   flex: 1 1 210px;
 }
+
+/* In-call troubleshooting only; never shows raw provider errors or credentials. */
+.online-class-reconnect__diagnostics {
+  border-left: 3px solid #c4cedc;
+  background: #f7f9fc;
+  padding: 12px 15px;
+  margin: 15px 0;
+  border-radius: 0 11px 11px 0;
+}
+.online-class-reconnect__diagnostics p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #485770;
+}
+.online-class-reconnect__diagnostics p:last-child {
+  margin-bottom: 0;
+}
+
+/* Goodnotes-style single assignment shortcut and left document drawer. */
+.online-class-room__topbar .classroom-homework-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.online-class-room__topbar .classroom-homework-toggle[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+.classroom-homework {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 9;
+  width: min(360px, 82%);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  color: var(--text);
+  border-right: 1px solid var(--border);
+  box-shadow: 4px 0 24px rgba(15, 23, 32, 0.18);
+}
+.classroom-homework__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.classroom-homework__close {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 24px;
+  color: var(--text);
+  cursor: pointer;
+  min-width: 36px;
+  min-height: 36px;
+}
+.classroom-homework__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+.classroom-homework__notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+.classroom-homework__document h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.classroom-homework__page-area { width: 100%; min-height: 48px; overflow-x: auto; }
+.classroom-homework__page { display: block; width: 100%; height: auto; background: #fff; }
+.classroom-homework__pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding: 6px;
+  border-top: 1px solid var(--border);
+}
+.classroom-homework__pagination button {
+  min-width: 38px;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 7px;
+}
+.classroom-homework__pagination button:disabled { opacity: .4; }
+@media (pointer: coarse) {
+  .online-class-room__topbar .classroom-homework-toggle { min-width: 44px; min-height: 44px; }
+  .classroom-homework__close, .classroom-homework__pagination button { min-width: 44px; min-height: 44px; }
+}
+
+/* Compact Goodnotes-inspired classroom header: one row instead of stacked toolbars. */
+.whiteboard__topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 4px 8px;
+  background: #14366c;
+  color: #f8fafc;
+}
+.whiteboard__topline-pages { flex: 0 0 auto; }
+.whiteboard__topline .board-toolbar {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  gap: 4px 8px;
+}
+.whiteboard__topline .board-toolbar button { color: #f8fafc; }
+.whiteboard__topline .board-toolbar__swatches button { color: transparent; }
+.whiteboard__topline .page-nav { background: rgba(255,255,255,.1); border-radius: 10px; }
+.whiteboard__topline .page-nav button { color: #fff; }
+.whiteboard__topline .page-nav__label { color: #fff; }
+.whiteboard__topline .board-toolbar .board-toolbar__tool.is-active { background: #2563eb; }
+@media (max-width: 900px) {
+  .whiteboard__topline { flex-wrap: wrap; }
+  .whiteboard__topline .board-toolbar { overflow-x: auto; flex-wrap: nowrap; }
+  .whiteboard__topline .board-toolbar__group { flex-shrink: 0; }
+}
+
+/* iPad repair: prevent a multi-row dark toolbar and restore readable controls. */
+.whiteboard__topline { background: #173768; min-height: 52px; max-height: 58px; flex-wrap: nowrap; overflow: visible; }
+.whiteboard__topline-pages { flex-shrink: 0; }
+.whiteboard__topline .board-toolbar { display: flex; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; white-space: nowrap; max-height: 52px; }
+.whiteboard__topline .board-toolbar__tools,
+.whiteboard__topline .board-toolbar__group { flex-shrink: 0; flex-wrap: nowrap; }
+.whiteboard__topline .board-toolbar button { color: #f8fafc; background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.16); white-space: nowrap; }
+.whiteboard__topline .board-toolbar button:disabled { opacity: .5; }
+.whiteboard__topline .board-toolbar__menu { background: #fff; color: #172554; }
+.whiteboard__topline .board-toolbar__menu button { color: #172554; background: #fff; }
+.whiteboard__topline .board-toolbar__swatches button { border-radius: 50%; color: transparent; }
+@media (max-width: 900px) {
+  .whiteboard__topline { flex-wrap: nowrap; padding: 3px 5px; gap: 4px; }
+  .whiteboard__topline .board-toolbar { flex-wrap: nowrap; overflow-x: auto; }
+}
+
+/* Tablet-friendly Goodnotes-inspired text controls; no additional toolbar row. */
+.whiteboard__topline .board-toolbar__text-style {
+  display: flex;
+  align-items: flex-end;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 3px 6px;
+  background: rgba(255,255,255,.13);
+  border: 1px solid rgba(255,255,255,.19);
+  border-radius: 11px;
+}
+.whiteboard__topline .board-toolbar__text-control {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #f1f5f9;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+.whiteboard__topline .board-toolbar__text-control select,
+.whiteboard__topline .board-toolbar__text-control input {
+  box-sizing: border-box;
+  height: 29px;
+  min-height: 29px;
+  background: #ffffff;
+  color: #172554;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font: 500 12px system-ui, sans-serif;
+  padding: 3px 7px;
+  outline-offset: 2px;
+}
+.whiteboard__topline .board-toolbar__text-control select { width: 144px; }
+.whiteboard__topline .board-toolbar__text-control input { width: 55px; }
+.whiteboard__topline .board-toolbar button.board-toolbar__text-bold {
+  font-size: 15px;
+  font-family: Georgia, serif;
+  font-weight: 700;
+  min-height: 29px;
+  height: 29px;
+  min-width: 32px;
+  border-radius: 7px;
+  margin-bottom: 1px;
+}
+.whiteboard__text-input {
+  width: min(330px, calc(100vw - 120px));
+  min-width: 125px;
+  min-height: 62px;
+  resize: both;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  background: rgba(255,255,255,.98);
+  border: 1.5px solid #3b82f6;
+  border-radius: 9px;
+  box-shadow: 0 4px 20px rgba(15,23,42,.19);
+  line-height: 1.22;
+  caret-color: #2563eb;
+  z-index: 3;
+}
+@media(max-width: 780px) {
+  .whiteboard__topline .board-toolbar__text-control select { width: 118px; }
+  .whiteboard__topline .board-toolbar__text-style { gap: 4px; padding: 3px 4px; }
+}
+
+/* Unsent writing is deliberately left visible instead of blinking away.
+   Make save failures actionable without blocking the drawing surface. */
+.whiteboard__ink-save-alert {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: calc(100% - 24px);
+  padding: 8px 11px;
+  color: #7f1d1d;
+  font: 600 12px/1.35 system-ui, sans-serif;
+  background: rgba(255, 251, 235, .98);
+  border: 1px solid #f59e0b;
+  border-radius: 9px;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, .12);
+}
+.whiteboard__ink-save-alert button {
+  padding: 6px 10px;
+  background: #ffffff;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.whiteboard__ink-save-alert button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Floating Islands — lesson controls. Keep LiveKit handlers untouched. */
+.online-class-room__controls {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  width:100%;
+  box-sizing:border-box;
+  padding:10px max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain;
+  scrollbar-width:thin;
+  background:#f8fbff;
+  border-top:1px solid #e2eaf5;
+}
+.online-class-room__controls > .lk-control-bar {
+  display:flex;
+  flex:0 0 auto;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  width:max-content;
+  max-width:none;
+  padding:0;
+  margin:0;
+  background:transparent;
+  border:0;
+  box-shadow:none;
+}
+.online-class-room__controls > .lk-control-bar > *,
+.online-class-room__controls > button {
+  flex:0 0 auto;
+}
+.online-class-room__controls .lk-button,
+.online-class-room__controls > button:not([class*='lk-']) {
+  min-height:44px;
+  border:1px solid #dce6f3;
+  border-radius:14px;
+  padding:9px 13px;
+  background:#fff;
+  color:#314963;
+  box-shadow:0 4px 14px rgba(32,58,99,.10);
+  white-space:nowrap;
+}
+.online-class-room__controls .lk-button:hover,
+.online-class-room__controls > button:not([class*='lk-']):hover {
+  background:#f0f6ff;
+}
+.online-class-room__controls .lk-button[aria-pressed='true'],
+.online-class-room__controls > button[aria-pressed='true']:not([class*='lk-']) {
+  background:#e8f1ff;
+  color:#245fc9;
+  border-color:#bcd4fd;
+}
+.online-class-room__controls > button.online-class-room__leave {
+  background:#fff;
+  color:#c43e46;
+  border-color:#efcbd0;
+}
+.online-class-room__controls > button.online-class-room__end {
+  background:#fff;
+  color:#b9333d;
+  border-color:#efcbd0;
+}
+.online-class-room__controls .lk-button:focus-visible,
+.online-class-room__controls > button:focus-visible {
+  outline:2px solid #3977da;
+  outline-offset:2px;
+}
+@media(max-width:900px) {
+  .online-class-room__controls {
+    gap:7px;
+    padding-top:7px;
+    padding-bottom:max(7px,env(safe-area-inset-bottom));
+  }
+  .online-class-room__controls .lk-button,
+  .online-class-room__controls > button:not([class*='lk-']) {
+    padding:8px 11px;
+  }
+}
+
+/* Retractable participant rail; the board remains mounted underneath. */
+.online-class-room__stage {
+  position:relative;
+  display:flex;
+  min-height:0;
+  overflow:hidden;
+}
+.online-class-room__stage > .online-class-room__main {
+  flex:1 1 auto;
+  min-width:0;
+}
+.online-class-room__videos-drawer {
+  position:absolute;
+  z-index:11;
+  top:0;
+  right:0;
+  bottom:0;
+  width:clamp(160px,23vw,250px);
+  background:#101a26;
+  transform:translateX(102%);
+  opacity:0;
+  pointer-events:none;
+  transition:transform .22s ease,opacity .22s ease;
+  overflow:auto;
+}
+.online-class-room__videos-drawer.is-open {
+  transform:translateX(0);
+  opacity:1;
+  pointer-events:auto;
+}
+.online-class-room__videos-toggle {
+  position:absolute;
+  z-index:12;
+  right:10px;
+  top:50%;
+  transform:translateY(-50%);
+  border:1px solid #dce6f3;
+  border-radius:13px;
+  padding:12px 9px;
+  background:rgba(255,255,255,.96);
+  color:#24518c;
+  box-shadow:0 4px 16px rgba(23,50,83,.17);
+  font:inherit;
+  cursor:pointer;
+  touch-action:manipulation;
+}
+.online-class-room__stage--videos-open .online-class-room__videos-toggle {
+  right:clamp(160px,23vw,250px);
+  border-radius:12px 0 0 12px;
+}
+.online-class-room__videos-toggle:focus-visible {
+  outline:2px solid #3977da;
+  outline-offset:2px;
+}
+/* The controls now float ON the lesson canvas. Empty space stays transparent
+   and permits the PDF and annotations to remain visible underneath. */
+.online-class-room {
+  position:relative;
+}
+.online-class-room__controls {
+  position:absolute;
+  z-index:15;
+  left:0;
+  right:0;
+  bottom:0;
+  width:auto;
+  border:0;
+  padding:8px 10px max(10px,env(safe-area-inset-bottom));
+  background:transparent;
+  box-shadow:none;
+  pointer-events:none;
+  scrollbar-width:none;
+}
+.online-class-room__controls::-webkit-scrollbar {display:none}
+.online-class-room__controls > * {pointer-events:auto}
+.online-class-room__controls > .lk-control-bar {
+  background:transparent!important;
+  box-shadow:none!important;
+}
+@media(max-width:640px) {
+  .online-class-room__videos-drawer {width:min(58vw,220px)}
+  .online-class-room__stage--videos-open .online-class-room__videos-toggle {right:min(58vw,220px)}
+  .online-class-room__controls {padding:6px 8px max(8px,env(safe-area-inset-bottom))}
+}
+@media(prefers-reduced-motion:reduce) {
+  .online-class-room__videos-drawer {transition:none}
+}
+
+/* iPad visual QA: unobstructed page navigation and a clean retractable video tab. */
+.online-class-room__videos-toggle {
+  top:12px;
+  right:12px;
+  transform:none;
+  padding:9px 12px;
+  min-height:44px;
+}
+.online-class-room__stage--videos-open .online-class-room__videos-toggle {
+  right:clamp(160px,23vw,250px);
+}
+.online-class-room__controls {
+  justify-content:flex-start;
+  bottom:0;
+  isolation:isolate;
+  padding-bottom:max(10px,env(safe-area-inset-bottom));
+}
+/* The bottom row floats OVER the canvas; navigation and zoom float just above
+   that row, so no controls share the same hit area. */
+.online-class-room .school-islands-board .whiteboard__topline-pages,
+.online-class-room .school-islands-board .whiteboard__zoom {
+  bottom:calc(75px + env(safe-area-inset-bottom));
+  z-index:12;
+}
+.online-class-room .school-islands-board .whiteboard__stage {
+  padding-bottom:0;
+}
+@media(max-width:900px) {
+  .online-class-room__videos-toggle {top:8px;right:8px}
+  .online-class-room .school-islands-board .whiteboard__topline-pages,
+  .online-class-room .school-islands-board .whiteboard__zoom {
+    bottom:calc(68px + env(safe-area-inset-bottom));
+  }
+}
+@media(max-width:640px) {
+  .online-class-room__stage--videos-open .online-class-room__videos-toggle {
+    right:min(58vw,220px);
+  }
+}
+
+/* One compact line of lesson chrome; the board gets the released height. */
+.online-class-room__topbar {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  min-height:58px;
+  padding:7px max(12px,env(safe-area-inset-right)) 7px max(12px,env(safe-area-inset-left));
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;
+  background:#fff;
+}
+.online-class-room__topbar::-webkit-scrollbar {display:none}
+.online-class-room__topbar > * {
+  flex-shrink:0;
+}
+.online-class-room__topbar .online-class-room__videos-toggle {
+  position:static;
+  transform:none;
+  min-height:40px;
+  margin-left:auto;
+  border-radius:12px;
+  white-space:nowrap;
+  box-shadow:0 3px 12px rgba(32,58,99,.09);
+}
+.online-class-room__topbar .board-switcher {
+  flex:0 0 auto;
+}
+@media(max-width:800px) {
+  .online-class-room__topbar {
+    min-height:52px;
+    gap:7px;
+    padding-top:5px;
+    padding-bottom:5px;
+  }
+}
+
+/* Teacher-only four-way personal board overview. Each tile is a live,
+   read-only view; opening a tile returns to its normal full-size editor. */
+.online-class-room__student-grid {
+  position:absolute;
+  inset:0;
+  z-index:5;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-rows:repeat(2,minmax(0,1fr));
+  gap:8px;
+  padding:8px 8px 80px;
+  background:#edf3fb;
+}
+.online-class-room__student-tile {
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+  min-height:0;
+  overflow:hidden;
+  background:#fff;
+  border:1px solid #dce6f3;
+  border-radius:13px;
+}
+.online-class-room__student-tile-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+  min-height:35px;
+  padding:4px 9px;
+  color:#294465;
+  font-size:13px;
+  border-bottom:1px solid #e5ebf5;
+}
+.online-class-room__student-tile-header strong {
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.online-class-room__student-tile-header button {
+  border:1px solid #cbdcf2;
+  background:#fff;
+  border-radius:8px;
+  padding:4px 8px;
+  color:#245fc9;
+}
+.online-class-room__student-tile > .whiteboard {
+  flex:1 1 auto;
+  min-height:0;
+}
+.online-class-room__student-tile .whiteboard__topline,
+.online-class-room__student-tile .whiteboard__topline-pages,
+.online-class-room__student-tile .whiteboard__zoom,
+.online-class-room__student-tile .whiteboard__notice {
+  display:none!important;
+}
+.online-class-room__student-grid-empty {
+  padding:15px;
+  color:#536987;
+}
+@media(max-width:600px) {
+  .online-class-room__student-grid {gap:4px;padding:4px 4px 72px}
+  .online-class-room__student-tile-header {padding:3px 5px;font-size:11px}
+  .online-class-room__student-tile-header button {padding:4px;font-size:11px}
+}
+
+/* Continuous solutions PDF viewer: pages stacked with independent scroll and zoom. */
+.classroom-solutions { display:flex; flex-direction:column; min-height:0; }
+.classroom-solutions__toolbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+  padding:8px; border-bottom:1px solid #dce6f3; background:#fff;
+}
+.classroom-solutions__zoom { display:flex; gap:6px; align-items:center; }
+.classroom-solutions__zoom button {
+  min-width:40px; min-height:40px; border-radius:10px;
+  background:#fff; border:1px solid #dce6f3; color:#344b6e;
+}
+.classroom-solutions__scroller {
+  flex:1 1 auto; min-height:0; overflow:auto;
+  overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+  padding:10px; background:#eef3fa;
+}
+.classroom-solutions__sheet {
+  width:100%; margin-bottom:14px;
+  background:#fff; border:1px solid #dce6f3;
+  box-shadow:0 3px 12px rgba(32,58,99,.11);
+  overflow:visible;
+}
+.classroom-solutions__sheet small {display:block; padding:5px 8px;color:#506482;}
+.classroom-solutions__sheet canvas {display:block;}
+
+
+/* LiveKit device dropdown must open above the floating bottom toolbar.
+   The toolbar scrolls horizontally, so an ordinary downward absolute menu
+   gets clipped off screen (especially on Samsung tablets and iPad). */
+.online-class-room__controls .lk-device-menu {
+  position: fixed !important;
+  top: auto !important;
+  bottom: calc(78px + env(safe-area-inset-bottom)) !important;
+  left: max(12px, calc(50vw - 160px)) !important;
+  right: auto !important;
+  z-index: 1100 !important;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(50vh, 340px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Teacher PDF reference is a true sibling of the main board. Neither of the
+   two teacher-only entry points ('Решения' / 'Ответы') floats over its ink.
+   The drawing canvas already uses ResizeObserver + normalized annotations,
+   so resizing the flex main area fits the full page in the remaining width. */
+.online-class-room__stage > .answers-panel,
+.online-class-room__stage > .classroom-solutions {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: clamp(210px, 23vw, 285px);
+  max-width: 40%;
+  flex: 0 0 clamp(210px, 23vw, 285px);
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  z-index: 2;
+  box-shadow: none;
+  border-right: 1px solid #dce6f3;
+  overflow: hidden;
+}
+.online-class-room__stage > .online-class-room__main {
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+}
+.online-class-room__stage > .answers-panel .answers-panel__close {
+  right: 7px;
+  top: 7px;
+}
+.online-class-room__stage > .answers-panel .answers-panel__controls {
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 6px;
+}
+.online-class-room__stage > .classroom-solutions .classroom-solutions__toolbar {
+  flex-wrap: wrap;
+  padding: 6px;
+}
+.online-class-room__stage > .classroom-solutions .classroom-solutions__scroller {
+  min-width: 0;
+}
+@media (max-width: 680px) {
+  .online-class-room__stage > .answers-panel,
+  .online-class-room__stage > .classroom-solutions {
+    width: 40%;
+    flex-basis: 40%;
+    max-width: 40%;
+  }
+  .online-class-room__stage > .answers-panel .page-nav button,
+  .online-class-room__stage > .answers-panel .answers-panel__zoom button {
+    min-width: 34px;
+    min-height: 34px;
+  }
+}
+
+/* Single-finger PDF scrolling stays native; two-finger pinch belongs only to
+   the PDF reference pane and never scales the entire classroom. */
+.online-class-room__stage > .answers-panel .answers-panel__scroll,
+.online-class-room__stage > .classroom-solutions .classroom-solutions__scroller {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The notebook is a lesson surface alongside the board, rather than a modal
+   nested in the horizontally scrolling call controls. */
+.online-class-room__topbar .online-class-room__notebook-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 1px solid #dce6f3;
+  border-radius: 12px;
+  background: #eef4fd;
+  color: #224c85;
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.online-class-room__topbar .online-class-room__notebook-toggle[aria-pressed='true'] {
+  background: #dceafd;
+  border-color: #78a4dd;
+}
+.online-class-room__notebook {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px 12px calc(90px + env(safe-area-inset-bottom));
+  background: #f2f4f7;
+}
+.online-class-room__notebook[hidden] { display: none; }
+.online-class-room__notebook .notebook-camera { min-width: 0; padding: 16px; }
+.online-class-room__notebook .notebook-camera__heading {
+  position: sticky;
+  top: -12px;
+  z-index: 2;
+  padding: 12px 0;
+  background: #fff;
+}
+.online-class-room__notebook .notebook-camera__heading h2 { font-size: 22px; }
+.online-class-room__notebook .notebook-camera__heading p { margin-bottom: 0; }
+.online-class-room__notebook .notebook-camera__heading > button { flex-shrink: 0; }
+.online-class-room__notebook .notebook-camera__connect { margin: 12px 0; gap: 16px; }
+.online-class-room__notebook .notebook-camera__connect > div:first-child { flex: 1 1 240px; }
+.online-class-room__notebook .notebook-camera__qr { flex: 0 1 304px; }
+.online-class-room__notebook .notebook-camera__viewer {
+  height: max(620px, calc(100dvh - 180px));
+  min-height: 0;
+}
+@media (min-width: 901px) {
+  .online-class-room__stage--notebook > .online-class-room__videos-drawer.is-open {
+    position: relative;
+    flex: 0 0 clamp(160px, 23vw, 250px);
+  }
+}
+@media (max-width: 700px) {
+  .online-class-room__notebook { padding: 6px 6px calc(85px + env(safe-area-inset-bottom)); }
+  .online-class-room__notebook .notebook-camera { padding: 10px; }
+  .online-class-room__notebook .notebook-camera__heading { top: -6px; gap: 8px; flex-wrap: wrap; }
+  .online-class-room__notebook .notebook-camera__heading h2 { font-size: 20px; }
+  .online-class-room__notebook .notebook-camera__qr { flex-basis: 100%; padding: 10px; }
+  .online-class-room__notebook .notebook-camera__viewer { height: 850px; }
+}
+
+/* Each pupil keeps one surface in the same DOM location. The camera replaces
+   that pupil's board both in the overview and when opened on its own. */
+.student-workspaces {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 8px calc(80px + env(safe-area-inset-bottom));
+  background: #edf3fb;
+}
+.online-class-room.lk-room-container { overflow: hidden; }
+.student-workspaces--overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+/* Don't reserve two empty grid cells when only one or two pupils joined.
+   Each preview now gets a readable full-height sheet in a two-pupil lesson. */
+.student-workspaces--overview[data-overview-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.student-workspaces--overview[data-overview-count="2"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+.student-workspace {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #dce6f3;
+  border-radius: 13px;
+  background: #fff;
+}
+.student-workspaces[hidden], .student-workspace[hidden],
+.student-workspace__board[hidden], .student-workspace__camera-board[hidden] { display: none; }
+.student-workspace__kind {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 11px;
+  color: #526b88;
+}
+.student-workspace__content { position: relative; flex: 1 1 0%; min-width: 0; min-height: 0; }
+.student-workspace__board, .student-workspace__camera-board, .student-workspace__camera { position: absolute; inset: 0; min-width: 0; min-height: 0; }
+.student-workspace__board, .student-workspace__camera-board { display: flex; flex-direction: column; }
+.student-workspace__board > .whiteboard, .student-workspace__camera-board > .whiteboard { flex: 1 1 0%; min-height: 0; }
+.student-workspace__camera { pointer-events: none; }
+.student-workspace__camera > div { height: 100%; min-height: 0; }
+.notebook-camera-viewer__source { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.student-workspace__camera [role='alert'] { position: absolute; inset: 0 0 auto; z-index: 4; pointer-events: auto; margin: 0; }
+/* The live frame and ink share one Konva stage, including its pan and zoom.
+   Keep the normal board's floating controls over the entire workspace. */
+.whiteboard--camera.school-islands-board,
+.whiteboard--camera.school-islands-board .whiteboard__stage,
+.whiteboard--camera .whiteboard__surface { background: #edf1f5; background-image: none; }
+.student-workspaces--overview .whiteboard__topline,
+.student-workspaces--overview .whiteboard__topline-pages,
+.student-workspaces--overview .whiteboard__zoom,
+.student-workspaces--overview .whiteboard__notice { display: none !important; }
+@media (min-width: 901px) {
+  .online-class-room__stage--student-workspaces > .online-class-room__videos-drawer.is-open {
+    position: relative;
+    flex: 0 0 clamp(160px, 23vw, 250px);
+  }
+}
+@media (max-width: 600px) {
+  .student-workspaces { padding: 4px 4px calc(72px + env(safe-area-inset-bottom)); }
+  .student-workspaces--overview { gap: 4px; }
+  .student-workspace .online-class-room__student-tile-header { flex-wrap: wrap; gap: 3px; padding: 4px; }
+  .student-workspace__kind { font-size: 10px; }
+}

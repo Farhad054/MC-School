@@ -10,14 +10,23 @@ export type SessionStatus = 'IN_PROGRESS' | 'COMPLETED';
 export type DailyReviewStatus = 'COMPLETED' | 'PARTIAL' | 'MISSED';
 
 export interface User { id: string; fullName: string; email: string | null; username: string | null; role: Role; status: UserStatus; preferredLanguage: Language; googleDriveTrialTranscriptFolderId: string | null; }
+export interface AdminAccount extends User { teacherId: string | null; teacherFullName: string | null; }
+export interface TeacherAssignmentOption { id: string; fullName: string; status: UserStatus; archived: boolean; }
+export interface StudentTransferResponse { student: AdminAccount; copiedFutureLessons: number; transferredGroups: number; futureGroupLessonsNotTransferred: number; }
+export interface TransferStudentsResponse { fromTeacherId: string; fromTeacherName: string; toTeacherId: string; toTeacherName: string; transferredStudents: number; transferredGroups: number; copiedFutureLessons: number; groupsWithLessonsNotTransferred: number; }
+export interface StudentLessonHistoryItem { sourceTeacherId: string; sourceTeacherName: string; eventId: string; title: string; groupName: string | null; startsAt: string; endsAt: string; hasWorkbook: boolean; hasAnswers: boolean; hasTranscript: boolean; }
+export interface StudentLessonHistoryDetail extends StudentLessonHistoryItem { homeworkNotes: string | null; difficulties: string | null; lessonPlan: string | null; coveredMaterial: string | null; transcriptText: string | null; transcriptFilename: string | null; workbookFilename: string | null; answersFilename: string | null; }
+export interface StudentLessonHistoryDocument { id: string; boardId: string; filename: string; savedAt: string; }
 export type SchoolType = 'GYMNASIUM' | 'REALSCHULE' | 'MITTELSCHULE' | 'WIRTSCHAFTSSCHULE' | 'FACHOBERSCHULE' | 'GESAMTSCHULE' | 'WERKREALSCHULE' | 'OTHER';
 export type LearningPace = 'SLOW' | 'NORMAL' | 'FAST';
 export interface StudentListItem extends User { invitationToken: string | null; googleDriveFolderUrl: string | null; googleDriveHomeworkFolderId: string | null; googleDriveTranscriptFolderId: string | null; chatGptProjectUrl: string | null; grade: number | null; schoolType: SchoolType | null; learningPace: LearningPace | null; learningStrengths: string | null; learningDifficulties: string | null; explanationStyle: string | null; learningNotes: string | null; parentId: string | null; parentFullName: string | null; parentEmail: string | null; parentStatus: UserStatus | null; parentInvitationToken: string | null; }
 export interface StudentLearningProfileUpdate { grade: number | null; schoolType: SchoolType | null; learningPace: LearningPace | null; learningStrengths: string; learningDifficulties: string; explanationStyle: string; learningNotes: string; }
 export interface StudentGroup { id: string; name: string; googleDriveTranscriptFolderId: string | null; students: User[]; }
+export interface CreateLessonSeriesRequest { title: string; startDate: string; startTime: string; durationMinutes: number; period: 'TWO_WEEKS' | 'THREE_WEEKS' | 'MONTH'; weekdays: number[]; groupId: string | null; studentId: string | null; }
+export interface CreateLessonRequest { title: string; startsAt: string; endsAt: string; groupId: string | null; studentId: string | null; }
 export interface GroupLesson { eventId: string; bindingKey: string; groupId: string | null; groupName: string | null; studentId: string | null; studentName: string | null; participantStudentIds: string[]; title: string; startsAt: string; endsAt: string; meetUrl: string | null; calendarUrl: string | null; }
 export interface StudentLesson { eventId: string; title: string; groupName: string | null; startsAt: string; endsAt: string; meetUrl: string | null; hasSharedDocument: boolean; sharedDocumentFilename: string | null; }
-export interface LessonPreparation { eventId: string; homeworkNotes: string | null; difficulties: string | null; lessonPlan: string | null; transcriptText: string | null; hasTranscript: boolean; transcriptFilename: string | null; hasWorkbook: boolean; workbookFilename: string | null; hasAnswers: boolean; answersFilename: string | null; answersUploadHint?: string | null; siteOpenedAt?: string | null; }
+export interface LessonPreparation { eventId: string; coveredMaterial?: string | null; homeworkNotes: string | null; difficulties: string | null; lessonPlan: string | null; transcriptText: string | null; hasTranscript: boolean; transcriptFilename: string | null; hasWorkbook: boolean; workbookFilename: string | null; hasAnswers: boolean; answersFilename: string | null; answersUploadHint?: string | null; siteOpenedAt?: string | null; }
 export interface GoogleCalendarConnection { connected: boolean; authorizationUrl: string | null; }
 export interface GoogleMeetEventStatus { configured: boolean; subscribed: boolean; lastLeftAt: string | null; }
 export interface AuthResponse { accessToken: string; tokenType: string; expiresAt: string; user: User; }
@@ -58,3 +67,7 @@ export interface MonthlyPlanResponse {
   version: number;
   updatedAt: string | null;
 }
+
+export interface StudentTimeSummary {studentId:string;studentName:string;cardSeconds:number;homeworkSeconds:number;cardSessions:number;homeworkAssignments:number;activeDays:number;lastActivityAt:string|null}
+export interface StudentTimeDetail {kind:'CARDS'|'HOMEWORK';referenceId:string;seconds:number;label:string;lastActivityAt:string|null;completedAt:string|null}
+export interface StudentTimeReport {summary:StudentTimeSummary;details:StudentTimeDetail[]}
