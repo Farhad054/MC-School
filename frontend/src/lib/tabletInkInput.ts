@@ -65,11 +65,17 @@ export function getTabletInkPlatform(): TabletInkPlatform {
   };
 }
 
+function normalizedPressure(value: number): number {
+  // Zero is a real sensor value, including initial contact and release. Turning
+  // it into half pressure creates an artificial thick cap on a light pen stroke.
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.5;
+}
+
 function pointerPoint(event: PointerEvent): TabletInkPoint {
   return {
     clientX: event.clientX,
     clientY: event.clientY,
-    pressure: Number.isFinite(event.pressure) && event.pressure > 0 ? event.pressure : 0.5,
+    pressure: normalizedPressure(event.pressure),
     timeStamp: event.timeStamp,
   };
 }
@@ -78,7 +84,7 @@ function touchPoint(touch: Touch, timeStamp: number): TabletInkPoint {
   return {
     clientX: touch.clientX,
     clientY: touch.clientY,
-    pressure: Number.isFinite(touch.force) && touch.force > 0 ? touch.force : 0.5,
+    pressure: normalizedPressure(touch.force),
     timeStamp,
   };
 }
