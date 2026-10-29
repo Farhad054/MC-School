@@ -328,6 +328,53 @@ describe('WhiteboardCanvas continuous scrolling', () => {
     expect(onDocumentPenContact.mock.calls.map(([active]) => active)).toEqual([true, false, true, false, true, false]);
   });
 
+  it('commits recovered Pencil ink unchanged after the sheet moves and resizes, then accepts a fresh stroke', async () => {
+    mock.backend = 'ios-touch';
+    let resize!: ResizeObserverCallback;
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { resize = callback; }
+      observe() { resize([{ contentRect: { width: 1000, height: 500 } } as ResizeObserverEntry], {} as ResizeObserver); }
+      disconnect() {}
+    });
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const onCommit = vi.fn(), onDraftChange = vi.fn(), onDocumentPenContact = vi.fn();
+    const { container } = render(<WhiteboardCanvas {...props} sourceAspect={null}
+      onCommit={onCommit} onDraftChange={onDraftChange} onDocumentPenContact={onDocumentPenContact} />);
+    const surface = container.querySelector('.whiteboard__surface')!;
+    let left = 40, top = 60, width = 1000, height = 500;
+    vi.spyOn(surface, 'getBoundingClientRect').mockImplementation(() => ({ left, top, width, height } as DOMRect));
+    const pen = { source: 'touch', device: 'pen', inputId: 9 };
+    const first = { clientX: 240, clientY: 160, pressure: .1, timeStamp: 1 };
+    const last = { clientX: 340, clientY: 210, pressure: .2, timeStamp: 2 };
+    act(() => mock.nativeCallbacks.onStart(first, pen));
+    now += 20;
+    act(() => mock.nativeCallbacks.onMove(last, pen));
+    const [drawn, strokeId] = onDraftChange.mock.calls.at(-1)!;
+    expect(drawn).toMatchObject({ points: [[.2, .2], [.3, .3]], pressures: [.1, .2] });
+
+    // No native end was delivered. Reusing its old client coordinate against
+    // this new rectangle would invent a third point at [.25, .125].
+    left = 140; top = 160; width = 800; height = 400;
+    act(() => resize([{ contentRect: { width, height } } as ResizeObserverEntry], {} as ResizeObserver));
+    await act(async () => mock.nativeCallbacks.onEnd(last, { ...pen, recovered: true }, false));
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(drawn, strokeId);
+    expect(onDraftChange).toHaveBeenLastCalledWith(drawn, strokeId, true);
+
+    // A normal, immediate lift still samples its own final position, even
+    // within the 16ms sampling window of the recovered contact's last move.
+    now += 1;
+    await act(async () => {
+      const nextPen = { ...pen, inputId: 10 };
+      mock.nativeCallbacks.onStart({ clientX: 220, clientY: 240, pressure: .4, timeStamp: 3 }, nextPen);
+      mock.nativeCallbacks.onEnd({ clientX: 300, clientY: 280, pressure: 0, timeStamp: 4 }, nextPen, false);
+    });
+    expect(onCommit).toHaveBeenCalledTimes(2);
+    expect(onCommit.mock.calls[1][0]).toMatchObject({ points: [[.1, .2], [.2, .3]], pressures: [.4, 0] });
+    expect(onCommit.mock.calls[1][1]).not.toBe(strokeId);
+    expect(onDocumentPenContact.mock.calls.map(([pressed]) => pressed)).toEqual([true, false, true, false]);
+  });
+
   it.each(['pointer', 'ios-touch'])('synchronously cancels %s finger ink when a cross-page document gesture takes ownership', async backend => {
     mock.backend = backend;
     const ref = createRef<WhiteboardCanvasHandle>(), onCommit = vi.fn(), onDraftChange = vi.fn(), onDocumentGesture = vi.fn();
