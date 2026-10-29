@@ -8,7 +8,9 @@ import { DEFAULT_VIEW } from './boardView';
 
 const mock = vi.hoisted(() => ({
   stageProps: {} as Record<string, any>, imageProps: {} as Record<string, any>, rectProps: {} as Record<string, any>,
-  backgroundLayer: {}, stage: { toDataURL: vi.fn(() => 'data:image/jpeg;base64,/9j/2Q=='), draw: vi.fn(), getLayers: vi.fn(() => [] as any[]) },
+  backgroundLayer: {}, stage: { toDataURL: vi.fn((_options: Record<string, any> = {}) => 'data:image/jpeg;base64,/9j/2Q=='),
+    width: () => mock.stageProps.width ?? 0, height: () => mock.stageProps.height ?? 0,
+    draw: vi.fn(), getLayers: vi.fn(() => [] as any[]) },
   animations: [] as { layer: unknown; start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }[],
   backend: 'pointer', nativeCallbacks: null as any, nativeConfig: null as any,
 }));
@@ -58,9 +60,10 @@ class TestPointerEvent extends MouseEvent {
 }
 beforeEach(() => {
   vi.clearAllMocks(); mock.animations.length = 0; mock.backend = 'pointer'; mock.nativeCallbacks = null; mock.nativeConfig = null;
+  mock.stage.getLayers.mockReturnValue([]);
   vi.stubGlobal('ResizeObserver', SizedObserver); vi.stubGlobal('PointerEvent', TestPointerEvent);
 });
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 let cameraRuntime: CameraModule;
 beforeAll(async () => {
@@ -412,10 +415,14 @@ describe('WhiteboardCanvas continuous scrolling', () => {
     expect(onViewChange).not.toHaveBeenCalled();
   });
 
-  it('bounds every scene and hit canvas while retaining full logical dimensions and releases hidden page backing', () => {
-    const scene = { getPixelRatio: () => 2, setPixelRatio: vi.fn() }, hit = { getPixelRatio: () => 1, setPixelRatio: vi.fn() };
+  it('keeps a scrolled large page sharp in a bounded raster and exports the full page', () => {
+    let sceneRatio = 2, hitRatio = 1;
+    const scene = { getPixelRatio: () => sceneRatio, setPixelRatio: vi.fn((value: number) => { sceneRatio = value; }) };
+    const hit = { getPixelRatio: () => hitRatio, setPixelRatio: vi.fn((value: number) => { hitRatio = value; }) };
     const batchDraw = vi.fn();
     mock.stage.getLayers.mockReturnValue([{ getCanvas: () => scene, getHitCanvas: () => hit, batchDraw }]);
+    vi.stubGlobal('innerWidth', 1000); vi.stubGlobal('innerHeight', 700); vi.stubGlobal('devicePixelRatio', 2);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: -2000, top: -3000, width: 7000, height: 9900 } as DOMRect);
     class ZoomedObserver {
       constructor(private callback: ResizeObserverCallback) {}
       observe() { this.callback([{ contentRect: { width: 7000, height: 9900 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
@@ -424,19 +431,57 @@ describe('WhiteboardCanvas continuous scrolling', () => {
     vi.stubGlobal('ResizeObserver', ZoomedObserver);
     const onDocumentGesture = vi.fn(), ref = createRef<WhiteboardCanvasHandle>();
     const { rerender } = render(<WhiteboardCanvas {...props} ref={ref} onDocumentGesture={onDocumentGesture} />);
-    expect(mock.stageProps).toMatchObject({ width: 7000, height: 9900, scaleX: 1, scaleY: 1 });
-    const visible = scene.setPixelRatio.mock.calls.at(-1)![0];
-    expect(7000 * 9900 * visible * visible).toBeLessThanOrEqual(8_000_001);
-    expect(hit.setPixelRatio).toHaveBeenLastCalledWith(visible);
+    expect(mock.stageProps.width).toBeLessThanOrEqual(1200);
+    expect(mock.stageProps.height).toBeLessThanOrEqual(900);
+    expect(mock.stageProps.x).toBeLessThan(-1800); expect(mock.stageProps.y).toBeLessThan(-2800);
+    expect(mock.stageProps.style.left).toBe(-mock.stageProps.x);
+    expect(mock.stageProps.style.top).toBe(-mock.stageProps.y);
+    expect(sceneRatio).toBe(2); expect(hitRatio).toBe(1);
+    expect(ref.current!.getSize()).toEqual({ width: 7000, height: 9900 });
     ref.current!.toDataURL();
-    expect(mock.stage.toDataURL).toHaveBeenLastCalledWith({ pixelRatio: visible, mimeType: 'image/png', quality: 0.9 });
+    const snapshot = mock.stage.toDataURL.mock.calls.at(-1)![0]!;
+    expect(snapshot).toMatchObject({ x: mock.stageProps.x, y: mock.stageProps.y,
+      width: 7000, height: 9900, mimeType: 'image/png', quality: 0.9 });
+    expect(snapshot.width * snapshot.height * snapshot.pixelRatio ** 2).toBeLessThanOrEqual(8_000_001);
     rerender(<WhiteboardCanvas {...props} ref={ref} onDocumentGesture={onDocumentGesture} active={false} />);
-    const dormant = scene.setPixelRatio.mock.calls.at(-1)![0];
-    expect(9900 * dormant).toBeLessThanOrEqual(512); expect(dormant).toBeLessThan(visible);
-    batchDraw.mockClear();
+    expect(mock.stageProps).toMatchObject({ width: 1, height: 1 });
+    expect(mock.stageProps.style.visibility).toBe('hidden');
+    mock.stage.draw.mockClear();
     rerender(<WhiteboardCanvas {...props} ref={ref} onDocumentGesture={onDocumentGesture} active />);
-    expect(scene.setPixelRatio).toHaveBeenLastCalledWith(visible);
-    expect(batchDraw).toHaveBeenCalledOnce();
+    expect(sceneRatio).toBe(2);
+    expect(mock.stageProps.style.visibility).toBe('visible');
+    expect(mock.stage.draw).toHaveBeenCalled();
+  });
+
+  it('bounds intermediate backing allocations and repaints immediately when the viewport rotates', () => {
+    vi.stubGlobal('innerWidth', 800); vi.stubGlobal('innerHeight', 1600); vi.stubGlobal('devicePixelRatio', 2);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 5000, height: 5000 } as DOMRect);
+    class LargePageObserver {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe() { this.callback([{ contentRect: { width: 5000, height: 5000 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', LargePageObserver);
+    let scheduled: FrameRequestCallback | undefined;
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => { scheduled = callback; return 1; }));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    let ratio = 2;
+    const pixels = { getPixelRatio: () => ratio, setPixelRatio: vi.fn((next: number) => { ratio = next; }) };
+    mock.stage.getLayers.mockReturnValue([{ getCanvas: () => pixels, batchDraw: vi.fn() }]);
+    render(<WhiteboardCanvas {...props} onDocumentGesture={vi.fn()} />);
+    const before = { width: mock.stageProps.width, height: mock.stageProps.height };
+    expect(ratio).toBe(2);
+    pixels.setPixelRatio.mockClear(); mock.stage.draw.mockClear();
+
+    vi.stubGlobal('innerWidth', 1800); vi.stubGlobal('innerHeight', 600);
+    fireEvent(window, new Event('resize'));
+    act(() => scheduled!(0));
+    const preparation = pixels.setPixelRatio.mock.calls[0][0];
+    const intermediateArea = Math.max(before.width, mock.stageProps.width) * Math.max(before.height, mock.stageProps.height);
+    expect(preparation).toBeLessThan(2);
+    expect(intermediateArea * preparation ** 2).toBeLessThanOrEqual(8_000_001);
+    expect(ratio).toBe(2);
+    expect(mock.stage.draw.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('normalizes new ink against actual enlarged DOM dimensions after document zoom without a second page transform', async () => {
@@ -460,33 +505,44 @@ describe('WhiteboardCanvas continuous scrolling', () => {
     expect(onCommit.mock.calls[0][0].points[0].slice(0, 2)).toEqual([0.3, 0.4]);
     expect(onCommit.mock.calls[0][0].points.at(-1).slice(0, 2)).toEqual([0.4, 0.5]);
     expect(onViewChange).not.toHaveBeenCalled();
-    // During a pinch the DOM page doubles in size, but Konva must not
-    // reallocate its canvas; CSS scales the PDF and normalized ink together.
-    expect(mock.stageProps).toMatchObject({ width: 1000, height: 500, scaleX: 1, scaleY: 1 });
-    expect(mock.stageProps.style.transform).toBe('scale(2, 2)');
+    // The page doubles, but only its viewport is rasterized. Konva applies the
+    // zoom before rasterization instead of stretching finished canvas pixels.
+    expect(mock.stageProps).toMatchObject({ scaleX: 2, scaleY: 2 });
+    expect(mock.stageProps.width).toBeLessThan(2000);
+    expect(mock.stageProps.height).toBeLessThan(1000);
+    expect(mock.stageProps.style.transform).toBeUndefined();
   });
 
-  it('keeps a stable Konva backing and continuous GPU zoom over repeated tablet pinch frames', () => {
+  it('redraws vector zoom through 500% in a stable viewport buffer during repeated pinch frames', () => {
     let resize!: ResizeObserverCallback;
+    let scale = 1;
     class MovingPageObserver {
       constructor(callback: ResizeObserverCallback) { resize = callback; }
       observe() { resize([{ contentRect: { width: 1000, height: 500 } } as ResizeObserverEntry], {} as ResizeObserver); }
       disconnect() {}
     }
     vi.stubGlobal('ResizeObserver', MovingPageObserver);
-    const pixels = { getPixelRatio: () => 1, setPixelRatio: vi.fn() };
+    vi.stubGlobal('innerWidth', 600); vi.stubGlobal('innerHeight', 300);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() =>
+      ({ left: 0, top: 0, width: 1000 * scale, height: 500 * scale } as DOMRect));
+    const pixels = { getPixelRatio: () => window.devicePixelRatio, setPixelRatio: vi.fn() };
     const layer = { getCanvas: () => pixels, getHitCanvas: () => pixels, batchDraw: vi.fn() };
     mock.stage.getLayers.mockReturnValue([layer]);
-    render(<WhiteboardCanvas {...props} onDocumentGesture={vi.fn()} />);
-    expect(mock.stageProps).toMatchObject({ width: 1000, height: 500 });
+    const { getByTestId } = render(<WhiteboardCanvas {...props} onDocumentGesture={vi.fn()} />);
+    const stage = getByTestId('stage');
+    const initial = { width: mock.stageProps.width, height: mock.stageProps.height };
+    expect(initial.width).toBeLessThan(1000); expect(initial.height).toBeLessThan(500);
     pixels.setPixelRatio.mockClear(); layer.batchDraw.mockClear();
 
-    for (const scale of [1.06, 1.13, 1.22, 1.37, 1.5, 1.79, 2]) {
+    for (scale of [1.06, 1.13, 1.22, 1.37, 1.5, 1.79, 2, 3, 5]) {
+      mock.stage.draw.mockClear();
       act(() => resize([{ contentRect: { width: 1000 * scale, height: 500 * scale } } as ResizeObserverEntry], {} as ResizeObserver));
-      expect(mock.stageProps).toMatchObject({ width: 1000, height: 500 });
-      expect(mock.stageProps.style.transform).toBe(`scale(${scale}, ${scale})`);
+      expect(mock.stageProps).toMatchObject({ ...initial, scaleX: scale, scaleY: scale });
+      expect(mock.stageProps.style.transform).toBeUndefined();
+      expect(getByTestId('stage')).toBe(stage);
+      expect(mock.stage.draw).toHaveBeenCalled();
     }
-    // None of the intermediate frames may clear and recreate the ink layer.
+    // Drawing changes the scale, not the backing allocation or layer identity.
     expect(pixels.setPixelRatio).not.toHaveBeenCalled();
     expect(layer.batchDraw).not.toHaveBeenCalled();
   });

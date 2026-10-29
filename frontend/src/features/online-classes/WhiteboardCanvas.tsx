@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import { Arrow, Circle, Ellipse, Image as KonvaImage, Layer, Line, Rect, Shape as KonvaShape, Stage, Text } from 'react-konva';
 import {
@@ -36,6 +37,7 @@ import { normalizedTextSize, shapeTextSizePx, textStyleFor } from './textStyles'
 import { TabletBoardNavigation } from './tabletBoardNavigation';
 import type { DocumentGesture } from './documentGesture';
 import { canvasBackingRatio } from './canvasBacking';
+import { useDocumentCanvasViewport } from './useDocumentCanvasViewport';
 import type { DocumentRenderer } from '../notebook-camera/cameraModules';
 import {
   createNotebookProjection,
@@ -211,10 +213,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     [notebookView?.renderer, notebookView?.rawWidth, notebookView?.rawHeight, projectionKey]);
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
-  // A document pinch changes the surrounding DOM sheet size on every frame.
-  // Keep Konva's backing canvases at a stable logical resolution while the
-  // browser scales their common composited stage (PDF + ink) on the GPU.
-  // Resizing Konva itself on every move clears its backing buffers and flashes.
+  // Preserve the vector scene's coordinates during a document pinch. The
+  // visible raster window below redraws this geometry at the current scale;
+  // stretching a fixed backing canvas with CSS would blur the ink at 500%.
   const documentCanvas = Boolean(onDocumentGesture) && !projection;
   const fixedDocumentViewport = useRef<{ width: number; height: number } | null>(null);
   if (!documentCanvas) {
@@ -235,16 +236,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       viewportCallback.current?.(viewport, projection?.aspect ?? sourceAspect);
     }
   }, [viewport.width, viewport.height, projection?.aspect, sourceAspect]);
-  const documentStageStyle = documentCanvas && sceneViewport.width > 0 && sceneViewport.height > 0
-    ? { transformOrigin: 'top left', transform: `scale(${viewport.width / sceneViewport.width}, ${viewport.height / sceneViewport.height})` }
-    : undefined;
   const notebookPresentation = useMemo(() => notebookStagePresentation(projection, viewport, view, sceneAspect ?? 1),
     [projection, sceneAspect, viewport.width, viewport.height, view.zoom, view.panX, view.panY]);
-  const boundLayerBacking = (size: { width: number; height: number }, onlyReduce = false) => {
+  const boundLayerBacking = (size: { width: number; height: number }, onlyReduce = false, density = window.devicePixelRatio) => {
     // Set lower ratios before React resizes the stage, so zooming the document
     // never temporarily allocates a full-resolution, multi-megapixel layer.
-    const ratio = projectionRef.current ? 1 : canvasBackingRatio(size.width, size.height, window.devicePixelRatio,
+    const ratio = projectionRef.current ? 1 : canvasBackingRatio(size.width, size.height, density,
       Boolean(onDocumentGestureRef.current && !activeRef.current));
+    let resized = false;
     for (const layer of stageRef.current?.getLayers() ?? []) {
       let changed = false;
       for (const [canvas, requested] of [[layer.getCanvas(), ratio], [layer.getHitCanvas?.(), Math.min(1, ratio)]] as const) {
@@ -255,9 +254,27 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       }
       // Updating a backing ratio clears it even when no Konva props changed
       // (e.g. a retained page re-enters the viewport). Repaint its existing ink.
-      if (changed) layer.batchDraw?.();
+      if (changed) { resized = true; layer.batchDraw?.(); }
     }
+    return resized;
   };
+  const documentWindow = useDocumentCanvasViewport(containerRef, documentCanvas, viewport, active,
+    next => {
+      const stage = stageRef.current;
+      // Konva sets width and height separately. Bound the intermediate size
+      // as well when rotating between a wide and a tall viewport.
+      const envelope = { width: Math.max(stage?.width?.() ?? 0, next.width),
+        height: Math.max(stage?.height?.() ?? 0, next.height) };
+      if (boundLayerBacking(envelope, true, next.pixelRatio)) stage?.draw();
+    });
+  const stageViewport = documentCanvas ? documentWindow ?? { width: 1, height: 1 } : sceneViewport;
+  const documentScaleX = documentCanvas && sceneViewport.width > 0 ? viewport.width / sceneViewport.width : 1;
+  const documentScaleY = documentCanvas && sceneViewport.height > 0 ? viewport.height / sceneViewport.height : 1;
+  const documentStageStyle: CSSProperties | undefined = documentCanvas ? {
+    position: 'absolute', left: documentWindow?.x ?? 0, top: documentWindow?.y ?? 0,
+    width: stageViewport.width, height: stageViewport.height,
+    visibility: documentWindow?.visible ? 'visible' : 'hidden', pointerEvents: 'none',
+  } : undefined;
   const projectedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const projectorRef = useRef<{ renderer: DocumentRenderer; renderFrame: () => void } | null>(null);
   const projectionPainted = useRef(false);
@@ -293,7 +310,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
         return projectionPainted.current ? projectedCanvasRef.current?.toDataURL(mimeType, 0.9) ?? null : null;
       }
       const size = live.current.viewport;
-      return stageRef.current?.toDataURL({ pixelRatio: canvasBackingRatio(size.width, size.height, 1), mimeType, quality: 0.9 }) ?? null;
+      return stageRef.current?.toDataURL({
+        // Konva exports directly from the complete vector scene, including
+        // marks outside the small live raster. Undo only the window's origin.
+        ...(documentCanvas ? { x: -(documentWindow?.x ?? 0), y: -(documentWindow?.y ?? 0), width: size.width, height: size.height } : {}),
+        pixelRatio: canvasBackingRatio(size.width, size.height, 1), mimeType, quality: 0.9,
+      }) ?? null;
     },
     getSize: () => live.current.viewport,
     setDocumentNavigation: active => {
@@ -319,8 +341,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   }, [active, backgroundLive, background, Boolean(projection)]);
 
   useLayoutEffect(() => {
-    boundLayerBacking(sceneViewport);
-  }, [sceneViewport.width, sceneViewport.height, Boolean(projection), active, Boolean(onDocumentGesture)]);
+    boundLayerBacking(stageViewport, false, documentCanvas ? documentWindow?.pixelRatio ?? 1 : window.devicePixelRatio);
+    // Canvas resize/ratio changes clear its pixels. Repaint in the same layout
+    // phase so a pinch or page activation cannot expose an empty frame.
+    if (documentCanvas) stageRef.current?.draw();
+  }, [stageViewport.width, stageViewport.height, Boolean(projection), active, documentCanvas,
+    documentWindow?.x, documentWindow?.y, documentWindow?.pixelRatio, documentScaleX, documentScaleY]);
 
   // Keep the existing raster projection ONLY for snapshots/exports. The live
   // board displays its ordinary layers directly via notebookPresentation;
@@ -420,10 +446,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
         }
       }
       previousViewport.current = next;
-      // Use the stable sheet size when pinching. Changing a Konva canvas pixel
-      // ratio during a gesture clears its pixels before Konva can repaint.
-      boundLayerBacking(projectionRef.current?.rawSize ?? (onDocumentGestureRef.current
-        ? fixedDocumentViewport.current ?? next : next), true);
+      // Document windows prepare their bounded backing before changing the
+      // window size. Their full logical sheet must never become a raster.
+      if (!onDocumentGestureRef.current || projectionRef.current) {
+        boundLayerBacking(projectionRef.current?.rawSize ?? next, true);
+      }
       setViewport(current =>
         current.width === next.width && current.height === next.height ? current : next,
       );
@@ -1070,19 +1097,19 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
         spaceHeld.current = false;
       }}
       onContextMenu={(event) => event.preventDefault()}
-      style={{ touchAction: 'none', overflow: projection ? 'hidden' : undefined }}
+      style={{ touchAction: 'none', overflow: projection || documentCanvas ? 'hidden' : undefined }}
     >
       {/* Export-only canvas: never cover the ordinary live ink layers. */}
       {projection && <canvas ref={projectedCanvasRef} aria-hidden="true" data-notebook-projection=""
         hidden style={{ display: 'none' }} />}
       <Stage
         ref={stageRef}
-        width={sceneViewport.width}
-        height={sceneViewport.height}
-        x={projection ? 0 : view.panX}
-        y={projection ? 0 : view.panY}
-        scaleX={projection ? 1 : view.zoom}
-        scaleY={projection ? 1 : view.zoom}
+        width={stageViewport.width}
+        height={stageViewport.height}
+        x={projection ? 0 : view.panX * documentScaleX - (documentWindow?.x ?? 0)}
+        y={projection ? 0 : view.panY * documentScaleY - (documentWindow?.y ?? 0)}
+        scaleX={projection ? 1 : view.zoom * documentScaleX}
+        scaleY={projection ? 1 : view.zoom * documentScaleY}
         style={projection ? notebookPresentation ?? { position: 'absolute', visibility: 'hidden', pointerEvents: 'none' } : documentStageStyle}
         listening={false}
       >
