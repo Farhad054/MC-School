@@ -24,6 +24,8 @@ export type TabletInkStrokeMeta = {
   source: TabletInkChannel;
   device: TabletInkDevice;
   inputId: number;
+  /** Synthetic end after a lost release; its point was already delivered. */
+  recovered?: boolean;
 };
 export type TabletInkCallbacks = {
   onStart: (point: TabletInkPoint, meta: TabletInkStrokeMeta) => void;
@@ -181,11 +183,12 @@ export function attachTabletInkInput(
     source: TabletInkChannel,
     inputId: number,
     cancelled = false,
+    recovered = false,
   ) {
     const state = active;
     if (!state || state.meta.source !== source || state.meta.inputId !== inputId) return;
     active = null; // Release synchronously so the very next input can begin.
-    callbacks.onEnd(point, state.meta, cancelled);
+    callbacks.onEnd(point, recovered ? { ...state.meta, recovered: true } : state.meta, cancelled);
     if (contacts.size) emitGesture();
   }
 
@@ -258,6 +261,32 @@ export function attachTabletInkInput(
       prevent(event);
       finish(pointerPoint(event), 'pointer', event.pointerId, cancelled);
     }
+  }
+
+  function reconcileTouchStart(event: TouchEvent) {
+    // The complete contact list can prove a previous release was lost. Never
+    // infer a release from changedTouches alone: a long-held pen can coexist
+    // with a newly placed finger without appearing among the changed contacts.
+    if (!event.touches) return;
+    const presentIds = new Set(Array.from(event.touches, touch => touch.identifier));
+    const freshIds = new Set(Array.from(event.changedTouches, touch => touch.identifier));
+    // Touch.target can be a canvas node replaced during rendering. Its current
+    // DOM ancestry does not tell us whether the physical contact is still down.
+    const continues = (id: number) => presentIds.has(id) && !freshIds.has(id);
+    let contactsChanged = false;
+    for (const id of ownedTouches) {
+      if (!continues(id)) ownedTouches.delete(id);
+    }
+    for (const id of contacts.keys()) {
+      if (!continues(id)) { contacts.delete(id); contactsChanged = true; }
+    }
+    const previous = active;
+    if (previous?.meta.source === 'touch' && !continues(previous.meta.inputId)) {
+      // Preserve the completed ink at its last known sample. A new touchstart
+      // may reuse an identifier, so it must begin a separate stroke afterward.
+      finish(previous.last, 'touch', previous.meta.inputId, false, true);
+    }
+    if (contactsChanged) emitGesture();
   }
 
   function touchStart(event: TouchEvent) {
@@ -368,6 +397,9 @@ export function attachTabletInkInput(
   }
 
   if (backend === 'ios-touch' || backend === 'legacy-touch') {
+    // Capture sees starts on other pages/controls too, before their own driver
+    // starts new ink. Reconciliation must not run again after sheet.onStart.
+    listen(document, 'touchstart', reconcileTouchStart, { capture: true, passive: true });
     listen(sheet, 'touchstart', touchStart);
     listen(document, 'touchmove', touchMove);
     listen(document, 'touchend', (event) => touchFinish(event, false));

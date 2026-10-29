@@ -483,10 +483,14 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
         const geometry = strokeGeometryRef.current;
         const stroke = activeStrokeRef.current;
         if (!geometry || !stroke) return;
-        const next = pointFromClient(point, geometry);
-        const last = stroke.points[stroke.points.length - 1];
-        if (!last || Math.hypot(last.x - next.x, last.y - next.y) > 0.4) {
-          stroke.points.push({ ...next, pressure: point.pressure });
+        // An inferred end reuses an already delivered sample; commit the
+        // existing ink without adding another position from that old contact.
+        if (!meta.recovered) {
+          const next = pointFromClient(point, geometry);
+          const last = stroke.points[stroke.points.length - 1];
+          if (!last || Math.hypot(last.x - next.x, last.y - next.y) > 0.4) {
+            stroke.points.push({ ...next, pressure: point.pressure });
+          }
         }
         resetActiveStroke(!cancelled || meta.device !== 'finger');
       },

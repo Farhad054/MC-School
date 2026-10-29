@@ -825,7 +825,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       onEnd(point, meta, cancelled) {
         if (meta.device === 'mouse') return;
         if (externalNavigation.current && meta.device === 'finger') return;
-        if (!cancelled && controller.isDrawing) {
+        // Recovery supplies the last delivered sample, not a new lift position.
+        // The sheet may have moved or resized since that client coordinate.
+        if (!cancelled && !meta.recovered && controller.isDrawing) {
           moveStroke(local(point.clientX, point.clientY), point.pressure, true);
         }
         applyInkIntentsRef.current(controller.up(meta.inputId, cancelled));
