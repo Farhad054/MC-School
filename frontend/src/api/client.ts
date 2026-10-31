@@ -3,137 +3,152 @@ import type {
   AuthResponse,
   Card,
   CardSummary,
+  DailyReviewHistoryItem,
+  GoogleCalendarConnection,
+  GoogleMeetEventStatus,
+  GroupLesson,
+  CreateLessonRequest,
+  CreateLessonSeriesRequest,
+  Homework,
+  HomeworkPageOverlay,
   ImportPreview,
   Language,
+  MonthlyPlanResponse,
+  PilotDueCardResult,
   ParsedCard,
   Question,
   Session,
   SessionResult,
   SessionType,
+  StudentGroup,
   StudentListItem,
+  StudentLearningProfileUpdate,
   StudentInvitation,
-  TeacherInvitation,
+  StudentLesson,
+  TestReviewReminderResult,
   Today,
   User,
 } from './types';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api/v1';
 
-/** An API call that failed; carries the backend error code so the UI can localise it. */
 export class ApiRequestError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly errorCode: string,
-    message: string,
-  ) {
+  constructor(public readonly status: number, public readonly errorCode: string, message: string) {
     super(message);
     this.name = 'ApiRequestError';
   }
 }
 
-// The JWT is held in memory and mirrored to localStorage so a page reload stays logged in.
-let accessToken: string | null = localStorage.getItem('accessToken');
+const ACCESS_TOKEN_KEY = 'accessToken';
+const SESSION_ACCESS_TOKEN_KEY = 'mindcrafti.impersonation.accessToken';
+const LEGACY_ADMIN_TOKEN_KEY = 'mindcrafti.impersonation.adminToken';
 
+// Migration from the old impersonation flow:
+// previously the impersonated token replaced accessToken in localStorage while
+// the real admin token lived only in sessionStorage. Repair that state once so
+// the admin token becomes persistent and the impersonated token becomes tab-local.
+const legacyAdminToken = sessionStorage.getItem(LEGACY_ADMIN_TOKEN_KEY);
+const legacyCurrentToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+if (!sessionStorage.getItem(SESSION_ACCESS_TOKEN_KEY)
+    && legacyAdminToken
+    && legacyCurrentToken
+    && legacyAdminToken !== legacyCurrentToken) {
+  localStorage.setItem(ACCESS_TOKEN_KEY, legacyAdminToken);
+  sessionStorage.setItem(SESSION_ACCESS_TOKEN_KEY, legacyCurrentToken);
+  localStorage.removeItem('authUser');
+}
+
+let accessToken: string | null =
+  sessionStorage.getItem(SESSION_ACCESS_TOKEN_KEY) ?? localStorage.getItem(ACCESS_TOKEN_KEY);
+
+/** Set the real account token. This is the only token persisted across tabs. */
 export function setAccessToken(token: string | null): void {
+  sessionStorage.removeItem(SESSION_ACCESS_TOKEN_KEY);
   accessToken = token;
-  if (token) {
-    localStorage.setItem('accessToken', token);
-  } else {
-    localStorage.removeItem('accessToken');
-  }
+  if (token) localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  else localStorage.removeItem(ACCESS_TOKEN_KEY);
 }
 
-export function getAccessToken(): string | null {
-  return accessToken;
+/** Set a temporary impersonation token for this browser tab only. */
+export function setSessionAccessToken(token: string | null): void {
+  if (token) sessionStorage.setItem(SESSION_ACCESS_TOKEN_KEY, token);
+  else sessionStorage.removeItem(SESSION_ACCESS_TOKEN_KEY);
+  accessToken = token ?? localStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {};
-  if (body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-  }
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
-  }
+export function getAccessToken(): string | null { return accessToken; }
+export function getPersistentAccessToken(): string | null { return localStorage.getItem(ACCESS_TOKEN_KEY); }
+export function hasSessionAccessToken(): boolean { return Boolean(sessionStorage.getItem(SESSION_ACCESS_TOKEN_KEY)); }
+function authHeaders(): Record<string, string> { return accessToken ? { Authorization: `Bearer ${accessToken}` } : {}; }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = authHeaders();
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const response = await fetch(`${BASE_URL}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (response.status === 204) return undefined as T;
   const text = await response.text();
   const payload = text ? JSON.parse(text) : undefined;
-
-  if (!response.ok) {
-    const code = payload?.errorCode ?? 'UNKNOWN';
-    const message = payload?.message ?? response.statusText;
-    throw new ApiRequestError(response.status, code, message);
-  }
+  if (!response.ok) throw new ApiRequestError(response.status, payload?.errorCode ?? 'UNKNOWN', payload?.message ?? response.statusText);
   return payload as T;
 }
 
-/** All backend endpoints, grouped by area. Keeps components free of URL strings. */
+async function uploadFile(path: string, file: File): Promise<void> { const form = new FormData(); form.append('file', file); const response = await fetch(`${BASE_URL}${path}`, { method: 'POST', headers: authHeaders(), body: form }); if (!response.ok) { const text = await response.text(); let payload: any; try { payload = text ? JSON.parse(text) : undefined; } catch { payload = undefined; } throw new ApiRequestError(response.status, payload?.errorCode ?? 'UNKNOWN', payload?.message ?? response.statusText); } }
+async function uploadFiles(path: string, files: File[]): Promise<void> { const form = new FormData(); files.forEach((file) => form.append('files', file)); const response = await fetch(`${BASE_URL}${path}`, { method: 'POST', headers: authHeaders(), body: form }); if (!response.ok) { const text = await response.text(); let payload: any; try { payload = text ? JSON.parse(text) : undefined; } catch { payload = undefined; } throw new ApiRequestError(response.status, payload?.errorCode ?? 'UNKNOWN', payload?.message ?? response.statusText); } }
+async function uploadDatedFile<T>(path: string, startDate: string, file: File): Promise<T> { const form = new FormData(); form.append('startDate', startDate); form.append('file', file); const response = await fetch(`${BASE_URL}${path}`, { method: 'POST', headers: authHeaders(), body: form }); const text = await response.text(); let payload: any; try { payload = text ? JSON.parse(text) : undefined; } catch { payload = undefined; } if (!response.ok) throw new ApiRequestError(response.status, payload?.errorCode ?? 'UNKNOWN', payload?.message ?? response.statusText); return payload as T; }
+async function createPdfHomework(studentId: string, startDate: string, file: File): Promise<Homework> { return uploadDatedFile<Homework>(`/students/${studentId}/homeworks/pdf`, startDate, file); }
+export async function requestBlob(path: string): Promise<Blob> { const response = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() }); if (!response.ok) { const text = await response.text(); let payload: any; try { payload = text ? JSON.parse(text) : undefined; } catch { payload = undefined; } throw new ApiRequestError(response.status, payload?.errorCode ?? 'UNKNOWN', payload?.message ?? response.statusText); } return response.blob(); }
+async function requestText(path: string): Promise<string> { const response = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() }); const text = await response.text(); if (!response.ok) { let payload: any; try { payload = text ? JSON.parse(text) : undefined; } catch { payload = undefined; } throw new ApiRequestError(response.status, payload?.errorCode ?? 'UNKNOWN', payload?.message ?? response.statusText); } return text; }
+
 export const api = {
+  learningTime: {
+    record: (event: {eventId:string;kind:'CARDS'|'HOMEWORK';referenceId:string;seconds:number}) => request<void>('POST','/learning-time/events',event),
+    school: (days=30) => request<import('./types').StudentTimeSummary[]>('GET', '/learning-time/admin?days='+days),
+    student: (studentId:string,days=30) => request<import('./types').StudentTimeReport>('GET','/learning-time/students/'+encodeURIComponent(studentId)+'?days='+days),
+  },
   auth: {
-    login: (email: string, password: string) =>
-      request<AuthResponse>('POST', '/auth/login', { email, password }),
-    activate: (invitationToken: string, password: string) =>
-      request<AuthResponse>('POST', '/auth/activate', { invitationToken, password }),
+    login: (email: string, password: string) => request<AuthResponse>('POST', '/auth/login', { email, password }),
+    activate: (invitationToken: string, email: string, password: string) => request<AuthResponse>('POST', '/auth/activate', { invitationToken, email: email.trim() || null, password }),
     me: () => request<User>('GET', '/auth/me'),
+    impersonateTeacher: (teacherId: string) => request<AuthResponse>('POST', `/auth/impersonate/teacher/${teacherId}`),
+    impersonateStudent: (studentId: string) => request<AuthResponse>('POST', `/auth/impersonate/student/${studentId}`),
+    impersonateParent: (parentId: string) => request<AuthResponse>('POST', `/auth/impersonate/parent/${parentId}`),
   },
-  users: {
-    updateLanguage: (preferredLanguage: Language) =>
-      request<User>('PUT', '/users/me/settings', { preferredLanguage }),
-  },
+  users: { updateLanguage: (preferredLanguage: Language) => request<User>('PUT', '/users/me/settings', { preferredLanguage }), changePassword: (password: string) => request<void>('PUT', '/users/me/password', { password }) },
+  push: { config: () => request<{ enabled: boolean; publicKey: string }>('GET', '/push/config'), subscribe: (subscription: { endpoint: string; p256dh: string; auth: string }) => request<void>('POST', '/push/subscriptions', subscription), unsubscribe: (subscription: { endpoint: string; p256dh: string; auth: string }) => request<void>('DELETE', '/push/subscriptions', subscription), test: () => request<void>('POST', '/push/test') },
   teachers: {
     list: () => request<User[]>('GET', '/teachers'),
-    create: (fullName: string, email: string) =>
-      request<TeacherInvitation>('POST', '/teachers', { fullName, email }),
+    create: (fullName: string, email: string, username: string, password: string) =>
+      request<User>('POST', '/teachers', { fullName, email, username, password }),
+    remove: (teacherId: string) => request<void>('DELETE', '/teachers/' + teacherId),
+  },
+  adminAccounts: {
+    list: (role: 'STUDENT' | 'PARENT') => request<import('./types').AdminAccount[]>('GET', `/admin/accounts?role=${role}`),
+    teacherOptions: () => request<import('./types').TeacherAssignmentOption[]>('GET', '/admin/accounts/teacher-options'),
+    assignTeacher: (studentId: string, teacherId: string) => request<import('./types').StudentTransferResponse>('PUT', `/admin/accounts/${encodeURIComponent(studentId)}/teacher`, { teacherId }),
+    transferStudents: (fromTeacherId: string, toTeacherId: string) => request<import('./types').TransferStudentsResponse>('POST', '/admin/accounts/transfer-students', { fromTeacherId, toTeacherId }),
   },
   students: {
-    list: () => request<StudentListItem[]>('GET', '/students'),
-    create: (fullName: string, email: string) =>
-      request<StudentInvitation>('POST', '/students', { fullName, email }),
-    remove: (studentId: string) => request<void>('DELETE', `/students/${studentId}`),
+    list: () => request<StudentListItem[]>('GET', '/students'), get: (studentId: string) => request<StudentListItem>('GET', `/students/${studentId}`), create: (fullName: string, email: string) => request<StudentInvitation>('POST', '/students', { fullName, email: email.trim() || null }), rename: (studentId: string, fullName: string) => request<StudentListItem>('PUT', `/students/${studentId}/name`, { fullName }), updateLearningProfile: (studentId: string, profile: StudentLearningProfileUpdate) => request<StudentListItem>('PUT', `/students/${studentId}/learning-profile`, profile), resetPassword: (studentId: string, password: string) => request<void>('PUT', `/students/${studentId}/password`, { password }), updateDriveFolder: (studentId: string, googleDriveFolderUrl: string) => request<StudentListItem>('PUT', `/students/${studentId}/drive-folder`, { googleDriveFolderUrl }), updateHomeworkDriveFolder: (studentId: string, googleDriveHomeworkFolderId: string) => request<StudentListItem>('PUT', `/students/${studentId}/homework-drive-folder`, { googleDriveHomeworkFolderId }), updateTranscriptDriveFolder: (studentId: string, googleDriveTranscriptFolderId: string) => request<StudentListItem>('PUT', `/students/${studentId}/transcript-drive-folder`, { googleDriveTranscriptFolderId }), updateChatGptProjectUrl: (studentId: string, chatGptProjectUrl: string) => request<StudentListItem>('PUT', `/students/${studentId}/chatgpt-project`, { chatGptProjectUrl }), testDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/drive-folder/test`), testHomeworkDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/homework-drive-folder/test`), testTranscriptDriveFolder: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/transcript-drive-folder/test`), testAutomaticExport: (studentId: string) => request<{ status: string; fileName?: string; fileUrl?: string; message?: string }>('POST', `/students/${studentId}/drive-folder/test-export`), reviewHistory: (studentId: string) => request<DailyReviewHistoryItem[]>('GET', `/students/${studentId}/review-history`),
+    lessonHistory: (studentId: string) => request<import('./types').StudentLessonHistoryItem[]>('GET', `/teacher/students/${encodeURIComponent(studentId)}/lesson-history`),
+    lessonHistoryDetail: (studentId: string, sourceTeacherId: string, eventId: string) => request<import('./types').StudentLessonHistoryDetail>('GET', `/teacher/students/${encodeURIComponent(studentId)}/lesson-history/${encodeURIComponent(sourceTeacherId)}/${encodeURIComponent(eventId)}`),
+    lessonHistoryFile: (studentId: string, sourceTeacherId: string, eventId: string, kind: 'workbook' | 'answers' | 'transcript') => requestBlob(`/teacher/students/${encodeURIComponent(studentId)}/lesson-history/${encodeURIComponent(sourceTeacherId)}/${encodeURIComponent(eventId)}/${kind}`),
+    lessonHistoryCompletedDocuments: (studentId: string, sourceTeacherId: string, eventId: string) => request<import('./types').StudentLessonHistoryDocument[]>('GET', `/teacher/students/${encodeURIComponent(studentId)}/lesson-history/${encodeURIComponent(sourceTeacherId)}/${encodeURIComponent(eventId)}/completed-documents/list`),
+    lessonHistoryCompletedDocument: (studentId: string, sourceTeacherId: string, eventId: string, documentId: string) => requestBlob(`/teacher/students/${encodeURIComponent(studentId)}/lesson-history/${encodeURIComponent(sourceTeacherId)}/${encodeURIComponent(eventId)}/completed-documents/${encodeURIComponent(documentId)}`), testReviewReminder: (studentId: string) => request<TestReviewReminderResult>('POST', `/students/${studentId}/test-review-reminder`), makeOneCardDueToday: (studentId: string) => request<PilotDueCardResult>('POST', `/students/${studentId}/make-one-card-due-today`), deactivate: (studentId: string) => request<StudentListItem>('PUT', `/students/${studentId}/deactivate`), reactivate: (studentId: string) => request<StudentListItem>('PUT', `/students/${studentId}/reactivate`), remove: (studentId: string) => request<void>('DELETE', `/students/${studentId}`),
   },
-  cards: {
-    listForStudent: (studentId: string) =>
-      request<Card[]>('GET', `/students/${studentId}/cards`),
-    summaryForStudent: (studentId: string) =>
-      request<CardSummary>('GET', `/students/${studentId}/cards/summary`),
-    create: (studentId: string, question: string, correctAnswer: string) =>
-      request<Card>('POST', `/students/${studentId}/cards`, { question, correctAnswer }),
-    update: (cardId: string, question: string, correctAnswer: string) =>
-      request<Card>('PUT', `/cards/${cardId}`, { question, correctAnswer }),
-    remove: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`),
-    importPreview: (rawText: string, questionAnswerSeparator: string, cardSeparator: string) =>
-      request<ImportPreview>('POST', '/cards/import/preview', {
-        rawText,
-        questionAnswerSeparator,
-        cardSeparator,
-      }),
-    importConfirm: (studentId: string, cards: ParsedCard[]) =>
-      request<Card[]>('POST', `/students/${studentId}/cards/import`, { cards }),
+  groups: { list: () => request<StudentGroup[]>('GET', '/groups'), get: (groupId: string) => request<StudentGroup>('GET', `/groups/${groupId}`), create: (name: string, emails: string[]) => request<StudentGroup>('POST', '/groups', { name, emails }), addMembers: (groupId: string, emails: string[]) => request<StudentGroup>('POST', `/groups/${groupId}/members`, { emails }), updateTranscriptFolder: (groupId: string, folderId: string) => request<StudentGroup>('PUT', `/groups/${groupId}/transcript-drive-folder`, { folderId }), createCard: (groupId: string, startDate: string, question: string, correctAnswer: string) => request<number>('POST', `/groups/${groupId}/cards`, { startDate, question, correctAnswer }), importCards: (groupId: string, startDate: string, cards: ParsedCard[]) => request<number>('POST', `/groups/${groupId}/cards/import`, { startDate, cards }), createPdfHomework: (groupId: string, startDate: string, file: File) => uploadDatedFile<number>(`/groups/${groupId}/homeworks/pdf`, startDate, file) },
+  monthlyPlans: {
+    get: (targetType: 'STUDENT' | 'GROUP', targetId: string, month: string) =>
+      request<MonthlyPlanResponse>('GET', `/monthly-plans/${targetType.toLowerCase()}/${targetId}?month=${encodeURIComponent(month)}`),
+    save: (targetType: 'STUDENT' | 'GROUP', targetId: string, month: string, planJson: string) =>
+      request<MonthlyPlanResponse>('PUT', `/monthly-plans/${targetType.toLowerCase()}/${targetId}?month=${encodeURIComponent(month)}`, { planJson }),
+    uploadDocument: (targetType: 'STUDENT' | 'GROUP', targetId: string, month: string, file: File) =>
+      uploadFile(`/monthly-plans/${targetType.toLowerCase()}/${targetId}/document?month=${encodeURIComponent(month)}`, file),
+    document: (targetType: 'STUDENT' | 'GROUP', targetId: string, month: string) =>
+      requestBlob(`/monthly-plans/${targetType.toLowerCase()}/${targetId}/document?month=${encodeURIComponent(month)}`),
   },
-  study: {
-    today: () => request<Today>('GET', '/study/today'),
-    myCards: () => request<Card[]>('GET', '/study/cards'),
-    startSession: (type: SessionType) =>
-      request<Session>('POST', '/study/sessions', { type }),
-    getSession: (sessionId: string) => request<Session>('GET', `/study/sessions/${sessionId}`),
-    currentQuestion: (sessionId: string) =>
-      request<Question>('GET', `/study/sessions/${sessionId}/current-question`),
-    answer: (sessionId: string, cardId: string, selectedAnswer: string) =>
-      request<AnswerResult>('POST', `/study/sessions/${sessionId}/answer`, {
-        cardId,
-        selectedAnswer,
-      }),
-    result: (sessionId: string) =>
-      request<SessionResult>('GET', `/study/sessions/${sessionId}/result`),
-  },
+  lessons: { deleteLesson: (eventId: string) => request<void>('DELETE', `/lessons/${encodeURIComponent(eventId)}`), updateSchedule: (eventId: string, startsAt: string, endsAt: string) => request<GroupLesson>('PUT', `/lessons/${encodeURIComponent(eventId)}/schedule`, { startsAt, endsAt }), createSeries: (series: CreateLessonSeriesRequest) => request<GroupLesson[]>('POST', '/lessons/series', series), create: (lesson: CreateLessonRequest) => request<GroupLesson>('POST', '/lessons', lesson), groupLessons: () => request<GroupLesson[]>('GET', '/lessons/groups'), bindStudent: (eventId: string, studentId: string) => request<void>('PUT', `/lessons/${encodeURIComponent(eventId)}/student`, { studentId }), bindGroup: (eventId: string, groupId: string) => request<void>('PUT', `/lessons/${encodeURIComponent(eventId)}/group`, { groupId }), googleCalendarConnection: () => request<GoogleCalendarConnection>('GET', '/google-calendar/connection'), disconnectGoogleCalendar: () => request<void>('DELETE', '/google-calendar/connection'), ensureGoogleMeetEvents: () => request<GoogleMeetEventStatus>('POST', '/google-meet/subscription'), googleMeetEventStatus: () => request<GoogleMeetEventStatus>('GET', '/google-meet/status') },
+  studentLessons: { list: () => request<StudentLesson[]>('GET', '/student/lessons'), sharedDocument: (eventId: string) => requestBlob(`/student/lessons/${encodeURIComponent(eventId)}/shared-document`) },
+  cards: { listForStudent: (studentId: string) => request<Card[]>('GET', `/students/${studentId}/cards`), summaryForStudent: (studentId: string) => request<CardSummary>('GET', `/students/${studentId}/cards/summary`), update: (cardId: string, question: string, correctAnswer: string, timeLimitSeconds: number | null) => request<Card>('PUT', `/cards/${cardId}`, { question, correctAnswer, timeLimitSeconds }), remove: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`), importPreview: (rawText: string, questionAnswerSeparator: string, cardSeparator: string) => request<ImportPreview>('POST', '/cards/import/preview', { rawText, questionAnswerSeparator, cardSeparator }), listForHomework: (homeworkId: string) => request<Card[]>('GET', `/homeworks/${homeworkId}/cards`), createInHomework: (homeworkId: string, question: string, correctAnswer: string, timeLimitSeconds: number | null) => request<Card>('POST', `/homeworks/${homeworkId}/cards`, { question, correctAnswer, timeLimitSeconds }), importConfirmInHomework: (homeworkId: string, cards: ParsedCard[]) => request<Card[]>('POST', `/homeworks/${homeworkId}/cards/import`, { cards }) },
+  homeworks: { listForStudent: (studentId: string) => request<Homework[]>('GET', `/students/${studentId}/homeworks`), create: (studentId: string, startDate: string) => request<Homework>('POST', `/students/${studentId}/homeworks`, { startDate }), createPdf: (studentId: string, startDate: string, file: File) => createPdfHomework(studentId, startDate, file), remove: (homeworkId: string) => request<void>('DELETE', `/homeworks/${homeworkId}`), uploadWorksheet: (homeworkId: string, file: File) => uploadFile(`/homeworks/${homeworkId}/worksheet`, file), worksheet: (homeworkId: string) => requestBlob(`/homeworks/${homeworkId}/worksheet`), worksheetPage: (homeworkId: string, pageIndex: number) => requestBlob(`/homeworks/${homeworkId}/worksheet/pages/${pageIndex}`), submission: (homeworkId: string) => requestBlob(`/homeworks/${homeworkId}/submission`) },
+  study: { today: () => request<Today>('GET', '/study/today'), homeworks: () => request<Homework[]>('GET', '/study/homeworks'), homeworkCards: (homeworkId: string) => request<Card[]>('GET', `/study/homeworks/${homeworkId}/cards`), worksheet: (homeworkId: string) => requestBlob(`/study/homeworks/${homeworkId}/worksheet`), worksheetPage: (homeworkId: string, pageIndex: number) => requestBlob(`/study/homeworks/${homeworkId}/worksheet/pages/${pageIndex}`), worksheetPageDataUrl: (homeworkId: string, pageIndex: number) => requestText(`/study/homeworks/${homeworkId}/worksheet/pages/${pageIndex}/data-url`), submitPdfHomework: (homeworkId: string, overlays: HomeworkPageOverlay[]) => request<void>('POST', `/study/homeworks/${homeworkId}/submit-pdf`, { overlays }), submitHomeworkFile: (homeworkId: string, file: File) => uploadFile(`/study/homeworks/${homeworkId}/submit-file`, file), submitHomeworkFiles: (homeworkId: string, files: File[]) => uploadFiles(`/study/homeworks/${homeworkId}/submit-files`, files), myCards: () => request<Card[]>('GET', '/study/cards'), startSession: (type: SessionType, homeworkId?: string) => request<Session>('POST', '/study/sessions', homeworkId ? { type, homeworkId } : { type }), getSession: (sessionId: string) => request<Session>('GET', `/study/sessions/${sessionId}`), currentQuestion: (sessionId: string) => request<Question>('GET', `/study/sessions/${sessionId}/current-question`), answer: (sessionId: string, cardId: string, selectedAnswer: string, timedOut = false) => request<AnswerResult>('POST', `/study/sessions/${sessionId}/answer`, { cardId, selectedAnswer, timedOut }), result: (sessionId: string) => request<SessionResult>('GET', `/study/sessions/${sessionId}/result`) },
 };

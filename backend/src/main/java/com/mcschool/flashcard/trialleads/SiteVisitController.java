@@ -1,0 +1,596 @@
+package com.mcschool.flashcard.trialleads;
+
+import com.mcschool.flashcard.notifications.PushSubscription;
+import com.mcschool.flashcard.notifications.PushSubscriptionRepository;
+import com.mcschool.flashcard.notifications.WebPushService;
+import com.mcschool.flashcard.users.Role;
+import com.mcschool.flashcard.users.UserRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/v1")
+public class SiteVisitController {
+
+    private static final Logger log = LoggerFactory.getLogger(SiteVisitController.class);
+
+    private final JdbcTemplate jdbc;
+    private final UserRepository userRepository;
+    private final PushSubscriptionRepository subscriptionRepository;
+    private final WebPushService webPushService;
+    private final FunnelAnalyticsService funnelAnalyticsService;
+    private final GeoIpCountryService geoIpCountryService;
+
+    public SiteVisitController(
+            JdbcTemplate jdbc,
+            UserRepository userRepository,
+            PushSubscriptionRepository subscriptionRepository,
+            WebPushService webPushService,
+            FunnelAnalyticsService funnelAnalyticsService,
+            GeoIpCountryService geoIpCountryService) {
+        this.jdbc = jdbc;
+        this.userRepository = userRepository;
+        this.subscriptionRepository = subscriptionRepository;
+        this.webPushService = webPushService;
+        this.funnelAnalyticsService = funnelAnalyticsService;
+        this.geoIpCountryService = geoIpCountryService;
+    }
+
+    @PostMapping("/public/site-visits")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Map<String, Boolean> visit(
+            @Valid @RequestBody SiteVisitRequest request,
+            HttpServletRequest httpRequest) {
+        String countryCode = geoIpCountryService.resolveCountryCode(clientIp(httpRequest));
+        boolean inserted = persist(request, countryCode);
+        if (inserted) notifyAdmins(request, countryCode);
+        return Map.of("accepted", true);
+    }
+
+    @PatchMapping("/public/site-visits/{sessionId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateProgress(@PathVariable String sessionId, @Valid @RequestBody FunnelProgressRequest request) {
+        String event = clean(request.event(), 40);
+        String funnelEvent = isFunnelEvent(event) ? event : null;
+        String diagnosticEvent = isDiagnosticEvent(event) ? event : null;
+        Integer scrollPercent = request.scrollPercent() == null
+                ? null
+                : Math.max(0, Math.min(100, request.scrollPercent()));
+        Integer activeSeconds = request.activeSeconds() == null
+                ? null
+                : Math.max(0, Math.min(3600, request.activeSeconds()));
+
+        ensureVisitExistsForProgress(sessionId, request.path());
+
+        jdbc.update("""
+                UPDATE site_visits SET
+                    funnel_stage = COALESCE(?, funnel_stage),
+                    diagnostic_stage = COALESCE(?, diagnostic_stage),
+                    path = COALESCE(?, path),
+                    grade = COALESCE(?, grade),
+                    school_type = COALESCE(?, school_type),
+                    subject = COALESCE(?, subject),
+                    goal = COALESCE(?, goal),
+                    priority = COALESCE(?, priority),
+                    trial_page_loaded_at = CASE
+                        WHEN ? = 'TRIAL_PAGE_LOADED' THEN COALESCE(trial_page_loaded_at, CURRENT_TIMESTAMP)
+                        ELSE trial_page_loaded_at
+                    END,
+                    grade_options_visible_at = CASE
+                        WHEN ? = 'GRADE_OPTIONS_VISIBLE' THEN COALESCE(grade_options_visible_at, CURRENT_TIMESTAMP)
+                        ELSE grade_options_visible_at
+                    END,
+                    first_interaction_at = CASE
+                        WHEN ? = 'FIRST_INTERACTION' THEN COALESCE(first_interaction_at, CURRENT_TIMESTAMP)
+                        ELSE first_interaction_at
+                    END,
+                    first_scroll_at = CASE
+                        WHEN ? = 'SCROLLED' THEN COALESCE(first_scroll_at, CURRENT_TIMESTAMP)
+                        ELSE first_scroll_at
+                    END,
+                    max_scroll_percent = CASE
+                        WHEN CAST(? AS INTEGER) IS NULL THEN max_scroll_percent
+                        ELSE GREATEST(COALESCE(max_scroll_percent, 0), CAST(? AS INTEGER))
+                    END,
+                    max_active_seconds = CASE
+                        WHEN CAST(? AS INTEGER) IS NULL THEN max_active_seconds
+                        ELSE GREATEST(COALESCE(max_active_seconds, 0), CAST(? AS INTEGER))
+                    END,
+                    first_interaction_label = COALESCE(first_interaction_label, ?),
+                    furthest_section_id = COALESCE(?, furthest_section_id),
+                    furthest_section_label = COALESCE(?, furthest_section_label),
+                    client_error = COALESCE(?, client_error),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+                """,
+                funnelEvent,
+                diagnosticEvent,
+                nullable(request.path(), 160),
+                nullable(request.grade(), 80),
+                nullable(request.schoolType(), 120),
+                nullable(request.subject(), 120),
+                nullable(request.goal(), 500),
+                nullable(request.priority(), 500),
+                event,
+                event,
+                event,
+                event,
+                scrollPercent,
+                scrollPercent,
+                activeSeconds,
+                activeSeconds,
+                nullable(request.interactionLabel(), 160),
+                nullable(request.sectionId(), 80),
+                nullable(request.sectionLabel(), 160),
+                nullable(request.clientError(), 500),
+                clean(sessionId, 80));
+
+        persistDetailedEvent(sessionId, event, request, scrollPercent, activeSeconds);
+    }
+
+    @GetMapping("/admin/site-visits/analytics")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> analytics(
+            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String toDate,
+            @RequestParam(defaultValue = "50") int recentLimit) {
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/Berlin"));
+        LocalDate to = parseDate(toDate, today);
+        LocalDate from = parseDate(fromDate, to.minusDays(6));
+        return funnelAnalyticsService.report(null, true, from, to, recentLimit);
+    }
+
+    @GetMapping("/admin/site-visits")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<SiteVisitResponse> list() {
+        return jdbc.query("""
+                SELECT v.id, v.session_id, v.country_code, v.path, v.source, v.referrer, v.device_type, v.device_model,
+                       v.os_name, v.os_version, v.browser_name, v.browser_version, v.screen_size,
+                       v.viewport_size, v.language, v.user_agent, v.funnel_stage, v.diagnostic_stage,
+                       COALESCE(v.grade, l.grade) AS grade,
+                       COALESCE(v.school_type, l.school_type) AS school_type,
+                       v.subject, v.goal, v.priority, v.first_interaction_label,
+                       v.furthest_section_id, v.furthest_section_label,
+                       v.max_scroll_percent, v.max_active_seconds, v.client_error,
+                       v.trial_page_loaded_at, v.grade_options_visible_at, v.first_interaction_at, v.first_scroll_at,
+                       v.created_at, v.updated_at,
+                       l.phone AS lead_phone, l.status AS lead_status
+                FROM site_visits v
+                LEFT JOIN trial_leads l ON l.client_id = v.session_id
+                ORDER BY v.created_at DESC
+                LIMIT 200
+                """, (rs, rowNum) -> new SiteVisitResponse(
+                rs.getObject("id", UUID.class),
+                rs.getString("session_id"),
+                rs.getString("country_code"),
+                rs.getString("path"),
+                rs.getString("source"),
+                rs.getString("referrer"),
+                rs.getString("device_type"),
+                rs.getString("device_model"),
+                rs.getString("os_name"),
+                rs.getString("os_version"),
+                rs.getString("browser_name"),
+                rs.getString("browser_version"),
+                rs.getString("screen_size"),
+                rs.getString("viewport_size"),
+                rs.getString("language"),
+                rs.getString("user_agent"),
+                rs.getString("funnel_stage"),
+                rs.getString("diagnostic_stage"),
+                rs.getString("grade"),
+                rs.getString("school_type"),
+                rs.getString("subject"),
+                rs.getString("goal"),
+                rs.getString("priority"),
+                rs.getString("first_interaction_label"),
+                rs.getString("furthest_section_id"),
+                rs.getString("furthest_section_label"),
+                (Integer) rs.getObject("max_scroll_percent"),
+                (Integer) rs.getObject("max_active_seconds"),
+                rs.getString("client_error"),
+                instant(rs.getTimestamp("trial_page_loaded_at")),
+                instant(rs.getTimestamp("grade_options_visible_at")),
+                instant(rs.getTimestamp("first_interaction_at")),
+                instant(rs.getTimestamp("first_scroll_at")),
+                rs.getString("lead_phone"),
+                rs.getString("lead_status"),
+                instant(rs.getTimestamp("created_at")),
+                instant(rs.getTimestamp("updated_at"))
+        ));
+    }
+
+    @DeleteMapping("/admin/site-visits/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
+    public void deleteVisit(@PathVariable UUID id) {
+        jdbc.update("DELETE FROM site_visits WHERE id = ?", id);
+    }
+
+    private void ensureVisitExistsForProgress(String sessionId, String path) {
+        jdbc.update("""
+                INSERT INTO site_visits (id, session_id, path, funnel_stage)
+                VALUES (?, ?, ?, 'VISIT')
+                ON CONFLICT (session_id) DO NOTHING
+                """,
+                UUID.randomUUID(),
+                clean(sessionId, 80),
+                nullable(path, 160));
+    }
+
+    private int enrichProgressPlaceholder(SiteVisitRequest request, String countryCode) {
+        return jdbc.update("""
+                UPDATE site_visits SET
+                    country_code = COALESCE(country_code, ?),
+                    path = COALESCE(path, ?),
+                    source = COALESCE(source, ?),
+                    referrer = COALESCE(referrer, ?),
+                    utm_source = COALESCE(utm_source, ?),
+                    utm_medium = COALESCE(utm_medium, ?),
+                    utm_campaign = COALESCE(utm_campaign, ?),
+                    utm_content = COALESCE(utm_content, ?),
+                    utm_term = COALESCE(utm_term, ?),
+                    utm_id = COALESCE(utm_id, ?),
+                    fbclid = COALESCE(fbclid, ?),
+                    meta_campaign_id = COALESCE(meta_campaign_id, ?),
+                    meta_adset_id = COALESCE(meta_adset_id, ?),
+                    meta_ad_id = COALESCE(meta_ad_id, ?),
+                    device_type = COALESCE(device_type, ?),
+                    device_model = COALESCE(device_model, ?),
+                    os_name = COALESCE(os_name, ?),
+                    os_version = COALESCE(os_version, ?),
+                    browser_name = COALESCE(browser_name, ?),
+                    browser_version = COALESCE(browser_version, ?),
+                    screen_size = COALESCE(screen_size, ?),
+                    viewport_size = COALESCE(viewport_size, ?),
+                    language = COALESCE(language, ?),
+                    user_agent = COALESCE(user_agent, ?),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+                  AND user_agent IS NULL
+                  AND device_type IS NULL
+                  AND browser_name IS NULL
+                  AND source IS NULL
+                  AND referrer IS NULL
+                """,
+                nullable(countryCode, 2),
+                nullable(request.path(), 160),
+                nullable(request.source(), 240),
+                nullable(request.referrer(), 240),
+                nullable(request.utmSource(), 120),
+                nullable(request.utmMedium(), 120),
+                nullable(request.utmCampaign(), 240),
+                nullable(request.utmContent(), 240),
+                nullable(request.utmTerm(), 240),
+                nullable(request.utmId(), 160),
+                nullable(request.fbclid(), 500),
+                nullable(request.metaCampaignId(), 160),
+                nullable(request.metaAdsetId(), 160),
+                nullable(request.metaAdId(), 160),
+                nullable(request.deviceType(), 40),
+                nullable(request.deviceModel(), 160),
+                nullable(request.osName(), 80),
+                nullable(request.osVersion(), 80),
+                nullable(request.browserName(), 80),
+                nullable(request.browserVersion(), 80),
+                nullable(request.screenSize(), 80),
+                nullable(request.viewportSize(), 80),
+                nullable(request.language(), 40),
+                nullable(request.userAgent(), 500),
+                clean(request.sessionId(), 80));
+    }
+
+    private boolean persist(SiteVisitRequest request, String countryCode) {
+        jdbc.update("DELETE FROM site_visits WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '90 days'");
+
+        if (enrichProgressPlaceholder(request, countryCode) > 0) {
+            return true;
+        }
+
+        try {
+            jdbc.update("""
+                    INSERT INTO site_visits (
+                        id, session_id, country_code, path, source, referrer,
+                        utm_source, utm_medium, utm_campaign, utm_content, utm_term, utm_id,
+                        fbclid, meta_campaign_id, meta_adset_id, meta_ad_id,
+                        device_type, device_model, os_name, os_version, browser_name, browser_version,
+                        screen_size, viewport_size, language, user_agent, funnel_stage
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VISIT')
+                    """,
+                    UUID.randomUUID(),
+                    clean(request.sessionId(), 80),
+                    nullable(countryCode, 2),
+                    nullable(request.path(), 160),
+                    nullable(request.source(), 240),
+                    nullable(request.referrer(), 240),
+                    nullable(request.utmSource(), 120),
+                    nullable(request.utmMedium(), 120),
+                    nullable(request.utmCampaign(), 240),
+                    nullable(request.utmContent(), 240),
+                    nullable(request.utmTerm(), 240),
+                    nullable(request.utmId(), 160),
+                    nullable(request.fbclid(), 500),
+                    nullable(request.metaCampaignId(), 160),
+                    nullable(request.metaAdsetId(), 160),
+                    nullable(request.metaAdId(), 160),
+                    nullable(request.deviceType(), 40),
+                    nullable(request.deviceModel(), 160),
+                    nullable(request.osName(), 80),
+                    nullable(request.osVersion(), 80),
+                    nullable(request.browserName(), 80),
+                    nullable(request.browserVersion(), 80),
+                    nullable(request.screenSize(), 80),
+                    nullable(request.viewportSize(), 80),
+                    nullable(request.language(), 40),
+                    nullable(request.userAgent(), 500));
+            return true;
+        } catch (DuplicateKeyException duplicate) {
+            return enrichProgressPlaceholder(request, countryCode) > 0;
+        }
+    }
+
+    private void notifyAdmins(SiteVisitRequest request, String countryCode) {
+        if (!webPushService.isConfigured()) return;
+
+        String source = clean(request.source(), 240);
+        String device = deviceSummary(request);
+
+        StringBuilder body = new StringBuilder("Кто-то открыл mindcrafti.de");
+        if (!device.isBlank()) body.append(" · ").append(device);
+        if (countryCode != null && !countryCode.isBlank()) body.append(" · страна: ").append(countryCode);
+        if (!source.isBlank()) body.append(" · источник: ").append(source);
+
+        try {
+            for (var admin : userRepository.findAllByRoleOrderByFullNameAsc(Role.ADMIN)) {
+                for (PushSubscription subscription : subscriptionRepository.findAllByUserId(admin.getId())) {
+                    try {
+                        webPushService.send(
+                                subscription,
+                                "Новый посетитель сайта",
+                                body.toString(),
+                                "/admin/leads");
+                    } catch (Exception e) {
+                        log.warn("Failed to send site visit push to admin {}", admin.getId(), e);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to dispatch site visit push notifications", e);
+        }
+    }
+
+    private static String deviceSummary(SiteVisitRequest request) {
+        String model = clean(request.deviceModel(), 160);
+        String type = clean(request.deviceType(), 40);
+        String os = joinVersion(request.osName(), request.osVersion());
+        String browser = joinVersion(request.browserName(), request.browserVersion());
+
+        StringBuilder result = new StringBuilder();
+        if (!model.isBlank()) result.append(model);
+        else if (!type.isBlank()) result.append(type);
+        if (!os.isBlank()) {
+            if (!result.isEmpty()) result.append(" · ");
+            result.append(os);
+        }
+        if (!browser.isBlank()) {
+            if (!result.isEmpty()) result.append(" · ");
+            result.append(browser);
+        }
+        return result.toString();
+    }
+
+    private static String joinVersion(String name, String version) {
+        String cleanName = clean(name, 80);
+        String cleanVersion = clean(version, 80);
+        if (cleanName.isBlank()) return "";
+        return cleanVersion.isBlank() ? cleanName : cleanName + " " + cleanVersion;
+    }
+
+    private static boolean isFunnelEvent(String event) {
+        return switch (event) {
+            case "TRIAL_CTA_CLICK", "TRIAL_PAGE_LOADED", "GRADE_OPTIONS_VISIBLE", "GRADE_TAP",
+                    "GRADE_SELECTED", "SCHOOL_SELECTED", "GOAL_SELECTED", "PRIORITY_SELECTED", "PHONE_STEP",
+                    "FORM_COMPLETED", "TEACHER_SELECTED", "CALENDAR_OPENED", "BOOKED" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isDiagnosticEvent(String event) {
+        return switch (event) {
+            case "FIRST_INTERACTION", "SCROLLED", "SECTION_REACHED", "PAGE_END",
+                    "ACTIVE", "PAGE_HIDDEN", "JS_ERROR", "UNHANDLED_REJECTION" -> true;
+            default -> false;
+        };
+    }
+
+    private void persistDetailedEvent(
+            String sessionId,
+            String event,
+            FunnelProgressRequest request,
+            Integer scrollPercent,
+            Integer activeSeconds) {
+        if (!shouldPersistDetailedEvent(event)) return;
+        jdbc.update("""
+                INSERT INTO site_visit_events (
+                    id, visit_id, session_id, event, path, grade, school_type, subject, goal, priority,
+                    scroll_percent, active_seconds, interaction_label, section_id, section_label
+                )
+                SELECT ?, id, session_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                FROM site_visits
+                WHERE session_id = ?
+                """,
+                UUID.randomUUID(),
+                event,
+                nullable(request.path(), 160),
+                nullable(request.grade(), 80),
+                nullable(request.schoolType(), 120),
+                nullable(request.subject(), 120),
+                nullable(request.goal(), 500),
+                nullable(request.priority(), 500),
+                scrollPercent,
+                activeSeconds,
+                nullable(request.interactionLabel(), 160),
+                nullable(request.sectionId(), 80),
+                nullable(request.sectionLabel(), 160),
+                clean(sessionId, 80));
+    }
+
+    private static boolean shouldPersistDetailedEvent(String event) {
+        if (isFunnelEvent(event)) return true;
+        return switch (event) {
+            case "FIRST_INTERACTION", "SECTION_REACHED", "PAGE_END", "PAGE_HIDDEN",
+                    "JS_ERROR", "UNHANDLED_REJECTION" -> true;
+            default -> false;
+        };
+    }
+
+    private static LocalDate parseDate(String value, LocalDate fallback) {
+        if (value == null || value.isBlank()) return fallback;
+        try {
+            return LocalDate.parse(value);
+        } catch (RuntimeException ex) {
+            throw new IllegalArgumentException("Dates must use YYYY-MM-DD format");
+        }
+    }
+
+    private static String clientIp(HttpServletRequest request) {
+        if (request == null) return null;
+
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            for (String candidate : forwardedFor.split(",")) {
+                String ip = GeoIpCountryService.normalizeIp(candidate);
+                if (ip != null && !GeoIpCountryService.isLocalOrPrivate(ip)) return ip;
+            }
+        }
+
+        String realIp = GeoIpCountryService.normalizeIp(request.getHeader("X-Real-IP"));
+        if (realIp != null && !GeoIpCountryService.isLocalOrPrivate(realIp)) return realIp;
+
+        String remote = GeoIpCountryService.normalizeIp(request.getRemoteAddr());
+        return remote != null && !GeoIpCountryService.isLocalOrPrivate(remote) ? remote : null;
+    }
+
+    private static String nullable(String value, int maxLength) {
+        String cleaned = clean(value, maxLength);
+        return cleaned.isBlank() ? null : cleaned;
+    }
+
+    private static String clean(String value, int maxLength) {
+        if (value == null) return "";
+        String cleaned = value.strip().replaceAll("[\\r\\n]+", " ");
+        return cleaned.substring(0, Math.min(cleaned.length(), maxLength));
+    }
+
+    private static Instant instant(Timestamp timestamp) {
+        return timestamp == null ? null : timestamp.toInstant();
+    }
+
+    public record SiteVisitRequest(
+            @NotBlank @Size(max = 80) String sessionId,
+            @Size(max = 160) String path,
+            @Size(max = 240) String source,
+            @Size(max = 240) String referrer,
+            @Size(max = 120) String utmSource,
+            @Size(max = 120) String utmMedium,
+            @Size(max = 240) String utmCampaign,
+            @Size(max = 240) String utmContent,
+            @Size(max = 240) String utmTerm,
+            @Size(max = 160) String utmId,
+            @Size(max = 500) String fbclid,
+            @Size(max = 160) String metaCampaignId,
+            @Size(max = 160) String metaAdsetId,
+            @Size(max = 160) String metaAdId,
+            @Size(max = 40) String deviceType,
+            @Size(max = 160) String deviceModel,
+            @Size(max = 80) String osName,
+            @Size(max = 80) String osVersion,
+            @Size(max = 80) String browserName,
+            @Size(max = 80) String browserVersion,
+            @Size(max = 80) String screenSize,
+            @Size(max = 80) String viewportSize,
+            @Size(max = 40) String language,
+            @Size(max = 500) String userAgent
+    ) {}
+
+    public record FunnelProgressRequest(
+            @Size(max = 40) String event,
+            @Size(max = 160) String path,
+            @Size(max = 80) String grade,
+            @Size(max = 120) String schoolType,
+            @Size(max = 120) String subject,
+            @Size(max = 500) String goal,
+            @Size(max = 500) String priority,
+            Integer scrollPercent,
+            Integer activeSeconds,
+            @Size(max = 160) String interactionLabel,
+            @Size(max = 80) String sectionId,
+            @Size(max = 160) String sectionLabel,
+            @Size(max = 500) String clientError
+    ) {}
+
+    public record SiteVisitResponse(
+            UUID id,
+            String sessionId,
+            String countryCode,
+            String path,
+            String source,
+            String referrer,
+            String deviceType,
+            String deviceModel,
+            String osName,
+            String osVersion,
+            String browserName,
+            String browserVersion,
+            String screenSize,
+            String viewportSize,
+            String language,
+            String userAgent,
+            String funnelStage,
+            String diagnosticStage,
+            String grade,
+            String schoolType,
+            String subject,
+            String goal,
+            String priority,
+            String firstInteractionLabel,
+            String furthestSectionId,
+            String furthestSectionLabel,
+            Integer maxScrollPercent,
+            Integer maxActiveSeconds,
+            String clientError,
+            Instant trialPageLoadedAt,
+            Instant gradeOptionsVisibleAt,
+            Instant firstInteractionAt,
+            Instant firstScrollAt,
+            String leadPhone,
+            String leadStatus,
+            Instant createdAt,
+            Instant updatedAt
+    ) {}
+}

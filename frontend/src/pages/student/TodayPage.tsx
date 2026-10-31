@@ -1,25 +1,44 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { SessionType, Today } from '../../api/types';
+import type { Homework, SessionType, Today } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 
-/** Student home ("today's tasks"): start the mandatory session, practice, or resume. */
+/** Student home: today's card review and today's PDF homework are separate tasks. */
 export function TodayPage() {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const navigate = useNavigate();
   const [today, setToday] = useState<Today | null>(null);
+  const [homeworks, setHomeworks] = useState<Homework[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.study
-      .today()
-      .then(setToday)
+    Promise.all([api.study.today(), api.study.homeworks()])
+      .then(([todayPayload, homeworkPayload]) => {
+        setToday(todayPayload);
+        setHomeworks(homeworkPayload);
+      })
       .catch((e) => setError(toErrorMessage(e, t)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const openHomeworks = useMemo(() => {
+    const todayDate = localDateString(new Date());
+    return homeworks
+      .filter(
+        (homework) =>
+          homework.hasWorksheet &&
+          !homework.submitted &&
+          (homework.startDate === todayDate || homework.overdue),
+      )
+      .sort(
+        (a, b) =>
+          a.startDate.localeCompare(b.startDate) ||
+          (a.createdAt ?? '').localeCompare(b.createdAt ?? ''),
+      );
+  }, [homeworks]);
 
   async function start(type: SessionType) {
     setError(null);
@@ -40,54 +59,44 @@ export function TodayPage() {
   const notEnoughCards = today.totalCards < today.minCardsToStart;
 
   return (
-    <div className="stack">
+    <div className="student-today">
       <h1>{t('today.title')}</h1>
       {error && <div className="banner banner--error">{error}</div>}
-
-      <div className="panel center">
-        <div className="result__stat">{today.dueCardCount}</div>
-        <div className="muted">{t('today.due')}</div>
+      <div className="student-today__grid">
+        <section className="panel student-today__review">
+          <h2>{language === 'DE' ? 'Karten heute' : 'Карточки сегодня'}</h2>
+          <div className="result__stat">{today.dueCardCount}</div>
+          <div className="muted">{t('today.due')}</div>
+          <div className="student-today__actions">
+            {today.inProgressSessionId && <button className="btn btn--block" type="button"
+              onClick={() => navigate(`/session/${today.inProgressSessionId}`)}>{t('today.resume')}</button>}
+            {notEnoughCards ? <div className="banner banner--info">{t('today.needMoreCards', { min: today.minCardsToStart })}</div> : <>
+              {today.canStartScheduled ? <button className="btn btn--block" type="button" disabled={busy} onClick={() => start('SCHEDULED')}>{t('today.start')}</button>
+                : !today.inProgressSessionId && <div className="banner banner--success">{t('today.nothingDue')}</div>}
+              {today.canPractice && <button className="btn btn--secondary btn--block" type="button" disabled={busy} onClick={() => start('PRACTICE')}>{t('today.practice')}</button>}
+            </>}
+          </div>
+          <p className="muted">{t('today.learned')}: {today.learnedCount}</p>
+        </section>
+        <section className="panel student-today__homework">
+          <h2>{language === 'DE' ? 'Hausaufgabe heute' : 'Домашка сегодня'}</h2>
+          {openHomeworks.length === 0 ? <div className="banner banner--success">{language === 'DE' ? 'Keine offene Hausaufgabe 🎉' : 'Невыполненной домашки нет 🎉'}</div> : <>
+            <div className="center"><div className="result__stat">{openHomeworks.length}</div><div className="muted">{language === 'DE' ? 'Offene Hausaufgaben' : 'Невыполненных домашних заданий'}</div></div>
+            {openHomeworks.map(homework => <Link key={homework.id} className="list-row" to={`/student/homeworks/${homework.id}/worksheet`}>
+              <div><div className="list-row__title">{homework.worksheetFilename ?? (language === 'DE' ? 'PDF-Hausaufgabe' : 'Домашка в PDF')}</div>
+                <div className="muted">{homework.worksheetPageCount ? `${homework.worksheetPageCount} ${language === 'DE' ? 'Seiten' : 'стр.'}` : ''}</div></div>
+              <span className={`pill ${homework.overdue ? 'pill--danger' : 'pill--pending'}`}>{homework.overdue ? (language === 'DE' ? 'Überfällig — trotzdem erledigen' : 'Просрочено — всё равно нужно сделать') : (language === 'DE' ? 'Zu erledigen' : 'Нужно сделать')}</span>
+            </Link>)}
+          </>}
+        </section>
       </div>
-
-      {today.inProgressSessionId && (
-        <button
-          className="btn btn--block"
-          type="button"
-          onClick={() => navigate(`/session/${today.inProgressSessionId}`)}
-        >
-          {t('today.resume')}
-        </button>
-      )}
-
-      {notEnoughCards ? (
-        <div className="banner banner--info">
-          {t('today.needMoreCards', { min: today.minCardsToStart })}
-        </div>
-      ) : (
-        <>
-          {today.canStartScheduled ? (
-            <button className="btn btn--block" type="button" disabled={busy} onClick={() => start('SCHEDULED')}>
-              {t('today.start')}
-            </button>
-          ) : (
-            !today.inProgressSessionId && <div className="banner banner--success">{t('today.nothingDue')}</div>
-          )}
-          {today.canPractice && (
-            <button
-              className="btn btn--secondary btn--block"
-              type="button"
-              disabled={busy}
-              onClick={() => start('PRACTICE')}
-            >
-              {t('today.practice')}
-            </button>
-          )}
-        </>
-      )}
-
-      <p className="muted center">
-        {t('today.learned')}: {today.learnedCount}
-      </p>
     </div>
   );
+}
+
+function localDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }

@@ -45,6 +45,12 @@ public class StudyController {
         return studyService.listMyCards(caller);
     }
 
+    @GetMapping("/homeworks/{homeworkId}/cards")
+    public List<CardResponse> homeworkCards(@AuthenticationPrincipal AuthenticatedUser caller,
+                                            @PathVariable UUID homeworkId) {
+        return studyService.listHomeworkCards(caller, homeworkId);
+    }
+
     @PostMapping("/sessions")
     @ResponseStatus(HttpStatus.CREATED)
     public SessionResponse startSession(@AuthenticationPrincipal AuthenticatedUser caller,

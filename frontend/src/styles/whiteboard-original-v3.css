@@ -1,0 +1,371 @@
+/* The supplied Original v3 board: dark chrome, a single tool island and real
+   application controls. Scope it to the classroom and board, not the cabinet. */
+.online-class-room.online-class-room--original-v3,
+.whiteboard--original-v3.school-islands-board {
+  --v3-bg:#191c1e;
+  --v3-panel:#272b2f;
+  --v3-raised:#383e43;
+  --v3-edge:#444b51;
+  --v3-text:#eef2f1;
+  --v3-muted:#abb4ba;
+  --v3-orange:#ffb47c;
+  --v3-selected:#4a3325;
+  --v3-paper:#fffefa;
+  --surface:var(--v3-bg);
+  --border:var(--v3-edge);
+  --muted:var(--v3-muted);
+  --text:var(--v3-text);
+  --orange:var(--v3-orange);
+  color-scheme:dark;
+  color:var(--v3-text);
+  background:var(--v3-bg);
+  font-family:system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+.online-class-room.online-class-room--original-v3.lk-room-container {
+  position:fixed; inset:0; height:100dvh; overflow:hidden;
+  --classroom-header-height:64px; --classroom-dock-height:64px;
+  --classroom-toolbar-top:calc(var(--classroom-header-height) + 8px);
+  --classroom-page-top:calc(var(--classroom-toolbar-top) + 56px);
+  --classroom-page-bottom:calc(var(--classroom-dock-height) + 58px);
+  --lk-bg:var(--v3-bg); --lk-fg:var(--v3-text);
+  --lk-control-bg:#202427; --lk-control-hover-bg:var(--v3-raised);
+}
+.online-class-room--original-v3 .online-class-room__topbar {
+  position:absolute; inset:0 0 auto; z-index:20; min-height:60px;
+  padding:max(8px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) 8px max(18px,env(safe-area-inset-left)); gap:10px;
+  background:transparent; border:0; overflow:visible; pointer-events:none;
+  color:var(--v3-text);
+}
+.online-class-room--original-v3 .online-class-room__topbar > * { pointer-events:auto; }
+.online-class-room--original-v3 .online-class-room__lesson-island,
+.online-class-room--original-v3 .online-class-room__board-controls {
+  display:flex; align-items:center; gap:10px; min-height:44px; padding:5px 10px;
+  border:1px solid #4b5359; border-radius:13px; background:#2a2f33f5;
+  box-shadow:0 6px 20px #0003;
+}
+.online-class-room--original-v3 .online-class-room__lesson-island { flex-direction:column; align-items:flex-start; justify-content:center; gap:1px; min-width:100px; }
+.online-class-room--original-v3 .online-class-room__lesson-island strong {
+  display:block; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:13px; font-weight:600; line-height:1.3;
+}
+.online-class-room--original-v3 .online-class-room__lesson-actions { display:flex; align-items:center; gap:8px; flex:0 1 auto; min-width:0; pointer-events:none; }
+.online-class-room--original-v3 .online-class-room__lesson-actions > * { pointer-events:auto; }
+.online-class-room--original-v3 .online-class-room__board-controls { margin-left:auto; flex-shrink:0; gap:4px; padding:4px 6px; }
+.online-class-room--original-v3 .online-class-room__topbar button,
+.online-class-room--original-v3 .online-class-room__topbar select {
+  height:34px; min-height:34px; padding:5px 10px; border:1px solid #3b4348;
+  border-radius:9px; color:var(--v3-muted); background:#2a2f33f5; box-shadow:none; font-size:11px;
+}
+.online-class-room--original-v3 .online-class-room__board-controls button,
+.online-class-room--original-v3 .online-class-room__board-controls select { border:0; background:transparent; }
+.online-class-room--original-v3 .online-class-room__topbar button[aria-pressed='true'] { color:var(--v3-orange); background:var(--v3-selected); }
+.online-class-room--original-v3 .online-class-room__topbar .board-switcher { margin:0; }
+.online-class-room--original-v3 .online-class-room__topbar .online-class-room__videos-toggle { margin-left:0; }
+.online-class-room--original-v3 .board-switcher select { max-width:220px; color-scheme:dark; }
+.online-class-room--original-v3 .online-class-room__status { font-size:10px; color:var(--v3-muted); }
+.online-class-room--original-v3 .online-class-room__stage { position:absolute; inset:0; min-width:0; min-height:0; background:var(--v3-bg); }
+.online-class-room--original-v3 .online-class-room__main { min-width:0; min-height:0; }
+.online-class-room--original-v3 .online-class-room__videos-drawer { padding-top:var(--classroom-header-height); padding-bottom:var(--classroom-dock-height); background:#202427; border-left:1px solid #3b4348; }
+.online-class-room--original-v3 .online-class-room__drawer { top:calc(var(--classroom-header-height) + 8px); bottom:calc(var(--classroom-dock-height) + 8px); border:1px solid var(--v3-edge); border-radius:13px; background:var(--v3-panel); color:var(--v3-text); }
+.online-class-room--original-v3 .online-class-room__controls {
+  position:absolute; inset:auto 0 0; z-index:25; min-height:0; width:100%;
+  display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end;
+  padding:10px max(18px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); gap:8px;
+  background:transparent; border:0; pointer-events:none;
+  overflow:visible; isolation:auto;
+}
+.online-class-room--original-v3 .online-class-room__control-island {
+  display:flex; flex-wrap:wrap; align-items:center; gap:7px; min-width:0; max-width:100%;
+  padding:6px; border:1px solid #4b5359; border-radius:13px;
+  background:#2a2f33f5; box-shadow:0 6px 20px #0003; pointer-events:auto;
+}
+.online-class-room--original-v3 .online-class-room__control-island > .lk-control-bar {
+  display:flex; flex:0 1 auto; flex-wrap:wrap; gap:7px; width:auto; max-width:100%;
+  padding:0; margin:0; border:0; background:transparent; box-shadow:none;
+}
+.online-class-room--original-v3 .online-class-room__controls .online-class-room__control-island > button,
+.online-class-room--original-v3 .online-class-room__controls .lk-button-group { flex:0 0 auto; }
+.online-class-room--original-v3 .online-class-room__controls .lk-button,
+.online-class-room--original-v3 .online-class-room__controls .online-class-room__control-island > button {
+  height:32px; min-height:32px; padding:6px 9px; border:1px solid #3d464d;
+  border-radius:9px; box-shadow:none; color:var(--v3-muted); background:transparent;
+  font-size:11px; font-weight:400;
+}
+.online-class-room--original-v3 .online-class-room__controls .lk-button:hover,
+.online-class-room--original-v3 .online-class-room__controls .online-class-room__control-island > button:hover { background:var(--v3-raised); }
+.online-class-room--original-v3 .online-class-room__controls .lk-button[aria-pressed='true'],
+.online-class-room--original-v3 .online-class-room__controls .online-class-room__control-island > button[aria-pressed='true'] { background:var(--v3-raised); color:var(--v3-text); }
+.online-class-room--original-v3 .online-class-room__control-island--exit { margin-left:auto; }
+.online-class-room--original-v3 .online-class-room__control-island > .online-class-room__end { color:#e5a6a4!important; border-color:#62474b!important; }
+.online-class-room--original-v3 .online-class-room__controls .lk-device-menu { bottom:calc(var(--classroom-dock-height) + 8px)!important; }
+.online-class-room--original-v3 > .captions { position:absolute; z-index:14; left:50%; bottom:calc(var(--classroom-dock-height) + 54px); width:min(680px,calc(100% - 32px)); transform:translateX(-50%); }
+.online-class-room--original-v3 .classroom-homework { top:calc(var(--classroom-header-height) + 8px); bottom:calc(var(--classroom-dock-height) + 8px); }
+.online-class-room--original-v3 :focus-visible,
+.whiteboard--original-v3.school-islands-board :focus-visible { outline:2px solid var(--v3-orange); outline-offset:3px; }
+
+/* Only the paper's fit area has clear edges; the board itself fills the room.
+   Menus overlay it without resizing a canvas in the middle of a stroke. */
+.whiteboard--original-v3.school-islands-board { position:relative; min-width:0; min-height:0; }
+.whiteboard--original-v3.school-islands-board .whiteboard__stage { padding:0; background:var(--v3-bg); background-image:none; }
+.whiteboard--original-v3.school-islands-board .whiteboard__surface {
+  position:absolute; inset:var(--classroom-page-top,132px) 30px var(--classroom-page-bottom,68px); width:auto; height:auto;
+  background:var(--v3-bg); border-radius:2px; color-scheme:light;
+}
+.whiteboard--original-v3.whiteboard--camera .whiteboard__surface { inset:0; width:100%; height:100%; border-radius:0; }
+.whiteboard--original-v3.school-islands-board .whiteboard__topline {
+  position:absolute; top:var(--classroom-toolbar-top,16px); left:14px; right:14px; width:auto; min-height:44px;
+  padding:0; display:flex; align-items:flex-start; justify-content:center; background:transparent;
+  border:0; box-shadow:none; z-index:9; pointer-events:none; overflow:visible;
+}
+.whiteboard--original-v3.school-islands-board .whiteboard__topline .board-toolbar--original {
+  position:relative; display:block; flex:0 1 auto; width:max-content; max-width:100%;
+  min-width:0; padding:0; margin:0; overflow:visible; background:transparent; border:0; box-shadow:none;
+  color:var(--v3-text); pointer-events:auto;
+}
+.whiteboard--original-v3 .board-toolbar__island {
+  display:flex; align-items:center; justify-content:center; gap:3px; width:max-content; max-width:100%;
+  height:44px; min-height:44px; padding:5px 7px; border:1px solid #4b5359;
+  border-radius:13px; background:#2a2f33f5; box-shadow:0 6px 20px #0003;
+}
+.whiteboard--original-v3.school-islands-board .board-toolbar button {
+  display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;
+  min-width:32px; width:32px; height:32px; min-height:32px; padding:5px;
+  border:0; border-radius:8px; background:transparent; box-shadow:none;
+  color:#c5cdd2!important; opacity:1; font-size:11px; font-weight:400;
+}
+.whiteboard--original-v3.school-islands-board .board-toolbar button:hover { background:var(--v3-raised); color:var(--v3-text)!important; }
+.whiteboard--original-v3.school-islands-board .board-toolbar button.is-active,
+.whiteboard--original-v3.school-islands-board .board-toolbar button[aria-pressed='true'],
+.whiteboard--original-v3.school-islands-board .board-toolbar button[aria-checked='true'] { background:var(--v3-selected); color:var(--v3-orange)!important; }
+.whiteboard--original-v3.school-islands-board .board-toolbar button:disabled { opacity:.35; cursor:default; }
+.whiteboard--original-v3 .board-toolbar svg { width:18px; height:18px; flex-shrink:0; pointer-events:none; }
+.whiteboard--original-v3 .board-toolbar__divider { width:1px; height:19px; flex:0 0 1px; margin:0 4px; background:#50585f; }
+.whiteboard--original-v3 .board-toolbar__file-action,
+.whiteboard--original-v3 .board-toolbar__primary-actions { display:flex; align-items:center; gap:3px; }
+.whiteboard--original-v3 .board-toolbar__file-action { position:relative; border-left:1px solid #50585f; padding-left:8px; margin-left:4px; }
+.whiteboard--original-v3 .board-toolbar__more { position:relative; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__settings {
+  position:absolute; top:52px; left:50%; right:auto; transform:translateX(-50%);
+  display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; gap:10px; width:max-content; max-width:calc(100vw - 32px);
+  min-height:40px; padding:4px 9px; margin:0; border:1px solid #4b5359; border-radius:11px;
+  color:var(--v3-text); background:#2a2f33f5; box-shadow:0 5px 18px #0003; z-index:11;
+}
+.whiteboard--original-v3 .board-toolbar__settings-name { font-size:10px; color:var(--v3-muted); white-space:nowrap; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__color-picker { border:0; border-radius:0; background:transparent; padding:0; box-shadow:none; }
+.whiteboard--original-v3.school-islands-board .board-toolbar button.board-toolbar__color-trigger { min-width:30px; width:30px; height:30px; min-height:30px; padding:4px; touch-action:none; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__color-preview { display:block; width:21px; height:21px; flex:0 0 21px; border:2px solid #f3f4ef; border-radius:50%; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__size {
+  display:flex; flex-direction:row; align-items:center; gap:6px; min-height:0; padding:0; margin:0;
+  border:0; border-radius:0; background:transparent; color:var(--v3-muted)!important; box-shadow:none;
+  font-size:10px; font-weight:400; white-space:nowrap;
+}
+.whiteboard--original-v3 .board-toolbar__size output { width:15px; color:var(--v3-text); font-variant-numeric:tabular-nums; }
+.whiteboard--original-v3 .board-toolbar__size input { width:66px; height:22px; margin:0; accent-color:var(--v3-orange); }
+.whiteboard--original-v3 .board-toolbar__input-mode { display:flex; gap:2px; border-left:1px solid #50585f; padding-left:9px; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__input-mode button,
+.whiteboard--original-v3.school-islands-board .board-toolbar__eraser-modes button { width:auto; height:28px; min-height:28px; padding:5px 8px; border-radius:6px; font-size:10px; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__input-mode button.is-active { background:#454d53; color:var(--v3-text)!important; }
+.whiteboard--original-v3 .board-toolbar__eraser-modes { display:flex; gap:2px; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__text-style { display:flex; align-items:center; gap:6px; padding:0; border:0; background:transparent; box-shadow:none; }
+.whiteboard--original-v3 .board-toolbar__text-control { color:var(--v3-muted); font-size:9px; }
+.whiteboard--original-v3 .board-toolbar__text-control select,
+.whiteboard--original-v3 .board-toolbar__text-control input { max-width:160px; height:26px; padding:3px; color:var(--v3-text); background:#383e43; border:1px solid #50585f; border-radius:6px; font-size:10px; }
+.whiteboard--original-v3 .board-toolbar__text-control input { width:48px; }
+.whiteboard--original-v3 .board-toolbar__more-menu,
+.whiteboard--original-v3 .board-toolbar__add-menu {
+  position:absolute; top:41px; right:0; z-index:20; width:230px; max-width:calc(100vw - 24px);
+  max-height:min(440px,65dvh); overflow:auto; padding:8px; background:var(--v3-panel);
+  border:1px solid #50595f; border-radius:12px; box-shadow:0 10px 30px #0005;
+}
+.whiteboard--original-v3 .board-toolbar__add-menu { display:flex; flex-direction:column; gap:3px; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__island .board-toolbar__add-menu button {
+  width:100%; height:auto; min-height:38px; justify-content:flex-start; gap:9px; padding:9px 8px;
+  text-align:left; white-space:normal; line-height:1.4;
+}
+.whiteboard--original-v3 .board-toolbar__add-menu svg { flex:0 0 20px; }
+.whiteboard--original-v3 .board-toolbar__extra-tools { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; justify-items:center; }
+.whiteboard--original-v3 .board-toolbar__more-actions { display:flex; flex-direction:column; gap:3px; margin-top:8px; padding-top:8px; border-top:1px solid #444b51; }
+.whiteboard--original-v3.school-islands-board .board-toolbar__more-actions button { width:100%; height:auto; min-height:32px; justify-content:flex-start; gap:7px; text-align:left; white-space:normal; padding:7px; }
+body > .board-toolbar__color-popover[role='dialog'] { display:block; width:210px; height:auto; padding:14px; color:#eef2f1; background:#272b2f; border:1px solid #50595f; border-radius:12px; box-shadow:0 12px 30px #0006; z-index:110; }
+body > .board-toolbar__color-popover[role='dialog'] .board-toolbar__swatches { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; padding:0; border:0; background:transparent; box-shadow:none; }
+body > .board-toolbar__color-popover[role='dialog'] .board-toolbar__swatches button { width:27px!important; min-width:27px; height:27px!important; min-height:27px; padding:0; border:2px solid #fff; border-radius:50%; }
+body > .board-toolbar__color-popover[role='dialog'] .board-toolbar__swatches button.is-active { outline:2px solid #ffb47c; outline-offset:3px; }
+body > .board-toolbar__color-popover[role='dialog'] .board-toolbar__custom-color { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:14px; padding-top:10px; border-top:1px solid #444b51; font-size:10px; color:#abb4ba; }
+body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:28px; padding:0; border:0; background:transparent; }
+
+.whiteboard--original-v3.school-islands-board .whiteboard__stage .whiteboard__topline-pages,
+.whiteboard--original-v3.school-islands-board .whiteboard__stage .whiteboard__zoom { position:absolute; bottom:calc(var(--classroom-dock-height,0px) + 12px); padding:3px; border:1px solid #454e55; border-radius:9px; background:#292f33e8; color:var(--v3-text); box-shadow:0 6px 20px #0003; }
+.whiteboard--original-v3.school-islands-board .whiteboard__topline-pages { left:20px; }
+.whiteboard--original-v3.school-islands-board .whiteboard__zoom { right:20px; display:flex; align-items:center; gap:3px; }
+.whiteboard--original-v3.school-islands-board .whiteboard__topline-pages .page-nav { gap:3px; padding:0; border:0; background:transparent; box-shadow:none; color:var(--v3-text); }
+.whiteboard--original-v3.school-islands-board .whiteboard__topline-pages .page-nav button,
+.whiteboard--original-v3.school-islands-board .whiteboard__zoom button { width:28px; min-width:28px; height:28px; min-height:28px; padding:0; border:0; border-radius:6px; background:transparent; color:var(--v3-muted); font-size:17px; }
+.whiteboard--original-v3.school-islands-board .whiteboard__topline-pages .page-nav__label,
+.whiteboard--original-v3 .whiteboard__zoom-label { color:var(--v3-text); padding:0 5px; font-size:10px; white-space:nowrap; }
+.whiteboard--original-v3.school-islands-board .whiteboard__notice:not(:empty) { top:calc(var(--classroom-toolbar-top,16px) + 96px); left:16px; right:auto; max-width:calc(100% - 32px); padding:3px 8px; font-size:10px; background:#272b2ff5; color:var(--v3-muted); border:1px solid #444b51; border-radius:7px; box-shadow:none; z-index:8; }
+.online-class-room--original-v3 .whiteboard__ink-save-alert { bottom:calc(var(--classroom-dock-height) + 54px); }
+.whiteboard--original-v3 .whiteboard__text-input { color:#29333c; background:#fffefa; border-color:#df6835; }
+.online-class-room--original-v3 .student-workspaces { padding:calc(var(--classroom-header-height) + 8px) 8px 8px; background:var(--v3-bg); --classroom-toolbar-top:8px; --classroom-page-top:64px; }
+.online-class-room--original-v3 .student-workspaces--overview { padding-bottom:calc(var(--classroom-dock-height) + 8px); }
+.online-class-room--original-v3 .student-workspace { border-color:#3b4348; border-radius:8px; background:var(--v3-bg); }
+.online-class-room--original-v3 .online-class-room__student-tile-header { color:var(--v3-text); background:#202427; border-color:#3b4348; font-size:11px; }
+.online-class-room--original-v3 .student-workspace__kind { color:var(--v3-muted); font-size:10px; }
+.online-class-room--original-v3 .online-class-room__student-tile-header button { color:var(--v3-muted); background:transparent; border-color:#444b51; font-size:10px; }
+.online-class-room--original-v3 .student-workspaces--overview .whiteboard--original-v3 .whiteboard__surface { inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); }
+.online-class-room--original-v3 .student-workspaces--overview .whiteboard--camera .whiteboard__surface { inset:0; width:100%; height:100%; }
+.online-class-room--original-v3 .online-class-room__notebook { padding:calc(var(--classroom-header-height) + 8px) 12px calc(var(--classroom-dock-height) + 12px); background:var(--v3-bg); }
+.online-class-room--original-v3 .online-class-room__notebook-settings {
+  position:absolute; top:calc(var(--classroom-header-height) + 10px); right:12px;
+  bottom:calc(var(--classroom-dock-height) + 12px); z-index:24; width:min(500px,calc(100% - 24px));
+  display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--v3-edge);
+  border-radius:16px; background:var(--v3-panel); box-shadow:0 16px 44px #0006; color:var(--v3-text);
+}
+.online-class-room--original-v3 .online-class-room__notebook-settings[hidden] { display:none; }
+.online-class-room--original-v3 .online-class-room__notebook-settings-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex:none; padding:14px 16px; border-bottom:1px solid var(--v3-edge); font-size:16px; }
+.online-class-room--original-v3 .online-class-room__notebook-settings .notebook-camera { flex:1 1 0%; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; padding:16px; color:var(--v3-text); background:transparent; border-radius:0; }
+.online-class-room--original-v3 .online-class-room__notebook-settings .notebook-camera__heading { display:none; }
+.online-class-room--original-v3 .online-class-room__notebook-settings h2 { font-size:18px; }
+.online-class-room--original-v3 .online-class-room__notebook-settings p,
+.online-class-room--original-v3 .online-class-room__notebook-settings label { font-size:12px; }
+.online-class-room--original-v3 .online-class-room__notebook-settings .muted { color:var(--v3-muted); }
+.online-class-room--original-v3 .online-class-room__notebook-settings button { min-height:34px; padding:7px 10px; border:1px solid var(--v3-edge); border-radius:9px; color:var(--v3-text); background:var(--v3-raised); font-size:12px; }
+.online-class-room--original-v3 .online-class-room__notebook-settings button:hover { background:#485058; }
+.online-class-room--original-v3 .online-class-room__notebook-settings button:disabled { opacity:.45; }
+.online-class-room--original-v3 .online-class-room__notebook-settings .notebook-camera__connect { gap:12px; margin:12px 0; }
+.online-class-room--original-v3 .online-class-room__notebook-settings .notebook-camera__qr { width:100%; background:#343b40; }
+.online-class-room--original-v3 .online-class-room__notebook-settings .notebook-camera__qr canvas { width:232px; height:232px; }
+.online-class-room--original-v3 .online-class-room__notebook-settings select { width:100%; margin:6px 0; background:var(--v3-raised); color:var(--v3-text); border-color:var(--v3-edge); }
+.online-class-room--original-v3 .online-class-room__notebook-settings .notebook-camera__viewer { height:1100px; min-height:500px; border:0; border-radius:10px; background:var(--v3-panel); }
+.online-class-room--original-v3 .online-class-room__own-notebook[hidden] { display:none; }
+.online-class-room--original-v3 .online-class-room__notebook-settings-toggle { gap:6px; }
+
+/* Answers remain a separate, authorized PDF column with independent scrolling. */
+.online-class-room--original-v3 .online-class-room__stage > .answers-panel,
+.online-class-room--original-v3 .online-class-room__stage > .classroom-solutions {
+  flex:0 0 204px; width:204px; max-width:none; height:auto; min-height:0; padding:calc(var(--classroom-header-height) + 12px) 12px calc(var(--classroom-dock-height) + 12px);
+  display:flex; flex-direction:column; gap:12px; background:#222629; color:var(--v3-text);
+  border:0; border-right:1px solid #3b4348; border-radius:0;
+}
+.online-class-room--original-v3 .answers-panel__heading { display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:28px; }
+.online-class-room--original-v3 .answers-panel__heading strong,
+.online-class-room--original-v3 .classroom-homework__header strong { font-size:11px; line-height:1.35; font-weight:600; }
+.online-class-room--original-v3 .answers-panel .answers-panel__close { position:static; width:26px; height:26px; min-height:26px; padding:0; border:0; border-radius:6px; background:transparent; color:var(--v3-muted); box-shadow:none; }
+.online-class-room--original-v3 .answers-panel__private { margin:0; font-size:9px; color:var(--v3-muted); }
+.online-class-room--original-v3 .answers-panel__upload button { width:100%; min-height:32px; padding:6px 8px; border:1px solid var(--v3-edge); border-radius:8px; background:var(--v3-raised); color:var(--v3-text); font-size:11px; }
+.online-class-room--original-v3 .answers-panel__upload button:disabled { opacity:.5; }
+.online-class-room--original-v3 .answers-panel__upload-error { margin:0; color:#f1a4a4; font-size:11px; }
+.online-class-room--original-v3 .answers-panel .answers-panel__scroll { flex:1 1 0%; min-height:0; width:100%; padding:0; background:var(--v3-paper); border-radius:2px; overflow:auto; }
+.online-class-room--original-v3 .answers-panel__scroll p { padding:12px; margin:0; color:#34414c; font-size:11px; }
+.online-class-room--original-v3 .answers-panel .answers-panel__page { display:block; max-width:none; margin:0; border:0; box-shadow:none; }
+.online-class-room--original-v3 .answers-panel .answers-panel__controls { padding:0; border:0; background:transparent; display:flex; flex-wrap:wrap; justify-content:center; gap:6px; }
+.online-class-room--original-v3 .answers-panel .page-nav { border:0; padding:0; color:var(--v3-muted); background:transparent; box-shadow:none; font-size:9px; }
+.online-class-room--original-v3 .answers-panel__zoom { display:flex; align-items:center; gap:8px; font-size:10px; color:var(--v3-muted); }
+.online-class-room--original-v3 .answers-panel .page-nav button,
+.online-class-room--original-v3 .answers-panel__zoom button { min-width:28px; width:28px; height:28px; min-height:28px; border:1px solid #444b51; border-radius:7px; background:transparent; color:var(--v3-text); padding:0; }
+.online-class-room--original-v3 .classroom-homework__header { padding:0; border:0; background:transparent; color:var(--v3-text); }
+.online-class-room--original-v3 .classroom-solutions .classroom-solutions__toolbar { padding:0; gap:6px; background:transparent; border:0; }
+.online-class-room--original-v3 .classroom-solutions__toolbar button { padding:5px; border:1px solid #444b51; border-radius:7px; background:transparent; color:var(--v3-muted); font-size:10px; }
+.online-class-room--original-v3 .classroom-solutions__scroller { flex:1 1 0%; min-height:0; padding:0; background:var(--v3-paper); }
+.online-class-room--original-v3 .classroom-solutions__sheet { padding:0; color:#29333c; }
+
+@media(min-width:901px) {
+  .online-class-room--original-v3 .online-class-room__videos-drawer.is-open { position:relative; flex:0 0 clamp(160px,23vw,250px); }
+}
+@media(max-width:1100px) {
+  .online-class-room--original-v3 .online-class-room__topbar { padding-left:max(14px,env(safe-area-inset-left)); padding-right:max(14px,env(safe-area-inset-right)); }
+  .online-class-room--original-v3 .online-class-room__stage > .answers-panel,
+  .online-class-room--original-v3 .online-class-room__stage > .classroom-solutions { width:188px; flex-basis:188px; }
+  .whiteboard--original-v3.school-islands-board .whiteboard__surface { left:24px; right:24px; }
+  .whiteboard--original-v3.whiteboard--camera .whiteboard__surface { left:0; right:0; width:100%; }
+}
+@media(orientation:portrait) and (min-width:601px) and (max-width:1100px), (min-width:601px) and (max-width:900px) {
+  .online-class-room--original-v3 .online-class-room__stage > .answers-panel,
+  .online-class-room--original-v3 .online-class-room__stage > .classroom-solutions { width:172px; flex-basis:172px; padding-left:10px; padding-right:10px; }
+  .whiteboard--original-v3.school-islands-board .whiteboard__surface { left:18px; right:18px; }
+  .whiteboard--original-v3.whiteboard--camera .whiteboard__surface { left:0; right:0; width:100%; }
+}
+@media(max-width:600px) {
+  .online-class-room--original-v3 .online-class-room__topbar { padding-left:max(12px,env(safe-area-inset-left)); padding-right:max(12px,env(safe-area-inset-right)); gap:8px; }
+  .online-class-room--original-v3 .online-class-room__lesson-island { min-width:0; padding:5px 8px; }
+  .online-class-room--original-v3 .online-class-room__lesson-island strong { max-width:clamp(64px,25vw,110px); font-size:12px; }
+  .online-class-room--original-v3 .online-class-room__topbar { flex-wrap:wrap; overflow:visible; }
+  .online-class-room--original-v3 .online-class-room__lesson-actions { order:3; flex:1 0 100%; flex-wrap:wrap; }
+  .online-class-room--original-v3 .online-class-room__lesson-actions:not(:has(button, [role='alert'], [role='alertdialog'], .recording__active, .transcription span)) { display:none; }
+  .online-class-room--original-v3 .board-switcher select { max-width:clamp(120px,34vw,150px); font-size:10px; }
+  .online-class-room--original-v3 .online-class-room__stage { flex-direction:column; }
+  .online-class-room--original-v3 .online-class-room__stage > .answers-panel,
+  .online-class-room--original-v3 .online-class-room__stage > .classroom-solutions { flex:0 1 300px; width:100%; max-height:45%; padding:calc(var(--classroom-header-height) + 8px) 12px 10px; gap:6px; border-right:0; border-bottom:1px solid #3b4348; }
+  .online-class-room--original-v3 .online-class-room__stage:has(> .answers-panel, > .classroom-solutions) > .online-class-room__main { --classroom-toolbar-top:8px; --classroom-page-top:64px; }
+  .online-class-room--original-v3 .online-class-room__stage:has(> .answers-panel, > .classroom-solutions) .student-workspaces { padding-top:8px; }
+  .online-class-room--original-v3 .answers-panel .answers-panel__scroll,
+  .online-class-room--original-v3 .classroom-solutions__scroller { min-height:60px; max-height:160px; }
+  .whiteboard--original-v3.school-islands-board .whiteboard__topline { left:8px; right:8px; }
+  .whiteboard--original-v3.school-islands-board .board-toolbar__island { height:40px; min-height:40px; gap:1px; padding:4px 5px; border-radius:11px; }
+  .whiteboard--original-v3.school-islands-board .board-toolbar__island button { min-width:28px; width:28px; height:30px; min-height:30px; padding:4px; }
+  .whiteboard--original-v3 .board-toolbar__file-action { padding-left:5px; margin-left:2px; }
+  .whiteboard--original-v3 .board-toolbar__divider { margin:0 3px; }
+  .whiteboard--original-v3.school-islands-board .board-toolbar__settings { top:48px; flex-wrap:wrap; justify-content:center; gap:5px 8px; width:max-content; max-width:calc(100vw - 24px); padding:7px 10px; }
+  .whiteboard--original-v3 .board-toolbar__input-mode { justify-content:center; border-left:0; border-top:1px solid #50585f; padding:5px 0 0; flex:1 0 100%; }
+  .whiteboard--original-v3.school-islands-board .whiteboard__surface { left:12px; right:12px; }
+  .whiteboard--original-v3.whiteboard--camera .whiteboard__surface { inset:0; width:100%; height:100%; }
+  .whiteboard--original-v3.school-islands-board .whiteboard__stage .whiteboard__topline-pages { left:10px; }
+  .whiteboard--original-v3.school-islands-board .whiteboard__stage .whiteboard__zoom { right:10px; }
+  .online-class-room--original-v3 .online-class-room__controls { justify-content:center; padding:8px max(10px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left)); }
+  .online-class-room--original-v3 .online-class-room__control-island { justify-content:center; gap:5px; padding:5px; }
+  .online-class-room--original-v3 .online-class-room__control-island--exit { margin-left:0; }
+  .online-class-room--original-v3 .online-class-room__controls .lk-button,
+  .online-class-room--original-v3 .online-class-room__controls .online-class-room__control-island > button { font-size:10px; padding:5px 7px; }
+}
+@media(pointer:coarse) and (min-width:601px) {
+  .whiteboard--original-v3.school-islands-board .board-toolbar__island { height:auto; min-height:44px; }
+  .whiteboard--original-v3.school-islands-board .board-toolbar__island button { min-width:34px; width:34px; min-height:36px; height:36px; }
+  .whiteboard--original-v3.school-islands-board .whiteboard__topline-pages button,
+  .whiteboard--original-v3.school-islands-board .whiteboard__zoom button { min-width:36px; width:36px; min-height:36px; height:36px; }
+}
+@media(max-width:360px) {
+  .whiteboard--original-v3.school-islands-board .board-toolbar__island button { min-width:24px; width:24px; padding:3px; }
+  .whiteboard--original-v3 .board-toolbar__island svg { width:16px; height:16px; }
+}
+
+/* Page canvases keep a fixed page identity when the reading layout changes. */
+.whiteboard--original-v3 .whiteboard__pages--paged { position:absolute; inset:0; }
+.whiteboard--original-v3 .whiteboard__view-frame { position:absolute; inset:0; overflow:hidden; }
+.whiteboard--original-v3 .whiteboard__page { margin:0; padding:0; min-width:0; }
+.whiteboard--original-v3 .whiteboard__page[hidden] { display:none!important; }
+.whiteboard--original-v3 .whiteboard__pages--paged > .whiteboard__document > .whiteboard__page { position:absolute; inset:0; }
+.whiteboard--original-v3 .whiteboard__page-surface.whiteboard__stage { position:absolute; inset:0; width:100%; height:100%; }
+.whiteboard--original-v3 .whiteboard__pages--continuous {
+  position:absolute; inset:0; padding:var(--classroom-page-top,132px) 26px var(--classroom-page-bottom,64px);
+  overflow:auto; overscroll-behavior:contain; scrollbar-width:thin;
+  scrollbar-color:#535c63 transparent; scrollbar-gutter:stable; touch-action:none;
+}
+.whiteboard--original-v3 .whiteboard__pages--paged > .whiteboard__document { display:contents; }
+.whiteboard--original-v3 .whiteboard__pages--continuous > .whiteboard__document { display:flex; flex-direction:column; align-items:center; }
+.whiteboard--original-v3 .whiteboard__pages--continuous > .whiteboard__document > .whiteboard__page { position:relative; flex:none; margin:0; }
+.whiteboard--original-v3.school-islands-board .whiteboard__page-surface--continuous .whiteboard__surface { inset:0; width:100%; height:100%; }
+.whiteboard--original-v3 .whiteboard__pages--locked { overflow:hidden; }
+.whiteboard--original-v3 .whiteboard__topline-pages,
+.whiteboard--original-v3 .whiteboard__zoom { z-index:8; }
+.whiteboard--original-v3 .board-toolbar__more-actions button[role='switch'][aria-checked='true'] { color:var(--v3-orange)!important; background:var(--v3-selected); }
+@media(max-width:600px) {
+  .whiteboard--original-v3 .whiteboard__pages--continuous { padding-left:12px; padding-right:12px; }
+}
+
+/* The mirror uses the pupil's logical viewport and scales that entire scene
+   into the teacher's tile, keeping the same crop and handwriting proportions. */
+.whiteboard--original-v3.school-islands-board.whiteboard--following-student .whiteboard__page-surface .whiteboard__surface {
+  inset:0; width:100%; height:100%; border-radius:0;
+}
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__pages--continuous {
+  padding:0; overflow:hidden; scrollbar-gutter:auto;
+}
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__topline-pages,
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__zoom { display:none!important; }
+.whiteboard__follow-status {
+  position:absolute; z-index:10; top:8px; left:50%; transform:translateX(-50%);
+  max-width:calc(100% - 16px); padding:6px 10px; border-radius:8px;
+  color:#e6eaed; background:#2a2f33ed; font-size:12px; text-align:center; pointer-events:none;
+}
+.student-workspaces--overview .whiteboard--compact-preview:not(.whiteboard--following-student) .whiteboard__zoom {
+  display:inline-flex!important; right:8px; bottom:8px;
+}

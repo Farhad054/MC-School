@@ -1,0 +1,754 @@
+import { lessonPreparationApi, completedLessonApi } from '../../api/lessonPreparation';
+import { exportBoardPdf } from './boardExport';
+import { NotebookCameraPanel } from '../notebook-camera/NotebookCameraPanel';
+import type { NotebookCameraVideoSource } from '../notebook-camera/NotebookCameraViewer';
+import { useLessonNotebookCameras } from '../notebook-camera/useLessonNotebookCameras';
+import { onlineClassesApi } from '../../api/onlineClasses';
+import { buildPdf, dataUrlToBytes } from './pdfWriter';
+import {
+  ConnectionStateToast,
+  ControlBar,
+  FocusLayout,
+  FocusLayoutContainer,
+  LiveKitRoom,
+  RoomAudioRenderer,
+  useConnectionState,
+  useTracks,
+} from '@livekit/components-react';
+import '@livekit/components-styles';
+import { ConnectionState, Track } from 'livekit-client';
+import { useI18n } from '../../i18n/I18nContext';
+import type { ClassFeatureState, OnlineClassConnection } from '../../api/onlineClasses';
+import { ChatPanel } from './ChatPanel';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { categorizeLiveKitError, type LiveKitErrorCategory } from './livekitDiagnostics';
+import { ALL_STUDENT_BOARDS_ID, BoardSwitcher } from './BoardSwitcher';
+import { SHARED_BOARD_ID, personalBoardId } from './boards';
+import { useStudentRoster } from './useStudentRoster';
+import { StudentWorkspaces } from './StudentWorkspaces';
+import { BoardToolbarIcon } from './BoardToolbar';
+import '../../styles/whiteboard-original-v3.css';
+import { AnswersButton } from './AnswersButton';
+import { AnswersPanel } from './AnswersPanel';
+import { CameraColumn } from './CameraColumn';
+import { CaptionsPanel } from './CaptionsPanel';
+import { RecordingControls } from './RecordingControls';
+import { TranscriptionControls } from './TranscriptionControls';
+import { ParticipantListPanel } from './ParticipantListPanel';
+import { WaitingRoomPanel } from './WaitingRoomPanel';
+import { useAnswersPanel } from './useAnswersPanel';
+import { useBoardDocument } from './useBoardDocument';
+import { useHostUserId } from './useHostUserId';
+import { useClassEvents } from './useClassEvents';
+import { DOCUMENT_TOPIC, documentEvent, VIEW_TOPIC } from './events';
+import type { TranslationKey } from '../../i18n/translations';
+
+// Konva is ~300 kB; the board gets its own lazy boundary inside the already-lazy
+// class route.
+const WhiteboardPanel = lazy(() =>
+  import('./WhiteboardPanel').then((m) => ({ default: m.WhiteboardPanel })),
+);
+
+/**
+ * The shared screen, when someone is presenting. Cameras are not drawn here:
+ * they live in the permanent column on the right.
+ */
+function ScreenShareView() {
+  const tracks = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], {
+    onlySubscribed: false,
+  });
+  const share = tracks[0];
+  if (!share) return null;
+  return (
+    <FocusLayoutContainer>
+      <FocusLayout trackRef={share} />
+    </FocusLayoutContainer>
+  );
+}
+
+/** True while anyone is sharing their screen. */
+function useScreenShareActive(): boolean {
+  const tracks = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], {
+    onlySubscribed: false,
+  });
+  return tracks.length > 0;
+}
+
+function statusKeyFor(state: ConnectionState): TranslationKey {
+  switch (state) {
+    case ConnectionState.Connected:
+      return 'onlineClass.status.connected';
+    case ConnectionState.Reconnecting:
+      return 'onlineClass.status.reconnecting';
+    case ConnectionState.Disconnected:
+      return 'onlineClass.status.disconnected';
+    default:
+      return 'onlineClass.status.connecting';
+  }
+}
+
+/** Announces connection changes; must be rendered inside the room context. */
+function ConnectionStatus() {
+  const { t } = useI18n();
+  const state = useConnectionState();
+
+  return (
+    <div role="status" aria-live="polite" className="online-class-room__status">
+      {t(statusKeyFor(state))}
+    </div>
+  );
+}
+
+/**
+ * Everything inside the LiveKit room context: the board as the main surface,
+ * the permanent camera column on the right, a drawer for chat and people, and
+ * a compact control bar.
+ */
+function RoomBody({
+  classId,
+  lessonTitle,
+  currentUserId,
+  eventId,
+  connection,
+  recordingState,
+  transcriptionState,
+  recordingAvailable,
+  transcriptionAvailable,
+  onLeave,
+  onEndForAll,
+  onStateChanged,
+}: {
+  classId: string;
+  lessonTitle?: string;
+  currentUserId: string;
+  eventId?: string;
+  connection: OnlineClassConnection;
+  recordingState: ClassFeatureState;
+  transcriptionState: ClassFeatureState;
+  recordingAvailable: boolean;
+  transcriptionAvailable: boolean;
+  onLeave: () => void;
+  onEndForAll?: () => void;
+  onStateChanged?: () => void;
+}) {
+  const { t, language } = useI18n();
+  const topbarRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const topbar = topbarRef.current, controls = controlsRef.current;
+    const room = topbar?.closest<HTMLElement>('.online-class-room');
+    if (!room || !topbar || !controls) return;
+    // The chrome overlays the board. Its actual wrapped height also keeps the
+    // first/last page, device menu and chat composer reachable on small screens.
+    const measure = () => {
+      room.style.setProperty('--classroom-header-height', `${topbar.offsetHeight}px`);
+      room.style.setProperty('--classroom-dock-height', `${controls.offsetHeight}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(topbar);
+    observer.observe(controls);
+    return () => observer.disconnect();
+  }, []);
+  // Automatically start Soniox transcription when the teacher joins a live lesson.
+  // Never start for a student or if the feature is unavailable, already running,
+  // or deliberately stopped during this room session.
+  const connectionState = useConnectionState();
+  const transcriptionAutoAttempted = useRef(false);
+  const [transcriptionAutoError, setTranscriptionAutoError] = useState(false);
+  useEffect(() => {
+    if (!connection.host || !transcriptionAvailable ||
+        connectionState !== ConnectionState.Connected ||
+        transcriptionState !== 'INACTIVE' || transcriptionAutoAttempted.current) return;
+    transcriptionAutoAttempted.current = true;
+    let alive = true;
+    void onlineClassesApi.startTranscription(classId).then(
+      () => { if (alive) onStateChanged?.(); },
+      () => { if (alive) setTranscriptionAutoError(true); },
+    );
+    return () => { alive = false; };
+  }, [classId, connection.host, connectionState, transcriptionAvailable, transcriptionState, onStateChanged]);
+  const [panelsOpen, setPanelsOpen] = useState(false);
+  const [videosOpen, setVideosOpen] = useState(false);
+  const materialInput = useRef<HTMLInputElement>(null);
+  const [materialBusy, setMaterialBusy] = useState(false);
+  const [materialError, setMaterialError] = useState<string | null>(null);
+  useEffect(() => {
+    const report = (event: Event) => setMaterialError((event as CustomEvent<string>).detail);
+    window.addEventListener('mc-workbook-render-error', report);
+    return () => window.removeEventListener('mc-workbook-render-error', report);
+  }, []);
+  const uploadMaterial = async (files: File[]) => {
+    if (!eventId) { setMaterialError('Урок не связан с календарём. Загрузка недоступна.'); return; }
+    setMaterialBusy(true);
+    setMaterialError(null);
+    try {
+      if (!files.length) return;
+      for (const file of files) {
+      let pdfFile = file;
+      if (file.type.startsWith('image/')) {
+        const url = URL.createObjectURL(file);
+        try {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          const scale = Math.min(1, 2200 / Math.max(image.naturalWidth, image.naturalHeight));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Canvas unavailable');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+          const jpeg = dataUrlToBytes(canvas.toDataURL('image/jpeg', 0.88));
+          const bytes = buildPdf([{ jpeg, width: canvas.width, height: canvas.height }]);
+          pdfFile = new File([new Uint8Array(bytes)], file.name.replace(/\.[^.]+$/, '') + '.pdf', { type: 'application/pdf' });
+        } finally { URL.revokeObjectURL(url); }
+      } else if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+        throw new Error('Unsupported file');
+      }
+      if (!pdfFile.size) {
+        throw new Error('Выбранный файл пустой. Откройте его в «Файлах» и сохраните PDF на iPad перед загрузкой.');
+      }
+      const saved = await lessonPreparationApi.appendWorkbook(eventId, pdfFile);
+      if (!saved.hasWorkbook) {
+        throw new Error('Сервер принял файл, но не сохранил его как рабочую тетрадь. Попробуйте ещё раз.');
+      }
+      // The classroom reads a different, student-authorized API. Verify that
+      // endpoint too before saying the upload is complete. A transient delay
+      // gets one short retry; do not silently tell teachers their PDF is gone.
+      let bytes = await onlineClassesApi.documentBytes(classId);
+      if (!bytes || bytes.byteLength === 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        bytes = await onlineClassesApi.documentBytes(classId);
+      }
+      if (!bytes || bytes.byteLength === 0) {
+        throw new Error('PDF сохранён, но пока недоступен на доске. Обновите урок или попробуйте снова.');
+      }
+      // Refresh teacher immediately, and push the update to every pupil over
+      // LiveKit. Each PDF is an atomic append, so earlier files survive if
+      // a later file fails.
+      window.dispatchEvent(new Event('mc-workbook-updated'));
+      const revision = await onlineClassesApi.documentVersion(classId);
+      void publishDocument(documentEvent(classId, revision.version), true);
+      }
+    } catch (error) {
+      setMaterialError(error instanceof Error ? error.message : 'Не удалось загрузить файл.');
+    } finally { setMaterialBusy(false); }
+  };
+  const [waiting, setWaiting] = useState(0);
+  const [mainView, setMainView] = useState<'board' | 'screen'>('board');
+  const [notebookSettingsOpen, setNotebookSettingsOpen] = useState(false);
+  const notebookTrigger = useRef<HTMLButtonElement>(null);
+  const notebookScope = JSON.stringify([eventId, classId, currentUserId]);
+  const currentNotebookScope = useRef({ scope: notebookScope, host: connection.host });
+  currentNotebookScope.current = { scope: notebookScope, host: connection.host };
+  const [notebookVideo, setNotebookVideo] = useState<{ scope: string; cameraId: string; source: NotebookCameraVideoSource } | null>(null);
+  const [cameraBoardScope, setCameraBoardScope] = useState('');
+  const autoSelectedCamera = useRef('');
+  const receiveNotebookVideo = useCallback((cameraId: string, source: NotebookCameraVideoSource | null) => {
+    if (currentNotebookScope.current.scope !== notebookScope || currentNotebookScope.current.host) return;
+    setNotebookVideo(previous => {
+      if (currentNotebookScope.current.scope !== notebookScope || currentNotebookScope.current.host) return previous;
+      return source ? { scope: notebookScope, cameraId, source }
+        : previous?.scope === notebookScope && previous.cameraId === cameraId ? null : previous;
+    });
+  }, [notebookScope]);
+  const ownNotebook = !connection.host && notebookVideo?.scope === notebookScope ? notebookVideo : null;
+  const closeNotebookSettings = useCallback(() => {
+    setNotebookSettingsOpen(false);
+    notebookTrigger.current?.focus();
+  }, []);
+  useEffect(() => {
+    setNotebookSettingsOpen(false);
+  }, [notebookScope, connection.host]);
+  useEffect(() => {
+    if (!notebookSettingsOpen) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); closeNotebookSettings(); } };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [notebookSettingsOpen, closeNotebookSettings]);
+  const sharing = useScreenShareActive();
+  const wasSharing = useRef(false);
+  const hostUserId = useHostUserId(classId);
+  const { publish: publishDocument } = useClassEvents(classId, DOCUMENT_TOPIC, ({ event, senderIdentity }) => {
+    if (event.type !== 'document' || connection.host) return;
+    // Ignore document-update packets from students. Only the bound teacher
+    // can cause the shared PDF to reload.
+    if (!hostUserId || senderIdentity?.split('|')[0] !== hostUserId) return;
+    window.dispatchEvent(new Event('mc-workbook-updated'));
+  });
+  const answers = useAnswersPanel(eventId, connection.host);
+  const boardDocument = useBoardDocument(classId);
+  const students = useStudentRoster(classId, connection.host);
+  const { camerasByOwner } = useLessonNotebookCameras({ eventId, classId, enabled: connection.host });
+  const [archiving, setArchiving] = useState(false);
+  const [archiveNotice, setArchiveNotice] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState(false);
+  const archiveBoards = async (): Promise<void> => {
+    if (archiving) return;
+    if (!eventId) {
+      setArchiveError(true);
+      setArchiveNotice('Нельзя сохранить: доска не связана с календарным уроком.');
+      return;
+    }
+    setArchiving(true);
+    setArchiveError(false);
+    setArchiveNotice('Подготавливаем документы досок…');
+    try {
+      const documents = await onlineClassesApi.listAnnotationDocuments(classId);
+      // A student can leave the call before the teacher saves the boards.
+      const boardNames = new Map<string, string>([[SHARED_BOARD_ID, 'Общая доска']]);
+      for (const student of students) boardNames.set(personalBoardId(student.userId), student.displayName);
+      for (const document of documents) {
+        if (document.targetType === 'WHITEBOARD' && /^personal-[0-9a-fA-F-]{36}$/.test(document.targetId)) {
+          if (!boardNames.has(document.targetId)) boardNames.set(document.targetId, 'Личная доска ученика');
+        }
+      }
+      const boards = Array.from(boardNames, ([id, name]) => ({ id, name }));
+      const saved: Array<{ id: string; boardId: string; classId: string; name: string }> = [];
+      const failures: string[] = [];
+      for (const [index, item] of boards.entries()) {
+        setArchiveNotice(`Сохраняем ${item.name} (${index + 1}/${boards.length})…`);
+        try {
+          const count = Math.max(1, boardDocument?.pageCount ?? 1, ...documents
+            .filter(document => document.targetType === 'WHITEBOARD' && document.targetId === item.id)
+            .map(document => document.pageIndex + 1));
+          const pdf = await exportBoardPdf({
+            classId, targetType: 'WHITEBOARD', targetId: item.id, pageCount: count, pdfDocument: boardDocument,
+          });
+          if (pdf.size < 5 || pdf.size > 25 * 1024 * 1024) throw new Error('PDF пустой или больше 25 МБ');
+          const result = await completedLessonApi.save(eventId, classId, item.id, pdf);
+          if (!result?.id || result.classId !== classId || result.boardId !== item.id) {
+            throw new Error('Сервер не подтвердил запись PDF');
+          }
+          saved.push({ id: result.id, classId, boardId: item.id, name: item.name });
+        } catch (error) {
+          failures.push(`${item.name}: ${error instanceof Error ? error.message : 'ошибка загрузки'}`);
+        }
+      }
+      setArchiveNotice('Проверяем сохранённые PDF на сервере…');
+      const verified = await completedLessonApi.list(eventId);
+      const confirmed = saved.filter(item => verified.some(doc =>
+        doc.id === item.id && doc.classId === item.classId && doc.boardId === item.boardId));
+      const unconfirmed = saved.filter(item => !confirmed.includes(item));
+      failures.push(...unconfirmed.map(item => `${item.name}: нет подтверждения на сервере`));
+      if (failures.length) {
+        setArchiveError(true);
+        setArchiveNotice(`Подтверждено ${confirmed.length} из ${boards.length} PDF. Ошибки: ${failures.join('; ')}. Можно повторить без удаления других файлов.`);
+      } else {
+        setArchiveNotice(`Готово: все ${confirmed.length} PDF сохранены и проверены. Они доступны в разделе «Пройденный урок».`);
+      }
+    } catch (error) {
+      setArchiveError(true);
+      setArchiveNotice(`Не удалось подтвердить сохранение: ${error instanceof Error ? error.message : 'ошибка сервера'}. Попробуйте снова, оставаясь в уроке.`);
+    } finally {
+      setArchiving(false);
+    }
+  };
+  const [activeBoard, setActiveBoard] = useState(SHARED_BOARD_ID);
+  useEffect(() => {
+    if (!ownNotebook) return;
+    setCameraBoardScope(notebookScope);
+    const key = `${notebookScope}:${ownNotebook.cameraId}`;
+    if (autoSelectedCamera.current === key) return;
+    autoSelectedCamera.current = key;
+    setActiveBoard(personalBoardId(currentUserId));
+    setMainView('board');
+  }, [ownNotebook, notebookScope, currentUserId]);
+  const [studentPages, setStudentPages] = useState<Record<string, number>>({});
+  useClassEvents(classId, VIEW_TOPIC, ({ event, senderIdentity }) => {
+    if (!connection.host || event.type !== 'view' || !event.boardId.startsWith('personal-')) return;
+    // A student may announce only their own page; never trust an arbitrary data packet.
+    if (event.boardId !== personalBoardId(senderIdentity?.split('|')[0] ?? '')) return;
+    setStudentPages((current) => current[event.boardId] === event.page ? current : { ...current, [event.boardId]: event.page });
+  });
+  // Only the shared board and the one in view are mounted: the shared board
+  // keeps its page, zoom and tool while a personal board is open, and a teacher
+  // walking through a whole group does not pile up one canvas per student
+  // (their marks live on the server, so reopening one loses nothing).
+  const showingAllStudents = connection.host && activeBoard === ALL_STUDENT_BOARDS_ID;
+  const boardsToShow = connection.host || activeBoard === SHARED_BOARD_ID ? [SHARED_BOARD_ID] : [SHARED_BOARD_ID, activeBoard];
+
+  // A new screen share takes the main area; the user can switch back to the
+  // board at any time, and the board keeps its marks while it is not shown.
+  useEffect(() => {
+    if (sharing && !wasSharing.current) setMainView('screen');
+    if (!sharing) setMainView(view => view === 'screen' ? 'board' : view);
+    wasSharing.current = sharing;
+  }, [sharing]);
+
+  const showScreen = sharing && mainView === 'screen';
+  const showStudentWorkspaces = connection.host && activeBoard !== SHARED_BOARD_ID && !showScreen;
+  const selectBoard = (boardId: string) => {
+    setActiveBoard(boardId);
+    setMainView('board');
+    if (connection.host && boardId !== SHARED_BOARD_ID && window.matchMedia?.('(max-width: 900px)').matches) setVideosOpen(false);
+  };
+
+  const fileAction = connection.host ? <button type="button" role="menuitem" tabIndex={-1} className="board-toolbar__action"
+    disabled={materialBusy} onClick={() => materialInput.current?.click()}>
+    <BoardToolbarIcon name="file" />{materialBusy ? 'Загрузка…' : language === 'DE' ? 'Dokument hinzufügen' : 'Добавить документ'}
+  </button> : undefined;
+
+  return (
+    <>
+      <div ref={topbarRef} className="online-class-room__topbar">
+        <div className="online-class-room__lesson-island">
+          <strong>{lessonTitle || t('onlineClass.title')}</strong>
+          <ConnectionStatus />
+        </div>
+        <div className="online-class-room__lesson-actions">
+        {materialError && <span role="alert" style={{ color: '#dc2626' }}>{materialError}</span>}
+        {archiveNotice && <span role={archiveError ? 'alert' : 'status'} style={{fontSize:12,color:archiveError?'#dc2626':undefined}}>{archiveNotice}</span>}
+        <RecordingControls
+          classId={classId}
+          isHost={connection.host}
+          recordingState={recordingState}
+          available={recordingAvailable}
+          onChanged={onStateChanged}
+        />
+        {transcriptionAutoError && <span role="alert" className="transcription__unavailable">Не удалось автоматически запустить транскрипцию. Запустите её вручную.</span>}
+        <TranscriptionControls
+          classId={classId}
+          isHost={connection.host}
+          transcriptionState={transcriptionState}
+          available={transcriptionAvailable}
+          onChanged={onStateChanged}
+        />
+        </div>
+        <div className="online-class-room__board-controls">
+        <button type="button" className="online-class-room__videos-toggle" aria-expanded={videosOpen} aria-controls="online-class-videos" onClick={() => setVideosOpen((open) => !open)} title={videosOpen ? 'Скрыть видео участников' : 'Показать видео участников'}>
+          {videosOpen ? 'Видео ›' : '‹ Видео'}
+        </button>
+        <BoardSwitcher
+          isHost={connection.host}
+          currentUserId={currentUserId}
+          students={students}
+          activeId={activeBoard}
+          onChange={selectBoard}
+        />
+        </div>
+      </div>
+      {connection.host && <input ref={materialInput} type="file" multiple accept=".pdf,application/pdf,image/png,image/jpeg,image/webp"
+        disabled={materialBusy} hidden
+        onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void uploadMaterial(files); event.target.value = ''; }} />}
+
+      <div className={`online-class-room__stage${videosOpen ? " online-class-room__stage--videos-open" : ""}${showStudentWorkspaces ? ' online-class-room__stage--student-workspaces' : ''}`}>
+          {/* Teacher-only answer PDF has its own column. It must not cover the shared
+              canvas: the sibling board reflows to the remaining available width. */}
+          {connection.host && answers.open && (
+            <AnswersPanel
+              pdf={answers.pdf}
+              view={answers.view}
+              getView={answers.getView}
+              onViewChange={answers.setView}
+              onScroll={answers.rememberScroll}
+              onClose={answers.close}
+              onUpload={answers.upload}
+              uploading={answers.uploading}
+              uploadError={answers.uploadError}
+            />
+          )}
+        <div className="online-class-room__main">
+          {/* The board stays mounted while a screen is shown, so switching back
+              returns to the same page, zoom, tool and marks. */}
+          {boardsToShow.map((boardId) => {
+            const visible = boardId === activeBoard && !showScreen && !(ownNotebook && boardId === personalBoardId(currentUserId));
+            return (
+              <div key={boardId} className="online-class-room__board" hidden={!visible}>
+                <Suspense fallback={null}>
+                  <WhiteboardPanel
+                    classId={classId}
+                    actorId={currentUserId}
+                    isHost={connection.host}
+                    targetId={boardId}
+                    // Everyone in the class may draw, on the shared board and on their own.
+                    canAnnotate
+                    document={boardDocument}
+                    fileAction={visible ? fileAction : undefined}
+                    active={visible}
+                    observedPage={studentPages[boardId]}
+                    onSaveLessonDocuments={connection.host ? archiveBoards : undefined}
+                    savingLessonDocuments={archiving}
+                    lessonDocumentsStatus={archiveNotice}
+                    lessonDocumentsError={archiveError}
+                    // Answers belong to whichever board the teacher is looking at.
+                    hostActions={
+                      connection.host && visible ? (
+                        <AnswersButton compact status={answers.status} open={answers.open} onToggle={answers.toggle} />
+                      ) : undefined
+                    }
+                  />
+                </Suspense>
+              </div>
+            );
+          })}
+          {!connection.host && cameraBoardScope === notebookScope && <div className="online-class-room__board online-class-room__own-notebook"
+            hidden={!ownNotebook || activeBoard !== personalBoardId(currentUserId) || showScreen}>
+            <Suspense fallback={null}>
+              <WhiteboardPanel key={notebookScope} classId={classId} actorId={currentUserId} isHost={false}
+                targetType="NOTEBOOK_CAMERA" targetId={personalBoardId(currentUserId)} canAnnotate
+                active={Boolean(ownNotebook) && activeBoard === personalBoardId(currentUserId) && !showScreen}
+                liveBackground={ownNotebook ? { source: ownNotebook.source.rawVideo, width: ownNotebook.source.rawWidth, height: ownNotebook.source.rawHeight,
+                  notebookView: { view: ownNotebook.source.view, rawWidth: ownNotebook.source.rawWidth, rawHeight: ownNotebook.source.rawHeight, renderer: ownNotebook.source.renderer } } : null} />
+            </Suspense>
+          </div>}
+          {connection.host && <StudentWorkspaces
+            key={classId}
+            students={students}
+            camerasByOwner={camerasByOwner}
+            activeBoard={activeBoard}
+            overview={showingAllStudents}
+            visible={showStudentWorkspaces}
+            onSelect={selectBoard}
+            onOverview={() => selectBoard(ALL_STUDENT_BOARDS_ID)}
+            renderBoard={(studentId, active, compact, following) => <Suspense fallback={null}>
+              <WhiteboardPanel
+                classId={classId}
+                actorId={currentUserId}
+                isHost
+                targetId={personalBoardId(studentId)}
+                compactPreview={compact}
+                followStudent={following}
+                observedPage={studentPages[personalBoardId(studentId)]}
+                canAnnotate={!compact}
+                active={active}
+                document={boardDocument}
+                fileAction={active && !compact ? fileAction : undefined}
+                onSaveLessonDocuments={!compact ? archiveBoards : undefined}
+                savingLessonDocuments={archiving}
+                lessonDocumentsStatus={archiveNotice}
+                lessonDocumentsError={archiveError}
+                hostActions={active && !compact ? <AnswersButton compact status={answers.status} open={answers.open} onToggle={answers.toggle} /> : undefined}
+              />
+            </Suspense>}
+            renderCameraBoard={(studentId, active, compact, source, following) => <Suspense fallback={null}>
+              <WhiteboardPanel
+                classId={classId}
+                actorId={currentUserId}
+                isHost
+                targetType="NOTEBOOK_CAMERA"
+                targetId={personalBoardId(studentId)}
+                compactPreview={compact}
+                followStudent={following}
+                canAnnotate={!compact}
+                active={active}
+                fileAction={active && !compact ? fileAction : undefined}
+                liveBackground={source ? { source: source.rawVideo, width: source.rawWidth, height: source.rawHeight,
+                  notebookView: { view: source.view, rawWidth: source.rawWidth, rawHeight: source.rawHeight, renderer: source.renderer } } : null}
+                hostActions={active && !compact ? <AnswersButton compact status={answers.status} open={answers.open} onToggle={answers.toggle} /> : undefined}
+              />
+            </Suspense>}
+          />}
+          {showScreen && (
+            <div className="online-class-room__screen">
+              <ScreenShareView />
+            </div>
+          )}
+
+          {/* One owner connection supplies the ordinary board and the settings
+              preview. Closing settings preserves its stream and calibration. */}
+          {eventId && !connection.host && <aside
+            id="classroom-notebook"
+            className="online-class-room__notebook-settings"
+            aria-label={language === 'DE' ? 'Hefteinstellungen' : 'Настройки тетради'}
+            hidden={!notebookSettingsOpen}
+            ref={element => element?.toggleAttribute('inert', !notebookSettingsOpen)}
+          >
+            <div className="online-class-room__notebook-settings-heading">
+              <strong>{language === 'DE' ? 'Hefteinstellungen' : 'Настройки тетради'}</strong>
+              <button type="button" onClick={closeNotebookSettings}
+                aria-label={language === 'DE' ? 'Hefteinstellungen schließen' : 'Закрыть настройки тетради'}>
+                {language === 'DE' ? 'Schließen' : 'Закрыть'}
+              </button>
+            </div>
+            <NotebookCameraPanel
+              key={`${eventId}:${classId}`}
+              eventId={eventId}
+              classId={classId}
+              currentUserId={currentUserId}
+              isTeacher={connection.host}
+              students={connection.host ? students : undefined}
+              autoPair={!connection.host}
+              presentation="lesson"
+              settingsOpen={notebookSettingsOpen}
+              onBoardVideoChange={receiveNotebookVideo}
+              onClose={closeNotebookSettings}
+              closeLabel={language === 'DE' ? 'Schließen' : 'Закрыть настройки'}
+            />
+          </aside>}
+
+          {/* Kept mounted (just hidden) so chat history, the roster and the
+              waiting-room poll are not reset by closing the drawer. */}
+          <aside
+            id="online-class-drawer"
+            className="online-class-room__drawer"
+            hidden={!panelsOpen}
+            aria-label={t('onlineClass.room.panels')}
+          >
+            {/* The waiting room is host-only; the server rejects it for students
+                regardless of what is rendered here. */}
+            {connection.host && <WaitingRoomPanel classId={classId} onPendingChange={setWaiting} />}
+            <ParticipantListPanel classId={classId} isHost={connection.host} />
+            <ChatPanel classId={classId} currentUserId={currentUserId} isHost={connection.host} />
+          </aside>
+        </div>
+
+        <div id="online-class-videos" className={`online-class-room__videos-drawer${videosOpen ? ' is-open' : ''}`} aria-hidden={!videosOpen} ref={(element) => { element?.toggleAttribute('inert', !videosOpen); }}>
+          <CameraColumn hostUserId={hostUserId} localIsHost={connection.host} />
+        </div>
+      </div>
+
+      <CaptionsPanel enabled={transcriptionState === 'ACTIVE'} />
+      <RoomAudioRenderer />
+      <ConnectionStateToast />
+
+      <div ref={controlsRef} className="online-class-room__controls">
+        <div className="online-class-room__control-island">
+        {/* Leave is handled by our own button. LiveKit's built-in Leave
+            would look like an unexpected network disconnect here. */}
+        <ControlBar controls={{ leave: false }} />
+        <button
+          type="button"
+          aria-pressed={panelsOpen}
+          aria-controls="online-class-drawer"
+          onClick={() => { setPanelsOpen((open) => !open); setNotebookSettingsOpen(false); }}
+        >
+          {t('onlineClass.room.panels')}
+          {waiting > 0 && <span className="online-class-room__badge"> ({waiting})</span>}
+        </button>
+        {eventId && !connection.host && <button ref={notebookTrigger} type="button"
+          className="online-class-room__notebook-settings-toggle"
+          aria-pressed={notebookSettingsOpen} aria-expanded={notebookSettingsOpen} aria-controls="classroom-notebook"
+          onClick={() => {
+            if (notebookSettingsOpen) { closeNotebookSettings(); return; }
+            setNotebookSettingsOpen(true); setPanelsOpen(false);
+            if (window.matchMedia?.('(max-width: 900px)').matches) setVideosOpen(false);
+          }}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 3 1-1h4l1 3 3 1 3-1 2 4-2 2v3l2 2-2 4-3-1-3 1-1 3h-4l-1-3-3-1-3 1-2-4 2-2v-3L1 9l2-4 3 1 3-1z" /><circle cx="12" cy="12" r="3" />
+          </svg>
+          {language === 'DE' ? 'Hefteinstellungen' : 'Настройки тетради'}
+        </button>}
+        {sharing && (
+          <button type="button" onClick={() => setMainView(showScreen ? 'board' : 'screen')}>
+            {t(showScreen ? 'onlineClass.room.showBoard' : 'onlineClass.room.showScreen')}
+          </button>
+        )}
+        </div>
+        <div className="online-class-room__control-island online-class-room__control-island--exit">
+        <button type="button" className="online-class-room__leave" onClick={onLeave}>
+          {t('onlineClass.leave')}
+        </button>
+        {onEndForAll && (
+          <button
+            type="button"
+            className="online-class-room__end"
+            onClick={() => {
+              if (window.confirm(t('onlineClass.endConfirm'))) {
+                onEndForAll();
+              }
+            }}
+          >
+            {t('onlineClass.end')}
+          </button>
+        )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Room shell. Built on the official LiveKit React components rather than a
+ * hand-rolled WebRTC layer; MC-School owns the surrounding authorization,
+ * localization and chrome.
+ */
+export function OnlineClassRoom({
+  classId,
+  lessonTitle,
+  currentUserId,
+  eventId,
+  connection,
+  initialMedia,
+  recordingState,
+  transcriptionState,
+  recordingAvailable = false,
+  transcriptionAvailable = false,
+  onLeave,
+  onConnectionLost,
+  onMediaError,
+  onEndForAll,
+  onStateChanged,
+}: {
+  classId: string;
+  lessonTitle?: string;
+  currentUserId: string;
+  /** Calendar event of the lesson; used to find the teacher's bound answers file. */
+  eventId?: string;
+  connection: OnlineClassConnection;
+  initialMedia?: import('./PrejoinPanel').PrejoinChoice;
+  recordingState: ClassFeatureState;
+  transcriptionState: ClassFeatureState;
+  /** Whether students may currently share their screen (teacher-controlled). */
+  studentScreenShareEnabled?: boolean;
+  /** What this server can do; the teacher is not offered buttons that cannot work. */
+  recordingAvailable?: boolean;
+  transcriptionAvailable?: boolean;
+  onLeave: () => void;
+  /** An involuntary LiveKit disconnect is not the user's Leave action. */
+  onConnectionLost: (reason?: string, everConnected?: boolean) => void;
+  onMediaError?: (category: LiveKitErrorCategory) => void;
+  onEndForAll?: () => void;
+  onStateChanged?: () => void;
+}) {
+  const connectedSinceMount = useRef(false);
+  return (
+    <LiveKitRoom
+      serverUrl={connection.serverUrl}
+      token={connection.token}
+      connect
+      video={initialMedia?.cameraEnabled
+        ? { deviceId: initialMedia.videoDeviceId ?? undefined }
+        : false}
+      audio={initialMedia?.microphoneEnabled
+        ? { deviceId: initialMedia.audioDeviceId ?? undefined }
+        : false}
+      // Adaptive streaming and dynacast keep classroom video stable on weak
+      // school networks instead of chasing maximum resolution.
+      options={{ adaptiveStream: true, dynacast: true }}
+      onConnected={() => {
+        connectedSinceMount.current = true;
+      }}
+      onError={(error) => {
+        // Send a category only, never the provider's raw potentially sensitive
+        // error message, token or room URL to the page.
+        onMediaError?.(categorizeLiveKitError(error));
+      }}
+      onDisconnected={(reason) => {
+        // Code 0 means UNKNOWN, not a confirmed network or permission error.
+        // Track whether LiveKit ever reached connected state for diagnosis.
+        onConnectionLost(reason == null ? undefined : String(reason), connectedSinceMount.current);
+      }}
+      data-lk-theme="default"
+      className="online-class-room online-class-room--original-v3"
+    >
+      <RoomBody
+        classId={classId}
+        lessonTitle={lessonTitle}
+        currentUserId={currentUserId}
+        eventId={eventId}
+        connection={connection}
+        recordingState={recordingState}
+        transcriptionState={transcriptionState}
+        recordingAvailable={recordingAvailable}
+        transcriptionAvailable={transcriptionAvailable}
+        onLeave={onLeave}
+        onEndForAll={onEndForAll}
+        onStateChanged={onStateChanged}
+      />
+    </LiveKitRoom>
+  );
+}

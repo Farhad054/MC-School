@@ -3,7 +3,9 @@ package com.mcschool.flashcard.study;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.mcschool.flashcard.cards.Card;
+import com.mcschool.flashcard.homeworks.Homework;
 import com.mcschool.flashcard.users.User;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +16,23 @@ class DistractorGeneratorTest {
     private final User teacher = User.bootstrapAdmin("T", "t@test.local", "hash");
 
     private Card card(String answer) {
-        return Card.create(student, teacher, "What is it?", answer);
+        return Card.create(Homework.create(student, LocalDate.now()), teacher, "What is it?", answer);
+    }
+
+    private Card importedCard() {
+        return Card.createImported(Homework.create(student, LocalDate.now()), teacher,
+                "What is it?", "correct", "saved wrong 1", "saved wrong 2", "saved wrong 3");
+    }
+
+    @Test
+    void usesSavedWrongAnswersWhenPresent() {
+        Card target = importedCard();
+        List<Card> all = List.of(target, card("answer from another card"), card("another outside answer"));
+
+        List<String> options = generator.buildOptions(target, all);
+
+        assertThat(options).containsExactlyInAnyOrder("correct", "saved wrong 1", "saved wrong 2", "saved wrong 3");
+        assertThat(options).doesNotContain("answer from another card", "another outside answer");
     }
 
     @Test

@@ -1,4 +1,9 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Suspense, lazy } from 'react';
+import { AdminStoryTemplatesPage } from './pages/admin/AdminStoryTemplatesPage';
+import { LearningTimeAdminPage } from './pages/admin/LearningTimeAdminPage';
+import { LearningTimeStudentPage } from './pages/admin/LearningTimeStudentPage';
+import { SkillsPage } from './pages/SkillsPage';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { homePathForRole } from './auth/roleRoutes';
@@ -6,109 +11,126 @@ import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { ActivatePage } from './pages/ActivatePage';
 import { TeachersPage } from './pages/admin/TeachersPage';
+import { AdminTeacherLessonsPage } from './pages/admin/AdminTeacherLessonsPage';
+import { AdminLessonDetailWithHomeworkSeries } from './pages/admin/AdminLessonDetailWithHomeworkSeries';
+import { TrialLeadsPage } from './pages/admin/TrialLeadsPage';
+import { AdminTrialLessonsPage } from './pages/admin/AdminTrialLessonsPage';
+import { SiteVisitsPage } from './pages/admin/SiteVisitsPage';
+import { AdminPromptSettingsPage } from './pages/admin/AdminPromptSettingsPage';
+import { AdminAccountsPage } from './pages/admin/AdminAccountsPage';
 import { StudentsPage } from './pages/teacher/StudentsPage';
+import { TeacherParentsPage } from './pages/teacher/TeacherParentsPage';
+import { StudentProfilePage } from './pages/teacher/StudentProfilePage';
 import { StudentDetailPage } from './pages/teacher/StudentDetailPage';
+import { StudentHomeworksPage } from './pages/teacher/StudentHomeworksPage';
+import { StudentLessonsPage } from './pages/teacher/StudentLessonsPage';
+import { StudentLessonHistoryDetailPage } from './pages/teacher/StudentLessonHistoryDetailPage';
+import { StudentDrivePage } from './pages/teacher/StudentDrivePage';
+import { HomeworkDetailPage } from './pages/teacher/HomeworkDetailPage';
+import { TeacherCardsDetailPage } from './pages/teacher/TeacherCardsDetailPage';
+import { GroupsPage } from './pages/teacher/GroupsPage';
+import { GroupDetailWithHomeworkLinks } from './pages/teacher/GroupDetailWithHomeworkLinks';
+import { GroupHomeworkDetailPage } from './pages/teacher/GroupHomeworkDetailPage';
+import { GroupCardsDetailPage } from './pages/teacher/GroupCardsDetailPage';
+import { GroupLessonsWithDetailLinks } from './pages/teacher/GroupLessonsWithDetailLinks';
+import { GroupLessonHistoryPage } from './pages/teacher/GroupLessonHistoryPage';
+import { LessonDetailWithHomeworkSeries } from './pages/teacher/LessonDetailWithHomeworkSeries';
+import { MonthlyPlanPage } from './pages/teacher/MonthlyPlanPage';
 import { TodayPage } from './pages/student/TodayPage';
 import { SessionPage } from './pages/student/SessionPage';
 import { ResultPage } from './pages/student/ResultPage';
 import { MyCardsPage } from './pages/student/MyCardsPage';
+import { StudentCardsDetailPage } from './pages/student/StudentCardsDetailPage';
+import { StudentHomeworksListPage } from './pages/student/StudentHomeworksListPage';
+import { StudentLessonsCalendarPage } from './pages/student/StudentLessonsCalendarPage';
+import { StudentHomeworkDetailPage } from './pages/student/StudentHomeworkDetailPage';
+import { PdfHomeworkWithSubmissionPage } from './pages/student/PdfHomeworkWithSubmissionPage';
 import { SettingsPage } from './pages/student/SettingsPage';
+import { ParentPage } from './pages/parent/ParentPage';
 
-/** Top-level routes. Public: login and activation. Everything else is role-guarded. */
+// Online-class pages pull in the LiveKit SDK (~700 kB). They are lazy-loaded so
+// the flashcard flows — especially on student mobile — do not pay for it.
+const UpcomingOnlineClassesPage = lazy(() =>
+  import('./pages/online-classes/UpcomingOnlineClassesPage').then((m) => ({
+    default: m.UpcomingOnlineClassesPage,
+  })),
+);
+const OnlineClassPage = lazy(() =>
+  import('./pages/online-classes/OnlineClassPage').then((m) => ({ default: m.OnlineClassPage })),
+);
+const LessonBoardPage = lazy(() => import('./pages/lesson-board/LessonBoardPage').then((m) => ({ default: m.LessonBoardPage })));
+const PhoneCameraPage = lazy(() => import('./features/notebook-camera/PhoneCameraPage').then(m => ({ default: m.PhoneCameraPage })));
+const NotebookCameraPage = lazy(() => import('./features/notebook-camera/NotebookCameraPage').then(m => ({ default: m.NotebookCameraPage })));
+
 export function App() {
   const { user, initializing } = useAuth();
-
-  if (initializing) {
-    return null;
-  }
+  const location = useLocation();
+  if (initializing && !location.pathname.startsWith('/phone-camera')) return null;
 
   return (
     <Routes>
+      <Route path="/skills" element={<ProtectedRoute><Layout><SkillsPage /></Layout></ProtectedRoute>} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/activate" element={<ActivatePage />} />
+      <Route path="/phone-camera/:cameraId?" element={<Suspense fallback={<p>Открываем камеру…</p>}><PhoneCameraPage /></Suspense>} />
+      <Route path="/lesson-notebook/:eventId" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Layout><Suspense fallback={<p>Открываем тетрадь…</p>}><NotebookCameraPage /></Suspense></Layout></ProtectedRoute>} />
 
-      <Route
-        path="/teachers"
-        element={
-          <ProtectedRoute role="ADMIN">
-            <Layout>
-              <TeachersPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/teachers" element={<ProtectedRoute role="ADMIN"><Layout><TeachersPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/learning-time" element={<ProtectedRoute role="ADMIN"><Layout><LearningTimeAdminPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/learning-time/:studentId" element={<ProtectedRoute role="ADMIN"><Layout><LearningTimeStudentPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/accounts" element={<ProtectedRoute role="ADMIN"><Layout><AdminAccountsPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/lessons" element={<ProtectedRoute role="ADMIN"><Layout><AdminTeacherLessonsPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/trial-lessons" element={<ProtectedRoute role="ADMIN"><Layout><AdminTrialLessonsPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/leads" element={<ProtectedRoute role="ADMIN"><Layout><TrialLeadsPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/site-visits" element={<ProtectedRoute role="ADMIN"><Layout><SiteVisitsPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/settings" element={<ProtectedRoute role="ADMIN"><Layout><SettingsPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/stories" element={<ProtectedRoute role="ADMIN"><Layout><AdminStoryTemplatesPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/prompts" element={<ProtectedRoute role="ADMIN"><Layout><AdminPromptSettingsPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/teachers/:teacherId/lessons/:eventId" element={<ProtectedRoute role="ADMIN"><Layout><AdminLessonDetailWithHomeworkSeries /></Layout></ProtectedRoute>} />
 
-      <Route
-        path="/students"
-        element={
-          <ProtectedRoute role="TEACHER">
-            <Layout>
-              <StudentsPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/students/:studentId"
-        element={
-          <ProtectedRoute role="TEACHER">
-            <Layout>
-              <StudentDetailPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/students" element={<ProtectedRoute role="TEACHER"><Layout><StudentsPage /></Layout></ProtectedRoute>} />
+      <Route path="/parents" element={<ProtectedRoute role="TEACHER"><Layout><TeacherParentsPage /></Layout></ProtectedRoute>} />
+      <Route path="/students/:studentId" element={<ProtectedRoute role="TEACHER"><Layout><StudentProfilePage /></Layout></ProtectedRoute>}>
+        <Route path="cards" element={<StudentDetailPage />} />
+        <Route path="homeworks" element={<StudentHomeworksPage />} />
+        <Route path="lessons" element={<StudentLessonsPage />} />
+        <Route path="drive" element={<StudentDrivePage />} />
+        <Route path="month-plan" element={<MonthlyPlanPage targetType="STUDENT" />} />
+      </Route>
+      <Route path="/teacher/students/:studentId/cards/:homeworkId" element={<ProtectedRoute role="TEACHER"><Layout><TeacherCardsDetailPage /></Layout></ProtectedRoute>} />
+      <Route path="/teacher/students/:studentId/homeworks/:homeworkId" element={<ProtectedRoute role="TEACHER"><Layout><HomeworkDetailPage /></Layout></ProtectedRoute>} />
+      <Route path="/teacher/students/:studentId/lesson-history/:sourceTeacherId/:eventId" element={<ProtectedRoute role="TEACHER"><Layout><StudentLessonHistoryDetailPage /></Layout></ProtectedRoute>} />
+      <Route path="/groups" element={<ProtectedRoute role="TEACHER"><Layout><GroupsPage /></Layout></ProtectedRoute>} />
+      <Route path="/groups/:groupId" element={<ProtectedRoute role="TEACHER"><Layout><GroupDetailWithHomeworkLinks /></Layout></ProtectedRoute>} />
+      <Route path="/groups/:groupId/month-plan" element={<ProtectedRoute role="TEACHER"><Layout><MonthlyPlanPage targetType="GROUP" /></Layout></ProtectedRoute>} />
+      <Route path="/groups/:groupId/lessons" element={<ProtectedRoute role="TEACHER"><Layout><GroupLessonHistoryPage /></Layout></ProtectedRoute>} />
+      <Route path="/groups/:groupId/homeworks/:homeworkId" element={<ProtectedRoute role="TEACHER"><Layout><GroupHomeworkDetailPage /></Layout></ProtectedRoute>} />
+      <Route path="/groups/:groupId/cards/:startDate" element={<ProtectedRoute role="TEACHER"><Layout><GroupCardsDetailPage /></Layout></ProtectedRoute>} />
+      <Route path="/teacher/lessons" element={<ProtectedRoute role="TEACHER"><Layout><GroupLessonsWithDetailLinks /></Layout></ProtectedRoute>} />
+      <Route path="/teacher/lessons/:eventId" element={<ProtectedRoute role="TEACHER"><Layout><LessonDetailWithHomeworkSeries /></Layout></ProtectedRoute>} />
+      <Route path="/teacher/online-classes" element={<ProtectedRoute role="TEACHER"><Layout><Suspense fallback={<p>Загрузка уроков…</p>}><UpcomingOnlineClassesPage /></Suspense></Layout></ProtectedRoute>} />
+      <Route path="/lesson-board/:eventId" element={<ProtectedRoute><Layout><Suspense fallback={<p>Открываем доску…</p>}><LessonBoardPage /></Suspense></Layout></ProtectedRoute>} />
+      <Route path="/teacher/settings" element={<ProtectedRoute role="TEACHER"><Layout><SettingsPage /></Layout></ProtectedRoute>} />
 
-      <Route
-        path="/today"
-        element={
-          <ProtectedRoute role="STUDENT">
-            <Layout>
-              <TodayPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/session/:sessionId"
-        element={
-          <ProtectedRoute role="STUDENT">
-            <Layout>
-              <SessionPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/session/:sessionId/result"
-        element={
-          <ProtectedRoute role="STUDENT">
-            <Layout>
-              <ResultPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/my-cards"
-        element={
-          <ProtectedRoute role="STUDENT">
-            <Layout>
-              <MyCardsPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/settings"
-        element={
-          <ProtectedRoute role="STUDENT">
-            <Layout>
-              <SettingsPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/today" element={<ProtectedRoute role="STUDENT"><Layout><TodayPage /></Layout></ProtectedRoute>} />
+      <Route path="/session/:sessionId" element={<ProtectedRoute role="STUDENT"><Layout><SessionPage /></Layout></ProtectedRoute>} />
+      <Route path="/session/:sessionId/result" element={<ProtectedRoute role="STUDENT"><Layout><ResultPage /></Layout></ProtectedRoute>} />
+      <Route path="/my-cards" element={<ProtectedRoute role="STUDENT"><Layout><MyCardsPage /></Layout></ProtectedRoute>} />
+      <Route path="/my-cards/:homeworkId" element={<ProtectedRoute role="STUDENT"><Layout><StudentCardsDetailPage /></Layout></ProtectedRoute>} />
+      <Route path="/homeworks" element={<Navigate to="/student/homeworks" replace />} />
+      <Route path="/student/lessons" element={<ProtectedRoute role="STUDENT"><Layout><StudentLessonsCalendarPage /></Layout></ProtectedRoute>} />
+      <Route path="/student/homeworks" element={<ProtectedRoute role="STUDENT"><Layout><StudentHomeworksListPage /></Layout></ProtectedRoute>} />
+      <Route path="/student/homeworks/:homeworkId" element={<ProtectedRoute role="STUDENT"><Layout><StudentHomeworkDetailPage /></Layout></ProtectedRoute>} />
+      <Route path="/student/homeworks/:homeworkId/worksheet" element={<ProtectedRoute role="STUDENT"><Layout><PdfHomeworkWithSubmissionPage /></Layout></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute role="STUDENT"><Layout><SettingsPage /></Layout></ProtectedRoute>} />
+
+      {/* Online classes: teachers and students share these routes; the
+          backend decides who may see or join each class. */}
+      <Route path="/online-classes" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Layout><Suspense fallback={null}><UpcomingOnlineClassesPage /></Suspense></Layout></ProtectedRoute>} />
+      <Route path="/online-classes/:classId" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Suspense fallback={<p>Подключаем онлайн-урок…</p>}><OnlineClassPage /></Suspense></ProtectedRoute>} />
+
+      <Route path="/parent" element={<ProtectedRoute role="PARENT"><Layout><ParentPage /></Layout></ProtectedRoute>} />
+      <Route path="/parent/settings" element={<ProtectedRoute role="PARENT"><Layout><SettingsPage /></Layout></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to={user ? homePathForRole(user.role) : '/login'} replace />} />
     </Routes>

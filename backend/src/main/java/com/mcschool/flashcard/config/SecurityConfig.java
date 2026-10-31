@@ -1,10 +1,12 @@
 package com.mcschool.flashcard.config;
 
 import com.mcschool.flashcard.auth.JwtAuthenticationFilter;
+import com.mcschool.flashcard.auth.OnlineClassPilotAuthorizationManager;
 import com.mcschool.flashcard.common.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,12 +26,6 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Stateless API security: every request is authenticated by the JWT filter,
- * there is no HTTP session. Only login, invitation activation and the health
- * check are public; role rules for the individual endpoints live on the
- * controllers as {@code @PreAuthorize}.
- */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -37,30 +33,77 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ObjectMapper objectMapper;
+    private final OnlineClassPilotAuthorizationManager onlineClassPilotAuthorizationManager;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, ObjectMapper objectMapper) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, ObjectMapper objectMapper,
+                          OnlineClassPilotAuthorizationManager onlineClassPilotAuthorizationManager) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.objectMapper = objectMapper;
+        this.onlineClassPilotAuthorizationManager = onlineClassPilotAuthorizationManager;
     }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
-                // CSRF protection targets cookie/session auth; this API is
-                // stateless and authenticates via the Authorization header.
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> {})
-                // Hardened response headers. This is a JSON API that references no
-                // resources and must never be framed, so lock CSP down to nothing.
-                // X-Content-Type-Options: nosniff and X-Frame-Options: DENY are on by
-                // default; HSTS is added automatically on HTTPS requests.
                 .headers(headers -> headers
-                        .contentSecurityPolicy(csp ->
-                                csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
                         .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.NO_REFERRER)))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/activate").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/public/trial-leads", "/api/v1/public/site-visits").permitAll()
+                        // Only these two phone routes bypass account login. Each
+                        // validates a bounded hashed QR/session secret itself.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/public/notebook-cameras/*/claim",
+                                "/api/v1/public/notebook-cameras/*/connection").permitAll()
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/public/trial-leads/**", "/api/v1/public/site-visits/**").permitAll()
+                        // These two read-only routes validate expiry, file kind, revision and HMAC themselves.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/public/homework-files/*/submission.pdf",
+                                "/api/v1/public/homework-files/*/worksheet.pdf").permitAll()
+                        .requestMatchers(HttpMethod.HEAD,
+                                "/api/v1/public/homework-files/*/submission.pdf",
+                                "/api/v1/public/homework-files/*/worksheet.pdf").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/push/config").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/story-template/download").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/google-calendar/oauth/callback").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/google-meet/events").permitAll()
+                        // LiveKit webhook. Exempt from JWT because the provider
+                        // holds no user token — NOT unverified: the handler
+                        // validates the Authorization JWT against the API
+                        // key/secret and compares a SHA-256 of the raw body
+                        // before touching any state. Scoped to this exact path
+                        // and POST only; never widened to a wildcard.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/online-classes/webhooks/livekit").permitAll()
+                        // Transcript ingestion by the transcription worker.
+                        // Exempt from JWT because the worker acts for no user —
+                        // NOT unauthenticated: the handler requires a matching
+                        // internal shared secret (constant-time compared) and
+                        // rejects everything else with 401.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/internal/online-classes/*/transcript-segments").permitAll()
+                        .requestMatchers(
+                                "/.well-known/oauth-protected-resource",
+                                "/.well-known/oauth-protected-resource/**",
+                                "/.well-known/oauth-authorization-server",
+                                "/.well-known/oauth-authorization-server/**",
+                                "/.well-known/openid-configuration",
+                                "/.well-known/openid-configuration/**",
+                                "/api/v1/mcp/.well-known/oauth-authorization-server",
+                                "/api/v1/mcp/.well-known/openid-configuration").permitAll()
+                        .requestMatchers("/api/v1/integrations/**").permitAll()
+                        .requestMatchers("/api/v1/mcp/**").permitAll()
+                        // The online classroom API is governed by app.online-classes.enabled and
+                        // per-class membership checks in the service. Boards and notebook
+                        // cameras also require an active teacher or their active pupil.
+                        .requestMatchers("/api/v1/lesson-board/**")
+                                .access(onlineClassPilotAuthorizationManager)
+                        .requestMatchers("/api/v1/notebook-cameras/**")
+                                .access(onlineClassPilotAuthorizationManager)
                         .requestMatchers("/actuator/health/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
@@ -81,18 +124,73 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource(
-            @Value("${app.cors.allowed-origins}") String allowedOrigins) {
+            @Value("${app.cors.allowed-origins}") String allowedOrigins,
+            @Value("${PUBLIC_BASE_URL:${MINDCRAFTI_PUBLIC_BASE_URL:https://mindcrafti-school-production.up.railway.app}}") String publicBaseUrl,
+            @Value("${RAILWAY_PUBLIC_DOMAIN:}") String railwayPublicDomain) {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.stream(allowedOrigins.split(",")).map(String::trim).toList());
+        String railwayOrigin = normalizeOrigin(railwayPublicDomain);
+        List<String> origins = Stream.concat(
+                        Arrays.stream(allowedOrigins.split(",")),
+                        Stream.of(
+                                publicBaseUrl,
+                                railwayOrigin,
+                                "https://mindcrafti-school-production.up.railway.app",
+                                "https://mindcrafti.de",
+                                "https://www.mindcrafti.de"))
+                .map(String::trim)
+                .map(SecurityConfig::stripTrailingSlash)
+                .filter(origin -> !origin.isBlank())
+                .distinct()
+                .toList();
+        configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Mindcrafti-Api-Key", "MCP-Protocol-Version", "MCP-Session-Id"));
+
+        // Trial leads are intentionally public. Embedded browsers (notably social-media
+        // in-app browsers) may add their own request headers or expose a non-site Origin,
+        // which used to make Spring reject the CORS preflight before the POST reached us.
+        // Keep this permissive rule scoped to the public lead endpoint only; authenticated
+        // API routes continue to use the restricted origin/header configuration above.
+        CorsConfiguration publicTrialLeadConfiguration = new CorsConfiguration();
+        publicTrialLeadConfiguration.setAllowedOriginPatterns(List.of("*"));
+        publicTrialLeadConfiguration.setAllowedMethods(List.of("POST", "PATCH", "OPTIONS"));
+        publicTrialLeadConfiguration.setAllowedHeaders(List.of("*"));
+        publicTrialLeadConfiguration.setMaxAge(3600L);
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/v1/public/trial-leads", publicTrialLeadConfiguration);
+        source.registerCorsConfiguration("/api/v1/public/trial-leads/**", publicTrialLeadConfiguration);
+        source.registerCorsConfiguration("/api/v1/public/site-visits", publicTrialLeadConfiguration);
+        source.registerCorsConfiguration("/api/v1/public/site-visits/**", publicTrialLeadConfiguration);
         source.registerCorsConfiguration("/api/**", configuration);
-        return source;
+        source.registerCorsConfiguration("/.well-known/**", configuration);
+
+        return request -> {
+            if ("/api/v1/mcp/oauth/authorize".equals(request.getRequestURI())
+                    && "POST".equalsIgnoreCase(request.getMethod())) {
+                return null;
+            }
+            return source.getCorsConfiguration(request);
+        };
     }
 
-    private void writeError(HttpServletResponse response, int status, String code, String message,
-                            String path) throws java.io.IOException {
+    private static String normalizeOrigin(String value) {
+        if (value == null || value.isBlank()) return "";
+        String result = value.trim();
+        if (!result.startsWith("http://") && !result.startsWith("https://")) {
+            result = "https://" + result;
+        }
+        return stripTrailingSlash(result);
+    }
+
+    private static String stripTrailingSlash(String value) {
+        if (value == null) return "";
+        String result = value.trim();
+        while (result.endsWith("/")) result = result.substring(0, result.length() - 1);
+        return result;
+    }
+
+    private void writeError(HttpServletResponse response, int status, String code, String message, String path) throws java.io.IOException {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getWriter(), ApiErrorResponse.of(status, code, message, path));

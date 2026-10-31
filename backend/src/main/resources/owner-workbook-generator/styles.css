@@ -1,0 +1,171 @@
+/* Mindcrafti school / reusable A4 worksheet design system v1.0
+   All positioning is DOM/CSS; mathematical fractions are vector SVG. */
+:root {
+  --navy: #070a20;
+  --orange: #ff6a00;
+  --orange-soft: #fff3e8;
+  --gray-text: #697488;
+  --border: #e0e5ec;
+  --line: #bdc9d8;
+  --card-gray: #f7f8fa;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eceef1; color: var(--navy); }
+body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+@page { size: A4 portrait; margin: 0; }
+.sheet {
+  background: white; width: 210mm; height: 297mm; position: relative;
+  padding: 18.1mm 15.8mm 15.1mm;
+  margin: 0 auto 5mm;
+  break-after: page; page-break-after: always;
+  overflow: hidden;
+}
+.sheet:last-child { break-after: auto; page-break-after: auto; }
+.brandbar {
+  display: flex; gap: 3.8mm; align-items: center;
+  height: 17.1mm; padding: 0 0 3.5mm;
+  border-bottom: 0.28mm solid var(--border);
+}
+.brandbar img { width: 15.2mm; height: 12.3mm; object-fit: contain; display: block; }
+.brand-lines { display: flex; flex-direction: column; gap: 1.5mm; }
+.school-name { font-size: 13px; font-weight: 700; line-height: 1.1; letter-spacing: .05px; color: var(--orange); }
+.school-kind { font-size: 10px; color: var(--gray-text); letter-spacing: .04px; }
+.page-heading { position: relative; height: 23mm; padding-top: 2.1mm; }
+.page-heading h1 { font-size: 30px; letter-spacing: -.65px; line-height: 1.2; margin: 0 0 2.6mm; font-weight: 750; }
+.page-subtitle { color: var(--gray-text); font-size: 13px; line-height: 1.25; margin: 0; max-width: 150mm; }
+.time-pill {
+  position: absolute; right: 15.7mm; top: 47.8mm;
+  font-weight: 700; background: var(--orange-soft); color: var(--orange);
+  border-radius: 99px; padding: 2.0mm 3.6mm; font-size: 10px; white-space: nowrap;
+}
+.progress { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2.2mm; margin: 4.8mm 0 5.6mm; height: 1.35mm; }
+.progress span { border-radius: 90px; background: #e5e8ed; }
+.progress span.done { background: #fff2e6; }
+.progress span.current { background: var(--orange); }
+.paper-content { display: block; }
+.block { margin-top: 3.6mm; break-inside: avoid; page-break-inside: avoid; }
+.block:first-child { margin-top: 0; }
+.callout {
+  padding: 4.6mm 5.5mm; border-radius: 4.6mm; background: var(--orange-soft);
+  min-height: 24mm;
+}
+.callout.tall { min-height: 30mm; }
+.callout .eyebrow, .example-eyebrow, .teacher-eyebrow {
+  color: var(--orange); font-size: 10.4px; font-weight: 700; line-height: 1.6;
+}
+.callout p { font-size: 13.1px; line-height: 1.5; margin: 1mm 0 0; }
+.example-box { border: 0.26mm solid var(--border); background: var(--card-gray); border-radius: 4.3mm; padding: 3.6mm 5.4mm; min-height: 21mm; }
+.example-box.has-text { background: white; }
+.example-box .example-inner { display: flex; gap: 9mm; align-items: center; justify-content: flex-start; margin-left: 28mm; }
+.example-box .formula { font-size: 19px; font-weight: 700; }
+.example-box .example-eyebrow { margin-bottom: 1.4mm; }
+.example-text { color: var(--navy); font-size: 12.6px; line-height: 1.45; margin: 1mm 0 2mm; }
+.example-split .callout { min-height: 0; padding: 4.5mm 5.5mm; }
+.example-split .example-box { margin-top: 3.6mm; min-height: 21mm; padding-top: 4.4mm; }
+.example-split .example-inner { margin-left: 18mm; }
+.exercise { border: .26mm solid var(--border); border-radius: 4.5mm; padding: 4.7mm 4.2mm 3.7mm 4.1mm; }
+.exercise-head { display: flex; align-items: start; gap: 3mm; margin-bottom: 1.4mm; }
+.exercise-number { min-width: 8.6mm; width: 8.6mm; height: 8.6mm; flex: 0 0 8.6mm; border-radius: 50%; background: var(--orange-soft); display: flex; align-items: center; justify-content: center; color: var(--orange); font-size: 10px; font-weight: 700; }
+.exercise-title { font-size: 15.5px; font-weight: 700; line-height: 1.25; margin-top: 1mm; }
+.exercise-subtitle { color: var(--gray-text); font-size: 12px; line-height: 1.35; margin-top: 2.4mm; }
+.exercise-content { padding: 0.5mm 1.4mm 0 2mm; }
+.task-row {
+  display: flex; align-items: center; gap: 3.0mm; min-height: 16.1mm;
+}
+.task-row .item-label { color: var(--orange); font-weight: 700; font-size: 11px; width: 8mm; flex: 0 0 8mm; }
+.task-row .expression-wrap { flex: 0 0 56mm; display: flex; align-items: center; white-space: nowrap; min-width: 0; }
+.task-row .workline { align-self: stretch; flex: 1; min-width: 10mm; border-bottom: .23mm solid var(--line); height: 8.6mm; margin: 0.8mm 1mm 0 0; }
+.exercise.relaxed .task-row { min-height: 24.3mm; }
+.exercise.relaxed .task-row .workline { height: 14.5mm; }
+/* Do not rely on flex gap: some PDF layout engines ignore it. */
+.formula { display: inline-flex; align-items: center; justify-content: flex-start; gap: 0; vertical-align: middle; white-space: nowrap; color: var(--navy); font-size: 21px; line-height: 1.15; }
+.formula > * { flex: 0 0 auto; flex-shrink: 0; }
+.formula > * + * { margin-left: 3.25mm; }
+.math-fraction { width: 7.7mm; height: 11.4mm; display: inline-block; flex: 0 0 auto; overflow: visible; }
+.formula .math-fraction[width="41"] { width: 9.3mm; }
+.solution-row .math-fraction { width: 5.5mm; height: 6.5mm; }
+.formula .op { display: inline-block; font-size: .93em; font-weight: 500; min-width: 3.1mm; text-align: center; white-space: nowrap; }
+.formula .empty-op { font-size: 19px; font-family: 'DejaVu Sans', Arial, sans-serif; }
+.formula .blank-formula { font-size: 12px; letter-spacing: .3px; }
+.mini-check { display: flex; gap: 13mm; align-items: center; padding: 2.6mm 2.2mm 1.5mm; }
+.small-pill { color: var(--orange); background: var(--orange-soft); border-radius: 50px; padding: 1.7mm 3mm; font-weight: 700; font-size: 10.3px; }
+.mini-check .formula { font-size: 15px; font-weight: 700; }
+.response-lines { margin: 4mm 3mm 0 4.5mm; display: grid; gap: 7.2mm; padding-bottom: 1mm; }
+.response-lines div { border-bottom: 1px solid var(--line); height: 2.4mm; }
+.fraction-strips { border: .26mm solid var(--border); border-radius: 4.3mm; padding: 3.3mm 5mm 3.8mm; }
+.fraction-strips .example-eyebrow { margin-bottom: 3.4mm; }
+.fraction-strip-diagram { display:flex; align-items:center; justify-content:space-between; gap: 5mm; padding: 2.5mm 2mm 1mm; }
+.strip-block { width: 61mm; text-align: center; font-size: 13.5px; font-weight: 700; }
+.strip-block svg { display: block; width:100%; height: 10.3mm; margin-bottom: 1.4mm; }
+.strip-relation { color: var(--orange); font-size: 29px; font-weight: 700; }
+.exit-list { margin-top: 3.2mm; }
+.exercise.exit { padding: 0; border: 0; }
+.exit .exercise-content { padding: 0; }
+.exit .task-row { display: block; height: 26.8mm; min-height: 0; border: .26mm solid var(--border); border-radius: 4mm; margin-bottom: 2.7mm; padding: 2.5mm 4.5mm; }
+.exit .item-label { display: inline-block; width: 14mm; vertical-align: middle; }
+.exit .expression-wrap { display: inline-flex; width: calc(100% - 19mm); vertical-align: middle; }
+.exit .task-row .workline { display:block; height: 3mm; margin: 2.5mm 1mm 0 16mm; width: calc(100% - 17mm); }
+.exit .mini-check { justify-content: flex-start; margin: 1mm 0 2mm; padding: 0.4mm 3.5mm; }
+.exit .mini-check .formula { font-size: 20px; font-weight: 400; }
+.self-rating { color: var(--gray-text); font-size: 12px; margin: 4mm 0 1mm 4.5mm; display:flex; flex-wrap:wrap; gap:3.8mm; align-items:center; }
+.rating-choice { display:inline-flex; align-items:center; gap:1.2mm; white-space:nowrap; }
+.rating-check { width:2.8mm;height:2.8mm;border:.22mm solid #9da8b9;display:inline-block; }
+.error-detective .task-row { width: 50%; display: inline-flex; min-height: 15mm; }
+.error-detective .task-row .expression-wrap { flex-basis: auto; }
+.error-detective .task-row .workline { display: none; }
+.error-detective .correction-line { margin: 1.5mm 1mm 0 4.5mm; border-bottom: 1px solid var(--line); }
+/* footer */
+.footer { position: absolute; bottom: 13.2mm; left: 15.8mm; right: 15.8mm; border-top: .22mm solid var(--border); padding-top: 3.1mm; display: flex; align-items: center; justify-content: space-between; font-size: 9.5px; font-weight: 700; color: var(--gray-text); }
+.footer .page-index { font-weight: 400; }
+/* teacher pages use the same brand identity but compact answer layout */
+.teacher .page-heading { height: 26mm; }
+.teacher .paper-content { padding-top: 1mm; }
+.teacher-block { margin-top: 3.2mm; }
+.teacher-block:first-child { margin-top: 0; }
+.teacher-section-label { font-size: 10.3px; color: var(--orange); font-weight: 700; margin-bottom: 2.7mm; }
+.teacher-section-title { font-size: 15px; font-weight: 700; line-height: 1.25; margin-bottom: 2.3mm; }
+.teacher-paragraph { font-size: 12.8px; line-height: 1.52; margin: 0 0 2mm; color: var(--navy); }
+.teacher-note { background: var(--orange-soft); border-radius: 4mm; padding: 4.2mm 5mm; }
+.teacher-schedule { border: .26mm solid var(--border); border-radius: 4.3mm; padding: 4.4mm 5mm; }
+.schedule-row { display:flex; gap: 4mm; align-items: baseline; font-size: 12px; line-height: 1.3; padding: 2.2mm 0; border-bottom: 1px solid #edf0f3; }
+.schedule-row:last-child { border-bottom:0; }
+.schedule-time { color: var(--orange); font-weight: 700; flex: 0 0 16mm; }
+.solution-group { border: .26mm solid var(--border); border-radius: 4mm; padding: 2.9mm 4.7mm; }
+.solution-row { display:flex; align-items: center; min-height: 6.9mm; gap: 3mm; border-bottom: 1px solid #edf0f4; }
+.solution-row:last-of-type { border-bottom:0; }
+.solution-label { color: var(--orange); font-weight: 700; font-size: 11.5px; flex:0 0 14mm; }
+.solution-row .formula { font-size: 14.7px; gap: 0; }
+.solution-row .formula > * + * { margin-left: 2mm; }
+.solution-row .formula .op { min-width: 2mm; }
+.solution-note { color: var(--gray-text); font-size: 10.5px; margin-left: auto; line-height: 1.2; }
+.solution-row .solution-text { font-size: 12.1px; line-height:1.35; }
+.solution-footnote { font-size: 10.8px; color: var(--gray-text); margin-top: 2.4mm; line-height:1.4; }
+@media screen {
+  .sheet { box-shadow: 0 2mm 9mm rgba(5,11,35,.10); }
+}
+@media print {
+  html, body { width:210mm; background:white; }
+  .sheet { margin:0; box-shadow:none; }
+}
+
+
+/* Exact, print-ready mathematical diagrams (SVG - vector at any zoom level). */
+.diagram-block { border: .26mm solid var(--border); border-radius: 4.4mm; padding: 3.1mm 5.2mm 2.5mm; background: #fbfcfe; break-inside: avoid; page-break-inside: avoid; }
+.diagram-eyebrow { color: var(--orange); font-size: 10.4px; font-weight: 700; margin: 0 0 2.3mm; }
+.diagram-svg { display: block; width: 100%; height: auto; max-height: 68mm; margin: 0 auto; }
+.graph-legend { display: flex; flex-wrap: wrap; font-size: 11px; color: var(--navy); margin: 0 0 1mm; }
+.graph-legend-item { display: inline-flex; align-items: center; margin: 0 7mm 2mm 0; }
+.graph-legend-swatch { display: inline-block; width: 4mm; height: .8mm; margin-right: 1.9mm; border-radius: 10px; }
+.diagram-caption { font-size: 11px; color: var(--gray-text); margin-top: 0.8mm; line-height: 1.35; }
+.teacher .diagram-block { margin-top: 2.4mm; }
+
+
+.facts-block { border: .26mm solid var(--border); border-radius: 4.4mm; padding: 3.4mm 4.6mm 3.2mm; background: white; }
+.facts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; }
+.facts-card { border-radius: 3.8mm; padding: 3.2mm 3.6mm; min-height: 23mm; }
+.facts-card.given { background: #fbfcfe; border: .24mm solid #e3e8ef; }
+.facts-card.find { background: var(--orange-soft); }
+.facts-title { font-size: 10.4px; font-weight: 700; color: var(--orange); margin-bottom: 1.6mm; }
+.facts-card ul { margin: 0; padding-left: 4.3mm; }
+.facts-card li { font-size: 12.5px; line-height: 1.45; margin: 0 0 1.1mm; }
+.facts-note { font-size: 10.8px; color: var(--gray-text); line-height: 1.35; margin-top: 1.8mm; }

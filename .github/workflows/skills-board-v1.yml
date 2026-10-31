@@ -1,0 +1,101 @@
+name: Skills board verification
+on:
+  push:
+    branches: [feature/skills-board-v1]
+permissions:
+  contents: write
+concurrency:
+  group: skills-board-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: skills_test
+          POSTGRES_PASSWORD: skills_test
+          POSTGRES_DB: skills_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Materialize additive seed and navigation
+        run: |
+          python tools/skills_board_bootstrap.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('frontend/public/skills-board/board.js')
+          s=p.read_text()
+          s=s.replace('selection={type:"node",id};renderNodes();renderEdges();showNode(id);return true;', 'selection={type:"node",id};for(const el of layer.querySelectorAll(".node"))el.classList.toggle("selected",el.dataset.id===id);renderEdges();showNode(id);return true;')
+          s=s.replace('data=clone(snapshot.data);dirty=false;stash();notice("");', 'data=clone(snapshot.data);dirty=false;history=[];stash();notice("");')
+          p.write_text(s)
+          PY
+      - name: Build the actual school frontend
+        working-directory: frontend
+        run: npm ci && npm run build
+      - name: Validate skill graph
+        run: node --test tests/skills/model.test.mjs
+      - name: Test backend permissions and PostgreSQL persistence
+        working-directory: backend
+        env:
+          SKILLS_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/skills_test
+        run: mvn -B -Dtest='SkillBoard*Test' test
+      - name: Check actual nginx embedding boundaries
+        env:
+          NGINX_ENVSUBST_FILTER: 'LIVEKIT_|API_PROXY_'
+          API_PROXY_SCHEME: http
+          API_PROXY_HOST: '127.0.0.1'
+          API_PROXY_PORT: '8080'
+          LIVEKIT_CSP_ORIGINS: ''
+        run: |
+          docker run --rm --env NGINX_ENVSUBST_FILTER --env API_PROXY_SCHEME --env API_PROXY_HOST --env API_PROXY_PORT --env LIVEKIT_CSP_ORIGINS -v "$PWD/frontend/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro" nginx:1.29-alpine nginx -t
+          docker run -d --name skills-nginx -p 8098:80 --env NGINX_ENVSUBST_FILTER --env API_PROXY_SCHEME --env API_PROXY_HOST --env API_PROXY_PORT --env LIVEKIT_CSP_ORIGINS -v "$PWD/frontend/dist:/usr/share/nginx/html:ro" -v "$PWD/frontend/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro" nginx:1.29-alpine
+          trap 'docker rm -f skills-nginx' EXIT
+          sleep 3
+          curl -fsSI http://localhost:8098/skills-board/index.html | tee /tmp/skills-headers
+          grep -i 'X-Frame-Options: SAMEORIGIN' /tmp/skills-headers
+          grep "frame-ancestors 'self'" /tmp/skills-headers
+          curl -fsSI http://localhost:8098/login | grep -i 'X-Frame-Options: DENY'
+      - name: Install browser test runtime
+        run: pip install playwright==1.56.0 && python -m playwright install --with-deps chromium
+      - name: Exercise board editing and persistence in browser
+        run: python tests/skills/browser_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skills-board-test-results
+          path: |
+            skills-overview.png
+            backend/target/surefire-reports/
+      - name: Commit tested generated files on feature branch only
+        if: github.ref == 'refs/heads/feature/skills-board-v1'
+        run: |
+          git add frontend/src/App.tsx frontend/src/components/Layout.tsx frontend/public/skills-board/board.js backend/src/main/resources/db/migration/V65__add_skill_boards.sql
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'Integrate verified skills route, navigation, interactions and database seed'
+            git push origin HEAD:feature/skills-board-v1
+          fi

@@ -1,6 +1,7 @@
 package com.mcschool.flashcard.cards;
 
 import com.mcschool.flashcard.users.User;
+import com.mcschool.flashcard.homeworks.Homework;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -44,11 +45,24 @@ public class Card {
     @JoinColumn(name = "created_by_teacher_id", nullable = false)
     private User createdByTeacher;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "homework_id", nullable = false)
+    private Homework homework;
+
     @Column(nullable = false, length = 1000)
     private String question;
 
     @Column(name = "correct_answer", nullable = false, length = 500)
     private String correctAnswer;
+
+    @Column(name = "wrong_answer1", length = 500)
+    private String wrongAnswer1;
+
+    @Column(name = "wrong_answer2", length = 500)
+    private String wrongAnswer2;
+
+    @Column(name = "wrong_answer3", length = 500)
+    private String wrongAnswer3;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -57,9 +71,16 @@ public class Card {
     @Column(name = "repetition_number", nullable = false)
     private int repetitionNumber;
 
-    /** Next day this card must be reviewed; {@code null} once the card is LEARNED. */
+    /** Next day this card must be reviewed. */
     @Column(name = "due_date")
     private LocalDate dueDate;
+
+    /**
+     * Optional time limit (seconds) the teacher sets for answering this card in a
+     * session. {@code null} means no limit. Enforced by the study UI as a countdown.
+     */
+    @Column(name = "time_limit_seconds")
+    private Integer timeLimitSeconds;
 
     /**
      * Soft-delete flag. An archived card is hidden from all lists and study, but the
@@ -80,26 +101,42 @@ public class Card {
     @Column(nullable = false)
     private Long version;
 
-    private Card(User student, User createdByTeacher, String question, String correctAnswer) {
+    private Card(Homework homework, User createdByTeacher, String question, String correctAnswer,
+                 String wrongAnswer1, String wrongAnswer2, String wrongAnswer3) {
         this.id = UUID.randomUUID();
-        this.student = student;
+        this.homework = homework;
+        this.student = homework.getStudent();
         this.createdByTeacher = createdByTeacher;
         this.question = question;
         this.correctAnswer = correctAnswer;
+        this.wrongAnswer1 = wrongAnswer1;
+        this.wrongAnswer2 = wrongAnswer2;
+        this.wrongAnswer3 = wrongAnswer3;
         this.status = CardStatus.ACTIVE;
         this.repetitionNumber = 0;
-        // Newly created cards are due immediately so they appear in the next session.
-        this.dueDate = LocalDate.now();
+        // New homework cards first become due on the homework's start date.
+        this.dueDate = homework.getStartDate();
     }
 
-    public static Card create(User student, User createdByTeacher, String question, String correctAnswer) {
-        return new Card(student, createdByTeacher, question.strip(), correctAnswer.strip());
+    public static Card create(Homework homework, User createdByTeacher, String question, String correctAnswer) {
+        return new Card(homework, createdByTeacher, question.strip(), correctAnswer.strip(), null, null, null);
+    }
+
+    public static Card createImported(Homework homework, User createdByTeacher, String question, String correctAnswer,
+                                      String wrongAnswer1, String wrongAnswer2, String wrongAnswer3) {
+        return new Card(homework, createdByTeacher, question.strip(), correctAnswer.strip(),
+                wrongAnswer1.strip(), wrongAnswer2.strip(), wrongAnswer3.strip());
     }
 
     /** Teacher edits the question and/or answer; the review schedule is left untouched. */
     public void edit(String question, String correctAnswer) {
         this.question = question.strip();
         this.correctAnswer = correctAnswer.strip();
+    }
+
+    /** Sets (or clears, with {@code null}) the per-card answer time limit in seconds. */
+    public void changeTimeLimit(Integer timeLimitSeconds) {
+        this.timeLimitSeconds = timeLimitSeconds;
     }
 
     /** Soft-deletes the card: it disappears from lists and study but the row is kept. */
@@ -114,7 +151,19 @@ public class Card {
         this.status = status;
     }
 
+    /** Pilot/testing helper: makes the card due without changing its learning state. */
+    public void markDueOn(LocalDate dueDate) {
+        this.dueDate = dueDate;
+    }
+
+    public boolean hasSavedWrongAnswers() {
+        return wrongAnswer1 != null && wrongAnswer2 != null && wrongAnswer3 != null;
+    }
+
     public boolean isDueOn(LocalDate day) {
-        return status == CardStatus.ACTIVE && dueDate != null && !dueDate.isAfter(day);
+        if (status != CardStatus.ACTIVE || dueDate == null || dueDate.isAfter(day)) {
+            return false;
+        }
+        return repetitionNumber > 0 || !homework.getStartDate().isAfter(day);
     }
 }

@@ -1,0 +1,261 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { PageView } from './boardView';
+import { GestureController } from './gestureController';
+import type { InputMode } from './inputPolicy';
+
+const board = { width: 800, height: 600 };
+
+function setup(mode: InputMode = 'stylus', locked = false, continuous = false, documentZoom = false) {
+  const state = { mode, locked, clock: 1000, view: { zoom: 1, panX: 0, panY: 0 } as PageView };
+  const controller = new GestureController({
+    mode: () => state.mode,
+    view: () => state.view,
+    board: () => board,
+    locked: () => state.locked,
+    now: () => state.clock,
+    continuous: () => continuous,
+    documentZoom: () => documentZoom,
+  });
+  return { controller, state };
+}
+
+const types = (intents: { type: string }[]) => intents.map((intent) => intent.type);
+
+describe('stylus mode', () => {
+  let ctx: ReturnType<typeof setup>;
+  beforeEach(() => {
+    ctx = setup('stylus');
+  });
+
+  it('draws with the pen', () => {
+    expect(types(ctx.controller.down(1, 'pen', { x: 10, y: 10 }))).toEqual(['stroke-start']);
+    expect(types(ctx.controller.move(1, { x: 20, y: 20 }))).toEqual(['stroke-move']);
+    expect(types(ctx.controller.up(1))).toEqual(['stroke-end']);
+  });
+
+  it('ignores accidental hand contacts just after the pencil lifts', () => {
+    ctx.controller.down(1, 'pen', { x: 10, y: 10 });
+    ctx.controller.up(1);
+    expect(ctx.controller.down(2, 'touch', { x: 300, y: 300 })).toEqual([]);
+    expect(ctx.controller.down(3, 'touch', { x: 325, y: 300 })).toEqual([]);
+    expect(ctx.controller.move(2, { x: 400, y: 300 })).toEqual([]);
+    expect(ctx.controller.move(3, { x: 340, y: 300 })).toEqual([]);
+    // A deliberate gesture after the short palm-rejection interval still works.
+    ctx.state.clock += 400;
+    expect(ctx.controller.down(4, 'touch', { x: 300, y: 300 })).toEqual([]);
+    expect(types(ctx.controller.move(4, { x: 320, y: 310 }))).toEqual(['view']);
+  });
+
+  it('discards stale fingers before a stylus stroke so they cannot later trigger a pinch', () => {
+    ctx.controller.down(1, 'touch', { x: 100, y: 100 });
+    ctx.controller.down(2, 'touch', { x: 300, y: 100 });
+    ctx.controller.down(3, 'pen', { x: 120, y: 130 });
+    ctx.controller.up(3);
+    ctx.state.clock += 400;
+    ctx.controller.down(4, 'touch', { x: 200, y: 200 });
+    const movement = ctx.controller.move(4, { x: 230, y: 220 });
+    expect(types(movement)).toEqual(['view']);
+    expect((movement[0] as { type: 'view'; view: PageView }).view.zoom).toBe(1);
+  });
+
+  it('never draws with a finger — it pans the canvas instead', () => {
+    ctx.state.view = { zoom: 2, panX: -100, panY: -100 };
+    expect(ctx.controller.down(1, 'touch', { x: 100, y: 100 })).toEqual([]);
+    const moved = ctx.controller.move(1, { x: 130, y: 120 });
+    expect(types(moved)).toEqual(['view']);
+    expect(moved[0]).toMatchObject({ view: { zoom: 2, panX: -70, panY: -80 } });
+  });
+
+  it('ignores a palm that lands while the pen is writing', () => {
+    ctx.controller.down(1, 'pen', { x: 10, y: 10 });
+    expect(ctx.controller.down(2, 'touch', { x: 300, y: 300 })).toEqual([]);
+    expect(ctx.controller.move(2, { x: 310, y: 310 })).toEqual([]);
+    // The pen stroke is untouched.
+    expect(types(ctx.controller.move(1, { x: 12, y: 12 }))).toEqual(['stroke-move']);
+    expect(types(ctx.controller.up(1))).toEqual(['stroke-end']);
+  });
+
+  it('ignores a contact the browser reports as a palm', () => {
+    expect(ctx.controller.down(1, 'touch', { x: 5, y: 5 }, true)).toEqual([]);
+    expect(ctx.controller.move(1, { x: 50, y: 50 })).toEqual([]);
+  });
+});
+
+describe('continuous document navigation', () => {
+  it('emits incremental document pinch deltas without changing the page view or committing cancelled finger ink', () => {
+    const { controller } = setup('finger', false, true, true);
+    controller.down(1, 'touch', { x: 100, y: 100 });
+    expect(types(controller.down(2, 'touch', { x: 300, y: 100 }))).toEqual(['stroke-cancel']);
+    expect(controller.move(2, { x: 500, y: 100 })).toEqual([
+      { type: 'document-gesture', gesture: { scale: 2, anchor: { x: 200, y: 100 }, pan: { x: 100, y: 0 } } },
+    ]);
+    expect(controller.move(1, { x: 200, y: 100 })).toEqual([
+      { type: 'document-gesture', gesture: { scale: 0.75, anchor: { x: 300, y: 100 }, pan: { x: 50, y: 0 } } },
+    ]);
+    expect(types([...controller.up(2), ...controller.up(1)])).not.toContain('stroke-end');
+  });
+
+  it('routes document hand pan only to the scroll parent even if an old page view was zoomed', () => {
+    const { controller, state } = setup('stylus', false, true, true);
+    state.view = { zoom: 3, panX: -300, panY: -200 };
+    controller.down(1, 'mouse', { x: 200, y: 200 }, false, true);
+    expect(controller.move(1, { x: 180, y: 150 })).toEqual([{ type: 'scroll', dx: 20, dy: 50 }]);
+  });
+
+  it('blocks document pinch under follow lock and preserves pencil palm grace', () => {
+    const { controller, state } = setup('stylus', true, true, true);
+    controller.down(1, 'touch', { x: 100, y: 100 }); controller.down(2, 'touch', { x: 300, y: 100 });
+    expect(controller.move(2, { x: 500, y: 100 })).toEqual([]);
+    controller.reset(); state.locked = false;
+    controller.down(3, 'pen', { x: 20, y: 20 }); controller.up(3);
+    controller.down(4, 'touch', { x: 100, y: 100 }); controller.down(5, 'touch', { x: 300, y: 100 });
+    expect(controller.move(5, { x: 500, y: 100 })).toEqual([]);
+  });
+
+  it('routes raw fit-size mouse pan into incremental document scroll', () => {
+    const { controller } = setup('stylus', false, true);
+    controller.down(1, 'mouse', { x: 100, y: 200 }, false, true);
+    expect(controller.move(1, { x: 90, y: 170 })).toEqual([{ type: 'scroll', dx: 10, dy: 30 }]);
+    expect(controller.move(1, { x: 90, y: 150 })).toEqual([{ type: 'scroll', dx: 0, dy: 20 }]);
+    expect(controller.up(1)).toEqual([]);
+  });
+
+  it('pans the zoomed page first and sends only edge overflow to the document', () => {
+    const { controller, state } = setup('stylus', false, true);
+    state.view = { zoom: 2, panX: -100, panY: -590 };
+    controller.down(1, 'touch', { x: 100, y: 200 });
+    expect(controller.move(1, { x: 100, y: 170 })).toEqual([
+      { type: 'view', view: { zoom: 2, panX: -100, panY: -600 } }, { type: 'scroll', dx: 0, dy: 20 },
+    ]);
+  });
+
+  it('scrolls a two-finger translation in finger-draw mode without committing the cancelled first finger', () => {
+    const { controller } = setup('finger', false, true);
+    controller.down(1, 'touch', { x: 300, y: 300 });
+    expect(types(controller.down(2, 'touch', { x: 500, y: 300 }))).toEqual(['stroke-cancel']);
+    const moved = [...controller.move(1, { x: 300, y: 260 }), ...controller.move(2, { x: 500, y: 260 })];
+    const dy = moved.reduce((sum, intent) => sum + (intent.type === 'scroll' ? intent.dy : 0), 0);
+    expect(dy).toBeCloseTo(40); expect(controller.isDrawing).toBe(false);
+    expect(types([...controller.up(2), ...controller.up(1)])).not.toContain('stroke-end');
+  });
+
+  it('keeps pen strokes and palm rejection while continuous navigation is enabled', () => {
+    const { controller, state } = setup('stylus', false, true);
+    expect(types(controller.down(1, 'pen', { x: 10, y: 10 }))).toEqual(['stroke-start']);
+    expect(controller.down(2, 'touch', { x: 100, y: 200 })).toEqual([]);
+    expect(types(controller.move(1, { x: 20, y: 20 }))).toEqual(['stroke-move']);
+    expect(types(controller.up(1))).toEqual(['stroke-end']);
+    expect(controller.down(3, 'touch', { x: 100, y: 200 }, false, true)).toEqual([]);
+    expect(controller.move(3, { x: 100, y: 100 })).toEqual([]);
+    state.clock += 400;
+    controller.down(4, 'touch', { x: 100, y: 200 });
+    expect(controller.move(4, { x: 100, y: 170 })).toEqual([{ type: 'scroll', dx: 0, dy: 30 }]);
+  });
+
+  it('blocks continuous scrolling while following the teacher', () => {
+    const { controller } = setup('stylus', true, true);
+    controller.down(1, 'mouse', { x: 100, y: 200 }, false, true);
+    expect(controller.move(1, { x: 100, y: 170 })).toEqual([]);
+  });
+});
+
+describe('finger mode', () => {
+  it('draws with one finger', () => {
+    const { controller } = setup('finger');
+    expect(types(controller.down(1, 'touch', { x: 10, y: 10 }))).toEqual(['stroke-start']);
+    expect(types(controller.move(1, { x: 20, y: 20 }))).toEqual(['stroke-move']);
+    expect(types(controller.up(1))).toEqual(['stroke-end']);
+  });
+
+  it('cancels the stroke when a second finger lands and zooms instead', () => {
+    const { controller } = setup('finger');
+    controller.down(1, 'touch', { x: 300, y: 300 });
+    controller.move(1, { x: 305, y: 300 });
+    const second = controller.down(2, 'touch', { x: 500, y: 300 });
+    expect(types(second)).toEqual(['stroke-cancel']);
+
+    const moved = controller.move(2, { x: 600, y: 300 });
+    expect(types(moved)).toEqual(['view']);
+    expect((moved[0] as { view: PageView }).view.zoom).toBeGreaterThan(1);
+  });
+
+  it('does not start drawing with the leftover finger after a pinch', () => {
+    const { controller } = setup('finger');
+    controller.down(1, 'touch', { x: 300, y: 300 });
+    controller.down(2, 'touch', { x: 500, y: 300 });
+    controller.up(2);
+    expect(types(controller.move(1, { x: 320, y: 300 }))).toEqual(['view']);
+    expect(controller.isDrawing).toBe(false);
+    controller.up(1);
+    // After everything lifts, a fresh finger draws again.
+    expect(types(controller.down(3, 'touch', { x: 10, y: 10 }))).toEqual(['stroke-start']);
+  });
+});
+
+describe('mouse and cancellation', () => {
+  it('a mouse draws in either mode', () => {
+    for (const mode of ['stylus', 'finger'] as const) {
+      const { controller } = setup(mode);
+      expect(types(controller.down(1, 'mouse', { x: 1, y: 1 }))).toEqual(['stroke-start']);
+      controller.up(1);
+    }
+  });
+
+  it('turns a browser pointercancel into a stroke-cancel', () => {
+    const { controller } = setup('stylus');
+    controller.down(1, 'pen', { x: 1, y: 1 });
+    expect(types(controller.up(1, true))).toEqual(['stroke-cancel']);
+  });
+});
+
+describe('locked navigation (student following the teacher)', () => {
+  it('emits no view changes while locked', () => {
+    const { controller } = setup('stylus', true);
+    controller.down(1, 'touch', { x: 100, y: 100 });
+    controller.down(2, 'touch', { x: 200, y: 100 });
+    expect(controller.move(2, { x: 400, y: 100 })).toEqual([]);
+  });
+
+  it('still lets the pen draw while locked', () => {
+    const { controller } = setup('stylus', true);
+    expect(types(controller.down(1, 'pen', { x: 1, y: 1 }))).toEqual(['stroke-start']);
+  });
+});
+
+describe('mouse navigation (middle button / space)', () => {
+  it('pans instead of drawing when navigation is forced', () => {
+    const { controller, state } = setup('stylus');
+    state.view = { zoom: 2, panX: -100, panY: -100 };
+    expect(controller.down(1, 'mouse', { x: 200, y: 200 }, false, true)).toEqual([]);
+    const moved = controller.move(1, { x: 230, y: 210 });
+    expect(types(moved)).toEqual(['view']);
+    expect(moved[0]).toMatchObject({ view: { panX: -70, panY: -90 } });
+    expect(controller.up(1)).toEqual([]);
+    expect(types(controller.down(2, 'mouse', { x: 1, y: 1 }))).toEqual(['stroke-start']);
+  });
+
+  it('respects the navigation lock', () => {
+    const { controller } = setup('stylus', true);
+    controller.down(1, 'mouse', { x: 200, y: 200 }, false, true);
+    expect(controller.move(1, { x: 300, y: 300 })).toEqual([]);
+  });
+});
+
+describe('pen versus a moving finger', () => {
+  it('starts inking even while a finger is panning the canvas', () => {
+    const { controller } = setup('stylus');
+    controller.down(1, 'touch', { x: 100, y: 100 });
+    controller.move(1, { x: 120, y: 120 });
+    expect(types(controller.down(2, 'pen', { x: 50, y: 50 }))).toEqual(['stroke-start']);
+    // The finger no longer moves the canvas while the pen is writing.
+    expect(controller.move(1, { x: 160, y: 160 })).toEqual([]);
+    expect(types(controller.up(2))).toEqual(['stroke-end']);
+  });
+
+  it('also pre-empts a two-finger pinch', () => {
+    const { controller } = setup('stylus');
+    controller.down(1, 'touch', { x: 100, y: 100 });
+    controller.down(2, 'touch', { x: 300, y: 100 });
+    expect(types(controller.down(3, 'pen', { x: 50, y: 50 }))).toEqual(['stroke-start']);
+  });
+});

@@ -1,0 +1,2078 @@
+/*
+ * Online classes. Uses the existing palette from index.css so the feature does
+ * not introduce a second visual language.
+ */
+
+/*
+ * Available to screen readers, invisible on screen. The clip technique is used
+ * rather than display:none or visibility:hidden, both of which remove the
+ * element from the accessibility tree — which would defeat the purpose of the
+ * label entirely.
+ */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Keyboard focus must be visible everywhere in the class UI. The room is dense
+ * and largely icon-driven, so a lost focus ring makes it unusable without a
+ * mouse. focus-visible keeps the ring off for pointer users.
+ */
+.online-class-room :focus-visible,
+.online-class-page :focus-visible,
+.whiteboard :focus-visible,
+.board-toolbar :focus-visible,
+.chat :focus-visible,
+.participants :focus-visible,
+.waiting-room :focus-visible,
+.prejoin :focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- Room layout --------------------------------------------------------- */
+
+/*
+ * The lesson fills the browser window: the board is the main surface, cameras
+ * sit in a permanent column on the right, and everything else is compact chrome
+ * at the edges. Fixed positioning takes the room out of the app shell's header
+ * so the board gets almost the whole screen.
+ *
+ * <LiveKitRoom> also puts `.lk-room-container` (position: relative; height: 100%)
+ * on this same element, and its stylesheet loads later. The doubled selector
+ * outranks it so the room stays fixed and full-window.
+ */
+.online-class-room,
+.online-class-room.lk-room-container {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  --camera-column-width: 200px;
+}
+
+.online-class-room__topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 0 8px;
+}
+
+.online-class-room__stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--camera-column-width);
+}
+
+.online-class-room__main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.online-class-room__board,
+.online-class-room__screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.online-class-room__board[hidden] {
+  display: none;
+}
+
+/* Chat, roster and waiting room float over the board's right edge. */
+.online-class-room__drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  width: min(340px, 92%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 24px rgba(15, 23, 32, 0.18);
+}
+
+.online-class-room__drawer[hidden] {
+  display: none;
+}
+
+.online-class-room__badge {
+  font-weight: 700;
+}
+
+.online-class-room__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.online-class-room__leave {
+  background: var(--danger);
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.online-class-room__end {
+  background: transparent;
+  color: var(--danger);
+  border: 2px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* --- Status --------------------------------------------------------------- */
+
+.online-class-room__status {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/*
+ * Recording is signalled by a dot plus text, never colour alone — a red dot on
+ * its own is invisible to a colour-blind participant, and this is a consent
+ * signal that everyone must be able to perceive.
+ */
+.recording__active {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.recording__notice {
+  border: 2px solid #b91c1c;
+  background: #fff5f5;
+  color: #7f1d1d;
+  border-radius: var(--radius);
+  padding: 12px;
+  margin: 8px 0;
+}
+
+/* --- Chat ----------------------------------------------------------------- */
+
+.chat__messages {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px;
+  overflow-y: auto;
+  max-height: 40vh;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat__message--system {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.chat__message--pending {
+  opacity: 0.6;
+}
+
+.chat__body {
+  /* Long unbroken input must not force the panel to scroll sideways. */
+  overflow-wrap: anywhere;
+}
+
+.chat__composer {
+  display: flex;
+  gap: 8px;
+}
+
+.chat__composer input {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat__error {
+  color: var(--danger);
+}
+
+/* --- Captions ------------------------------------------------------------- */
+
+.captions__lines {
+  background: rgba(15, 23, 32, 0.85);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  max-height: 22vh;
+  overflow-y: auto;
+  /* Captions are read quickly; keep them comfortably large. */
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+/* --- Whiteboard ----------------------------------------------------------- */
+
+.whiteboard {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.whiteboard__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.whiteboard__notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.whiteboard__notice:empty {
+  display: none;
+}
+
+/* Page switcher: bottom-left, compact, never in the way of writing. */
+.whiteboard__pages {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 4;
+}
+
+.whiteboard__zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(15, 23, 32, 0.15);
+}
+
+.whiteboard__zoom button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.whiteboard__zoom button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+@media (pointer: coarse) {
+  .whiteboard__zoom button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+.whiteboard__surface {
+  width: 100%;
+  height: 100%;
+  background: var(--surface);
+  /* Stops the browser panning the page while drawing with a finger. */
+  touch-action: none;
+  position: relative;
+  overflow: hidden;
+  /* Selecting text on the page while drawing would fight the pointer. */
+  user-select: none;
+}
+
+.whiteboard__text-input {
+  position: absolute;
+  min-width: 160px;
+  padding: 2px 4px;
+  font-size: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+}
+
+/* --- Participants and waiting room --------------------------------------- */
+
+.participants ul,
+.waiting-room ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.participants li,
+.waiting-room li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.participants__offline {
+  color: var(--muted);
+}
+
+/* --- Responsive ----------------------------------------------------------- */
+
+/* Smaller screens keep the camera column (it is permanent) but narrower. */
+@media (max-width: 1024px) {
+  .online-class-room {
+    --camera-column-width: 160px;
+  }
+}
+
+/*
+ * Landscape tablet and phone: vertical space is scarce, so the board keeps the
+ * height and the control bar stays compact.
+ */
+@media (max-height: 560px) and (orientation: landscape) {
+  .online-class-room {
+    --camera-column-width: 140px;
+  }
+
+  .captions__lines {
+    max-height: 18vh;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .online-class-room {
+    --camera-column-width: 104px;
+  }
+
+  .online-class-room__controls button {
+    min-height: 44px;
+  }
+}
+
+/*
+ * Respect a reduced-motion preference: transitions and any spinner animation
+ * are dropped rather than merely shortened.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .online-class-room *,
+  .whiteboard *,
+  .chat * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- Board toolbar (stage 4) ---------------------------------------------- */
+
+.board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  /* The bar never collapses or scrolls away during a lesson. */
+  position: relative;
+  z-index: 5;
+}
+
+.board-toolbar__tools,
+.board-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.board-toolbar__slot {
+  position: relative;
+}
+
+.board-toolbar button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.board-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The selected tool must be unmistakable: filled, with a lifted outline. */
+.board-toolbar .board-toolbar__tool.is-active,
+.board-toolbar .board-toolbar__group button.is-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent-dark);
+  box-shadow: 0 2px 0 var(--accent-dark);
+}
+
+.board-toolbar__tool span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.board-toolbar__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 190px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(15, 23, 32, 0.18);
+}
+
+.board-toolbar__swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.board-toolbar .board-toolbar__swatches button {
+  min-width: 30px;
+  min-height: 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+}
+
+.board-toolbar .board-toolbar__swatches button.is-active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+}
+
+.board-toolbar__size {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.board-toolbar [role='radiogroup'] button.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Tablet and stylus: fingertip-sized targets. */
+@media (pointer: coarse) {
+  .board-toolbar button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .board-toolbar .board-toolbar__swatches button {
+    min-width: 40px;
+    min-height: 40px;
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* --- Page navigator ------------------------------------------------------- */
+
+.page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(15, 23, 32, 0.15);
+}
+
+.page-nav button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.page-nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.page-nav .page-nav__add {
+  background: var(--accent);
+  color: #fff;
+}
+
+.page-nav__label {
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+@media (pointer: coarse) {
+  .page-nav button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* --- Answers panel (teacher only) ----------------------------------------- */
+
+/*
+ * Pinned to the left edge of the board area and floating over it. It is
+ * absolutely positioned, so the board underneath keeps its size; the camera
+ * column is a sibling of the board area and is never covered.
+ */
+.answers-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  /* Fixed share of the screen; not user-resizable. */
+  width: clamp(320px, 33vw, 560px);
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  box-shadow: 4px 0 24px rgba(15, 23, 32, 0.18);
+}
+
+.answers-panel__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #eef0f3;
+}
+
+.answers-panel__page {
+  display: block;
+  height: auto;
+  background: #fff;
+}
+
+.answers-panel__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.answers-panel__zoom {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.answers-panel__zoom button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.answers-panel__zoom button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The × sits on the panel's right border, half outside it. */
+.answers-panel__close {
+  position: absolute;
+  top: 12px;
+  right: -16px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 32, 0.2);
+}
+
+.answers-button.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.answers-panel :focus-visible,
+.page-nav :focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .answers-panel__close {
+    width: 44px;
+    height: 44px;
+    right: -22px;
+  }
+
+  .answers-panel__zoom button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* --- Camera column (stage 4) ---------------------------------------------- */
+
+/*
+ * Five equal slots that always exist as a layout, so a card never changes size
+ * as people come and go. Overflowing cards are clipped, not scrolled: this
+ * stage is sized for about five cameras.
+ */
+.camera-column {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #0f1720;
+}
+
+.camera-card {
+  position: relative;
+  flex: 0 0 calc((100% - 4 * 8px) / 5);
+  min-height: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1f2933;
+  color: #fff;
+  /* Google-Meet-style highlight is drawn inside so it never changes the size. */
+  box-shadow: inset 0 0 0 3px transparent;
+  transition: box-shadow 120ms ease;
+}
+
+.camera-card[data-speaking='true'] {
+  box-shadow: inset 0 0 0 3px #34d399;
+}
+
+.camera-card__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.camera-card__avatar {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(22px, 3vw, 40px);
+  font-weight: 700;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, #334155, #475569);
+}
+
+.camera-card__status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  text-align: center;
+  font-weight: 600;
+  background: rgba(15, 23, 32, 0.72);
+}
+
+.camera-card__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 6px;
+  font-size: 12px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+}
+
+.camera-card__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-card__indicators {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.camera-card__indicator[data-off='true'] {
+  opacity: 0.85;
+}
+
+/*
+ * While the answers panel covers the board's left edge, the board's own page
+ * switcher moves to the panel's right edge so the teacher can still flip board
+ * pages without closing the answers.
+ */
+.whiteboard__stage:has(.answers-panel) .whiteboard__pages {
+  left: calc(clamp(320px, 33vw, 560px) + 12px);
+}
+
+.board-toolbar__group {
+  flex-wrap: wrap;
+}
+
+/* --- Board switcher ------------------------------------------------------- */
+
+.board-switcher {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.board-switcher button,
+.board-switcher select {
+  min-height: 32px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.board-switcher button.is-active {
+  background: var(--accent);
+  border-color: var(--accent-dark);
+  color: #fff;
+}
+
+@media (pointer: coarse) {
+  .board-switcher button,
+  .board-switcher select {
+    min-height: 44px;
+  }
+}
+
+/*
+ * LiveKit's dark theme sets `color: var(--lk-fg)` (white) on the room element,
+ * and our panels and buttons sit on a light surface. Without an explicit colour
+ * they inherit white and vanish in browsers whose buttons default to a white
+ * background (Safari). The doubled selector outranks `[data-lk-theme]`.
+ */
+.online-class-room,
+.online-class-room.lk-room-container {
+  color: var(--text);
+  /* LiveKit's dark theme also sets `color-scheme: dark`, which turns every
+     native input and select black. Our panels are light. */
+  color-scheme: light;
+}
+
+/*
+ * Our own controls only. LiveKit's control-bar buttons (`.lk-button`) keep
+ * their own look and their own pressed state; restyling them here made the
+ * camera button dark-on-dark once it was switched on.
+ */
+.online-class-room__controls button:not([class*='lk-']),
+.online-class-room__drawer button,
+.whiteboard button,
+.board-switcher button {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.online-class-room__controls button:not([class*='lk-']):hover,
+.online-class-room__drawer button:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.online-class-room__controls button[aria-pressed='true']:not([class*='lk-']) {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent-dark);
+}
+
+.screen-share-toggle button[aria-pressed='true'] {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent-dark);
+}
+
+.screen-share-toggle button {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.screen-share-toggle__error {
+  margin-left: 8px;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.online-class-room__controls button.online-class-room__leave {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Chat: a light, readable composer instead of the browser's dark default. */
+.chat__composer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat__composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.chat__composer input::placeholder {
+  color: #7b8794;
+}
+
+.chat__composer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.whiteboard__error,
+.recording__unavailable,
+.transcription__unavailable {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/*
+ * A shared screen is the only thing in the main area, so it fills it. LiveKit's
+ * focus layout is a 1fr/5fr grid meant to pair a carousel with a focused tile;
+ * with no carousel the lone tile would be squeezed into the narrow column.
+ */
+.online-class-room__screen .lk-focus-layout {
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.online-class-room__screen .lk-focused-participant,
+.online-class-room__screen .lk-participant-tile {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.online-class-room__screen .lk-participant-media-video[data-lk-source='screen_share'] {
+  object-fit: contain;
+}
+
+
+/* --- Prejoin screen: match the Mindcrafti teacher workspace --------------- */
+/* This route intentionally opens outside the staff sidebar to give the room
+   the whole viewport. It therefore needs its own page/card layout. */
+.online-class-page {
+  --accent: var(--orange);
+  --accent-dark: var(--orange-dark);
+  width: min(100% - 32px, 1120px);
+  min-height: calc(100vh - 64px);
+  margin: 32px auto;
+  padding: 16px 0 32px;
+  color: #172033;
+}
+
+.online-class-page > h1 {
+  margin: 0 0 22px;
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 800;
+  line-height: 1.15;
+  color: #172033;
+}
+
+.online-class-page > [role='status'] {
+  margin-bottom: 12px;
+  color: #46536a;
+}
+
+.prejoin {
+  border: 1px solid #ffe1d0;
+  border-radius: 24px;
+  background: #fff;
+  padding: clamp(18px, 3vw, 32px);
+  box-shadow: 0 12px 44px rgba(22, 34, 57, 0.07);
+}
+
+.prejoin__eyebrow {
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--orange-dark);
+}
+
+.prejoin__heading h2 {
+  margin: 0 0 8px;
+  font-size: clamp(20px, 2.5vw, 27px);
+  line-height: 1.2;
+  color: #172033;
+}
+
+.prejoin__heading p {
+  margin: 0 0 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #68758a;
+}
+
+.prejoin__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(295px, 0.9fr);
+  align-items: start;
+  gap: 28px;
+}
+
+.prejoin__preview {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #172033;
+  aspect-ratio: 16 / 10;
+  min-height: 240px;
+}
+
+.prejoin__preview video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.prejoin__placeholder {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  color: #d7dee9;
+  font-size: 15px;
+  text-align: center;
+}
+
+.prejoin__camera-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 52px;
+  border: 2px solid #68758a;
+  border-radius: 12px;
+  color: #a4afc1;
+  font-size: 34px;
+  font-weight: 700;
+}
+
+.prejoin__preview-label {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  border-radius: 9px;
+  padding: 6px 11px;
+  background: rgba(17, 24, 39, 0.76);
+  color: #f8fafc;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.prejoin__settings {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 17px;
+}
+
+.prejoin__error {
+  padding: 13px 15px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fff6f4;
+  color: #a62b23;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.prejoin__error strong { display: block; font-weight: 700; }
+.prejoin__error p { margin: 8px 0 0; }
+
+.prejoin__devices {
+  display: grid;
+  gap: 12px;
+}
+
+.prejoin__select {
+  display: grid;
+  gap: 6px;
+  color: #46536a;
+  font-size: 13px;
+  font-weight: 700;
+}
+.prejoin__select select {
+  width: 100%;
+  height: 43px;
+  padding: 0 12px;
+  color: #24314b;
+  font: inherit;
+  font-weight: 500;
+  border: 1px solid #dce3ed;
+  background: #fff;
+  border-radius: 10px;
+}
+
+.prejoin__toggle {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 12px;
+  background: #f8fafd;
+  border: 1px solid #edf0f5;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #39465c;
+}
+
+.prejoin__toggle input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--orange);
+}
+
+.prejoin__retry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.prejoin__retry,
+.prejoin__join {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 10px 17px;
+  border-radius: 11px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.prejoin__retry {
+  background: #fff6f1;
+  border: 1px solid #ffdcc7;
+  color: #d14b05;
+}
+.prejoin__retry:hover { background: #ffe9db; }
+
+.prejoin__join-actions {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid #edf0f5;
+}
+.prejoin__join {
+  width: 100%;
+  background: #ff5b00;
+  border: 1px solid #ff5b00;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(255, 91, 0, 0.17);
+}
+.prejoin__join:hover:not(:disabled) {
+  background: #e84f00;
+  border-color: #e84f00;
+}
+.prejoin__join:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.prejoin__note {
+  margin: 9px 0 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #75819a;
+}
+
+@media (max-width: 780px) {
+  .online-class-page {
+    margin: 14px auto;
+    min-height: calc(100vh - 28px);
+  }
+  .online-class-page > h1 { margin: 0 0 14px; }
+  .prejoin__layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .prejoin__preview { min-height: 220px; aspect-ratio: 16 / 9; }
+  .prejoin__heading p { margin-bottom: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prejoin__retry, .prejoin__join { transition: none; }
+}
+
+/* Reconnect stays on the same lesson route instead of navigating away when
+   LiveKit reports a transport failure. Only explicit "Leave" exits the page. */
+.online-class-reconnect {
+  max-width: 680px;
+}
+.online-class-reconnect h2 {
+  margin: 0 0 12px;
+  color: #172033;
+  font-size: clamp(20px, 2.5vw, 28px);
+}
+.online-class-reconnect p {
+  margin: 0 0 16px;
+  color: #536179;
+  line-height: 1.6;
+}
+.online-class-reconnect__code {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #68758a;
+}
+.online-class-reconnect__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.online-class-reconnect__actions .prejoin__join {
+  width: auto;
+  flex: 1 1 210px;
+}
+.online-class-reconnect__actions .prejoin__retry {
+  flex: 1 1 210px;
+}
+
+/* In-call troubleshooting only; never shows raw provider errors or credentials. */
+.online-class-reconnect__diagnostics {
+  border-left: 3px solid #c4cedc;
+  background: #f7f9fc;
+  padding: 12px 15px;
+  margin: 15px 0;
+  border-radius: 0 11px 11px 0;
+}
+.online-class-reconnect__diagnostics p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #485770;
+}
+.online-class-reconnect__diagnostics p:last-child {
+  margin-bottom: 0;
+}
+
+/* Goodnotes-style single assignment shortcut and left document drawer. */
+.online-class-room__topbar .classroom-homework-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.online-class-room__topbar .classroom-homework-toggle[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+.classroom-homework {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 9;
+  width: min(360px, 82%);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  color: var(--text);
+  border-right: 1px solid var(--border);
+  box-shadow: 4px 0 24px rgba(15, 23, 32, 0.18);
+}
+.classroom-homework__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.classroom-homework__close {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 24px;
+  color: var(--text);
+  cursor: pointer;
+  min-width: 36px;
+  min-height: 36px;
+}
+.classroom-homework__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+.classroom-homework__notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+.classroom-homework__document h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.classroom-homework__page-area { width: 100%; min-height: 48px; overflow-x: auto; }
+.classroom-homework__page { display: block; width: 100%; height: auto; background: #fff; }
+.classroom-homework__pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding: 6px;
+  border-top: 1px solid var(--border);
+}
+.classroom-homework__pagination button {
+  min-width: 38px;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 7px;
+}
+.classroom-homework__pagination button:disabled { opacity: .4; }
+@media (pointer: coarse) {
+  .online-class-room__topbar .classroom-homework-toggle { min-width: 44px; min-height: 44px; }
+  .classroom-homework__close, .classroom-homework__pagination button { min-width: 44px; min-height: 44px; }
+}
+
+/* Compact Goodnotes-inspired classroom header: one row instead of stacked toolbars. */
+.whiteboard__topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 4px 8px;
+  background: #14366c;
+  color: #f8fafc;
+}
+.whiteboard__topline-pages { flex: 0 0 auto; }
+.whiteboard__topline .board-toolbar {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  gap: 4px 8px;
+}
+.whiteboard__topline .board-toolbar button { color: #f8fafc; }
+.whiteboard__topline .board-toolbar__swatches button { color: transparent; }
+.whiteboard__topline .page-nav { background: rgba(255,255,255,.1); border-radius: 10px; }
+.whiteboard__topline .page-nav button { color: #fff; }
+.whiteboard__topline .page-nav__label { color: #fff; }
+.whiteboard__topline .board-toolbar .board-toolbar__tool.is-active { background: #2563eb; }
+@media (max-width: 900px) {
+  .whiteboard__topline { flex-wrap: wrap; }
+  .whiteboard__topline .board-toolbar { overflow-x: auto; flex-wrap: nowrap; }
+  .whiteboard__topline .board-toolbar__group { flex-shrink: 0; }
+}
+
+/* iPad repair: prevent a multi-row dark toolbar and restore readable controls. */
+.whiteboard__topline { background: #173768; min-height: 52px; max-height: 58px; flex-wrap: nowrap; overflow: visible; }
+.whiteboard__topline-pages { flex-shrink: 0; }
+.whiteboard__topline .board-toolbar { display: flex; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; white-space: nowrap; max-height: 52px; }
+.whiteboard__topline .board-toolbar__tools,
+.whiteboard__topline .board-toolbar__group { flex-shrink: 0; flex-wrap: nowrap; }
+.whiteboard__topline .board-toolbar button { color: #f8fafc; background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.16); white-space: nowrap; }
+.whiteboard__topline .board-toolbar button:disabled { opacity: .5; }
+.whiteboard__topline .board-toolbar__menu { background: #fff; color: #172554; }
+.whiteboard__topline .board-toolbar__menu button { color: #172554; background: #fff; }
+.whiteboard__topline .board-toolbar__swatches button { border-radius: 50%; color: transparent; }
+@media (max-width: 900px) {
+  .whiteboard__topline { flex-wrap: nowrap; padding: 3px 5px; gap: 4px; }
+  .whiteboard__topline .board-toolbar { flex-wrap: nowrap; overflow-x: auto; }
+}
+
+/* Tablet-friendly Goodnotes-inspired text controls; no additional toolbar row. */
+.whiteboard__topline .board-toolbar__text-style {
+  display: flex;
+  align-items: flex-end;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 3px 6px;
+  background: rgba(255,255,255,.13);
+  border: 1px solid rgba(255,255,255,.19);
+  border-radius: 11px;
+}
+.whiteboard__topline .board-toolbar__text-control {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #f1f5f9;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+.whiteboard__topline .board-toolbar__text-control select,
+.whiteboard__topline .board-toolbar__text-control input {
+  box-sizing: border-box;
+  height: 29px;
+  min-height: 29px;
+  background: #ffffff;
+  color: #172554;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font: 500 12px system-ui, sans-serif;
+  padding: 3px 7px;
+  outline-offset: 2px;
+}
+.whiteboard__topline .board-toolbar__text-control select { width: 144px; }
+.whiteboard__topline .board-toolbar__text-control input { width: 55px; }
+.whiteboard__topline .board-toolbar button.board-toolbar__text-bold {
+  font-size: 15px;
+  font-family: Georgia, serif;
+  font-weight: 700;
+  min-height: 29px;
+  height: 29px;
+  min-width: 32px;
+  border-radius: 7px;
+  margin-bottom: 1px;
+}
+.whiteboard__text-input {
+  width: min(330px, calc(100vw - 120px));
+  min-width: 125px;
+  min-height: 62px;
+  resize: both;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  background: rgba(255,255,255,.98);
+  border: 1.5px solid #3b82f6;
+  border-radius: 9px;
+  box-shadow: 0 4px 20px rgba(15,23,42,.19);
+  line-height: 1.22;
+  caret-color: #2563eb;
+  z-index: 3;
+}
+@media(max-width: 780px) {
+  .whiteboard__topline .board-toolbar__text-control select { width: 118px; }
+  .whiteboard__topline .board-toolbar__text-style { gap: 4px; padding: 3px 4px; }
+}
+
+/* Unsent writing is deliberately left visible instead of blinking away.
+   Make save failures actionable without blocking the drawing surface. */
+.whiteboard__ink-save-alert {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: calc(100% - 24px);
+  padding: 8px 11px;
+  color: #7f1d1d;
+  font: 600 12px/1.35 system-ui, sans-serif;
+  background: rgba(255, 251, 235, .98);
+  border: 1px solid #f59e0b;
+  border-radius: 9px;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, .12);
+}
+.whiteboard__ink-save-alert button {
+  padding: 6px 10px;
+  background: #ffffff;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.whiteboard__ink-save-alert button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Floating Islands — lesson controls. Keep LiveKit handlers untouched. */
+.online-class-room__controls {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  width:100%;
+  box-sizing:border-box;
+  padding:10px max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain;
+  scrollbar-width:thin;
+  background:#f8fbff;
+  border-top:1px solid #e2eaf5;
+}
+.online-class-room__controls > .lk-control-bar {
+  display:flex;
+  flex:0 0 auto;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  width:max-content;
+  max-width:none;
+  padding:0;
+  margin:0;
+  background:transparent;
+  border:0;
+  box-shadow:none;
+}
+.online-class-room__controls > .lk-control-bar > *,
+.online-class-room__controls > button {
+  flex:0 0 auto;
+}
+.online-class-room__controls .lk-button,
+.online-class-room__controls > button:not([class*='lk-']) {
+  min-height:44px;
+  border:1px solid #dce6f3;
+  border-radius:14px;
+  padding:9px 13px;
+  background:#fff;
+  color:#314963;
+  box-shadow:0 4px 14px rgba(32,58,99,.10);
+  white-space:nowrap;
+}
+.online-class-room__controls .lk-button:hover,
+.online-class-room__controls > button:not([class*='lk-']):hover {
+  background:#f0f6ff;
+}
+.online-class-room__controls .lk-button[aria-pressed='true'],
+.online-class-room__controls > button[aria-pressed='true']:not([class*='lk-']) {
+  background:#e8f1ff;
+  color:#245fc9;
+  border-color:#bcd4fd;
+}
+.online-class-room__controls > button.online-class-room__leave {
+  background:#fff;
+  color:#c43e46;
+  border-color:#efcbd0;
+}
+.online-class-room__controls > button.online-class-room__end {
+  background:#fff;
+  color:#b9333d;
+  border-color:#efcbd0;
+}
+.online-class-room__controls .lk-button:focus-visible,
+.online-class-room__controls > button:focus-visible {
+  outline:2px solid #3977da;
+  outline-offset:2px;
+}
+@media(max-width:900px) {
+  .online-class-room__controls {
+    gap:7px;
+    padding-top:7px;
+    padding-bottom:max(7px,env(safe-area-inset-bottom));
+  }
+  .online-class-room__controls .lk-button,
+  .online-class-room__controls > button:not([class*='lk-']) {
+    padding:8px 11px;
+  }
+}
+
+/* Retractable participant rail; the board remains mounted underneath. */
+.online-class-room__stage {
+  position:relative;
+  display:flex;
+  min-height:0;
+  overflow:hidden;
+}
+.online-class-room__stage > .online-class-room__main {
+  flex:1 1 auto;
+  min-width:0;
+}
+.online-class-room__videos-drawer {
+  position:absolute;
+  z-index:11;
+  top:0;
+  right:0;
+  bottom:0;
+  width:clamp(160px,23vw,250px);
+  background:#101a26;
+  transform:translateX(102%);
+  opacity:0;
+  pointer-events:none;
+  transition:transform .22s ease,opacity .22s ease;
+  overflow:auto;
+}
+.online-class-room__videos-drawer.is-open {
+  transform:translateX(0);
+  opacity:1;
+  pointer-events:auto;
+}
+.online-class-room__videos-toggle {
+  position:absolute;
+  z-index:12;
+  right:10px;
+  top:50%;
+  transform:translateY(-50%);
+  border:1px solid #dce6f3;
+  border-radius:13px;
+  padding:12px 9px;
+  background:rgba(255,255,255,.96);
+  color:#24518c;
+  box-shadow:0 4px 16px rgba(23,50,83,.17);
+  font:inherit;
+  cursor:pointer;
+  touch-action:manipulation;
+}
+.online-class-room__stage--videos-open .online-class-room__videos-toggle {
+  right:clamp(160px,23vw,250px);
+  border-radius:12px 0 0 12px;
+}
+.online-class-room__videos-toggle:focus-visible {
+  outline:2px solid #3977da;
+  outline-offset:2px;
+}
+/* The controls now float ON the lesson canvas. Empty space stays transparent
+   and permits the PDF and annotations to remain visible underneath. */
+.online-class-room {
+  position:relative;
+}
+.online-class-room__controls {
+  position:absolute;
+  z-index:15;
+  left:0;
+  right:0;
+  bottom:0;
+  width:auto;
+  border:0;
+  padding:8px 10px max(10px,env(safe-area-inset-bottom));
+  background:transparent;
+  box-shadow:none;
+  pointer-events:none;
+  scrollbar-width:none;
+}
+.online-class-room__controls::-webkit-scrollbar {display:none}
+.online-class-room__controls > * {pointer-events:auto}
+.online-class-room__controls > .lk-control-bar {
+  background:transparent!important;
+  box-shadow:none!important;
+}
+@media(max-width:640px) {
+  .online-class-room__videos-drawer {width:min(58vw,220px)}
+  .online-class-room__stage--videos-open .online-class-room__videos-toggle {right:min(58vw,220px)}
+  .online-class-room__controls {padding:6px 8px max(8px,env(safe-area-inset-bottom))}
+}
+@media(prefers-reduced-motion:reduce) {
+  .online-class-room__videos-drawer {transition:none}
+}
+
+/* iPad visual QA: unobstructed page navigation and a clean retractable video tab. */
+.online-class-room__videos-toggle {
+  top:12px;
+  right:12px;
+  transform:none;
+  padding:9px 12px;
+  min-height:44px;
+}
+.online-class-room__stage--videos-open .online-class-room__videos-toggle {
+  right:clamp(160px,23vw,250px);
+}
+.online-class-room__controls {
+  justify-content:flex-start;
+  bottom:0;
+  isolation:isolate;
+  padding-bottom:max(10px,env(safe-area-inset-bottom));
+}
+/* The bottom row floats OVER the canvas; navigation and zoom float just above
+   that row, so no controls share the same hit area. */
+.online-class-room .school-islands-board .whiteboard__topline-pages,
+.online-class-room .school-islands-board .whiteboard__zoom {
+  bottom:calc(75px + env(safe-area-inset-bottom));
+  z-index:12;
+}
+.online-class-room .school-islands-board .whiteboard__stage {
+  padding-bottom:0;
+}
+@media(max-width:900px) {
+  .online-class-room__videos-toggle {top:8px;right:8px}
+  .online-class-room .school-islands-board .whiteboard__topline-pages,
+  .online-class-room .school-islands-board .whiteboard__zoom {
+    bottom:calc(68px + env(safe-area-inset-bottom));
+  }
+}
+@media(max-width:640px) {
+  .online-class-room__stage--videos-open .online-class-room__videos-toggle {
+    right:min(58vw,220px);
+  }
+}
+
+/* One compact line of lesson chrome; the board gets the released height. */
+.online-class-room__topbar {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:8px;
+  min-height:58px;
+  padding:7px max(12px,env(safe-area-inset-right)) 7px max(12px,env(safe-area-inset-left));
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;
+  background:#fff;
+}
+.online-class-room__topbar::-webkit-scrollbar {display:none}
+.online-class-room__topbar > * {
+  flex-shrink:0;
+}
+.online-class-room__topbar .online-class-room__videos-toggle {
+  position:static;
+  transform:none;
+  min-height:40px;
+  margin-left:auto;
+  border-radius:12px;
+  white-space:nowrap;
+  box-shadow:0 3px 12px rgba(32,58,99,.09);
+}
+.online-class-room__topbar .board-switcher {
+  flex:0 0 auto;
+}
+@media(max-width:800px) {
+  .online-class-room__topbar {
+    min-height:52px;
+    gap:7px;
+    padding-top:5px;
+    padding-bottom:5px;
+  }
+}
+
+/* Teacher-only four-way personal board overview. Each tile is a live,
+   read-only view; opening a tile returns to its normal full-size editor. */
+.online-class-room__student-grid {
+  position:absolute;
+  inset:0;
+  z-index:5;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-rows:repeat(2,minmax(0,1fr));
+  gap:8px;
+  padding:8px 8px 80px;
+  background:#edf3fb;
+}
+.online-class-room__student-tile {
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+  min-height:0;
+  overflow:hidden;
+  background:#fff;
+  border:1px solid #dce6f3;
+  border-radius:13px;
+}
+.online-class-room__student-tile-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+  min-height:35px;
+  padding:4px 9px;
+  color:#294465;
+  font-size:13px;
+  border-bottom:1px solid #e5ebf5;
+}
+.online-class-room__student-tile-header strong {
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.online-class-room__student-tile-header button {
+  border:1px solid #cbdcf2;
+  background:#fff;
+  border-radius:8px;
+  padding:4px 8px;
+  color:#245fc9;
+}
+.online-class-room__student-tile > .whiteboard {
+  flex:1 1 auto;
+  min-height:0;
+}
+.online-class-room__student-tile .whiteboard__topline,
+.online-class-room__student-tile .whiteboard__topline-pages,
+.online-class-room__student-tile .whiteboard__zoom,
+.online-class-room__student-tile .whiteboard__notice {
+  display:none!important;
+}
+.online-class-room__student-grid-empty {
+  padding:15px;
+  color:#536987;
+}
+@media(max-width:600px) {
+  .online-class-room__student-grid {gap:4px;padding:4px 4px 72px}
+  .online-class-room__student-tile-header {padding:3px 5px;font-size:11px}
+  .online-class-room__student-tile-header button {padding:4px;font-size:11px}
+}
+
+/* Continuous solutions PDF viewer: pages stacked with independent scroll and zoom. */
+.classroom-solutions { display:flex; flex-direction:column; min-height:0; }
+.classroom-solutions__toolbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+  padding:8px; border-bottom:1px solid #dce6f3; background:#fff;
+}
+.classroom-solutions__zoom { display:flex; gap:6px; align-items:center; }
+.classroom-solutions__zoom button {
+  min-width:40px; min-height:40px; border-radius:10px;
+  background:#fff; border:1px solid #dce6f3; color:#344b6e;
+}
+.classroom-solutions__scroller {
+  flex:1 1 auto; min-height:0; overflow:auto;
+  overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+  padding:10px; background:#eef3fa;
+}
+.classroom-solutions__sheet {
+  width:100%; margin-bottom:14px;
+  background:#fff; border:1px solid #dce6f3;
+  box-shadow:0 3px 12px rgba(32,58,99,.11);
+  overflow:visible;
+}
+.classroom-solutions__sheet small {display:block; padding:5px 8px;color:#506482;}
+.classroom-solutions__sheet canvas {display:block;}
+
+
+/* LiveKit device dropdown must open above the floating bottom toolbar.
+   The toolbar scrolls horizontally, so an ordinary downward absolute menu
+   gets clipped off screen (especially on Samsung tablets and iPad). */
+.online-class-room__controls .lk-device-menu {
+  position: fixed !important;
+  top: auto !important;
+  bottom: calc(78px + env(safe-area-inset-bottom)) !important;
+  left: max(12px, calc(50vw - 160px)) !important;
+  right: auto !important;
+  z-index: 1100 !important;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(50vh, 340px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Teacher PDF reference is a true sibling of the main board. Neither of the
+   two teacher-only entry points ('Решения' / 'Ответы') floats over its ink.
+   The drawing canvas already uses ResizeObserver + normalized annotations,
+   so resizing the flex main area fits the full page in the remaining width. */
+.online-class-room__stage > .answers-panel,
+.online-class-room__stage > .classroom-solutions {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: clamp(210px, 23vw, 285px);
+  max-width: 40%;
+  flex: 0 0 clamp(210px, 23vw, 285px);
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  z-index: 2;
+  box-shadow: none;
+  border-right: 1px solid #dce6f3;
+  overflow: hidden;
+}
+.online-class-room__stage > .online-class-room__main {
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+}
+.online-class-room__stage > .answers-panel .answers-panel__close {
+  right: 7px;
+  top: 7px;
+}
+.online-class-room__stage > .answers-panel .answers-panel__controls {
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 6px;
+}
+.online-class-room__stage > .classroom-solutions .classroom-solutions__toolbar {
+  flex-wrap: wrap;
+  padding: 6px;
+}
+.online-class-room__stage > .classroom-solutions .classroom-solutions__scroller {
+  min-width: 0;
+}
+@media (max-width: 680px) {
+  .online-class-room__stage > .answers-panel,
+  .online-class-room__stage > .classroom-solutions {
+    width: 40%;
+    flex-basis: 40%;
+    max-width: 40%;
+  }
+  .online-class-room__stage > .answers-panel .page-nav button,
+  .online-class-room__stage > .answers-panel .answers-panel__zoom button {
+    min-width: 34px;
+    min-height: 34px;
+  }
+}
+
+/* Single-finger PDF scrolling stays native; two-finger pinch belongs only to
+   the PDF reference pane and never scales the entire classroom. */
+.online-class-room__stage > .answers-panel .answers-panel__scroll,
+.online-class-room__stage > .classroom-solutions .classroom-solutions__scroller {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The notebook is a lesson surface alongside the board, rather than a modal
+   nested in the horizontally scrolling call controls. */
+.online-class-room__topbar .online-class-room__notebook-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 1px solid #dce6f3;
+  border-radius: 12px;
+  background: #eef4fd;
+  color: #224c85;
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.online-class-room__topbar .online-class-room__notebook-toggle[aria-pressed='true'] {
+  background: #dceafd;
+  border-color: #78a4dd;
+}
+.online-class-room__notebook {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px 12px calc(90px + env(safe-area-inset-bottom));
+  background: #f2f4f7;
+}
+.online-class-room__notebook[hidden] { display: none; }
+.online-class-room__notebook .notebook-camera { min-width: 0; padding: 16px; }
+.online-class-room__notebook .notebook-camera__heading {
+  position: sticky;
+  top: -12px;
+  z-index: 2;
+  padding: 12px 0;
+  background: #fff;
+}
+.online-class-room__notebook .notebook-camera__heading h2 { font-size: 22px; }
+.online-class-room__notebook .notebook-camera__heading p { margin-bottom: 0; }
+.online-class-room__notebook .notebook-camera__heading > button { flex-shrink: 0; }
+.online-class-room__notebook .notebook-camera__connect { margin: 12px 0; gap: 16px; }
+.online-class-room__notebook .notebook-camera__connect > div:first-child { flex: 1 1 240px; }
+.online-class-room__notebook .notebook-camera__qr { flex: 0 1 304px; }
+.online-class-room__notebook .notebook-camera__viewer {
+  height: max(620px, calc(100dvh - 180px));
+  min-height: 0;
+}
+@media (min-width: 901px) {
+  .online-class-room__stage--notebook > .online-class-room__videos-drawer.is-open {
+    position: relative;
+    flex: 0 0 clamp(160px, 23vw, 250px);
+  }
+}
+@media (max-width: 700px) {
+  .online-class-room__notebook { padding: 6px 6px calc(85px + env(safe-area-inset-bottom)); }
+  .online-class-room__notebook .notebook-camera { padding: 10px; }
+  .online-class-room__notebook .notebook-camera__heading { top: -6px; gap: 8px; flex-wrap: wrap; }
+  .online-class-room__notebook .notebook-camera__heading h2 { font-size: 20px; }
+  .online-class-room__notebook .notebook-camera__qr { flex-basis: 100%; padding: 10px; }
+  .online-class-room__notebook .notebook-camera__viewer { height: 850px; }
+}
+
+/* Each pupil keeps one surface in the same DOM location. The camera replaces
+   that pupil's board both in the overview and when opened on its own. */
+.student-workspaces {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 8px calc(80px + env(safe-area-inset-bottom));
+  background: #edf3fb;
+}
+.online-class-room.lk-room-container { overflow: hidden; }
+.student-workspaces--overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+/* Don't reserve two empty grid cells when only one or two pupils joined.
+   Each preview now gets a readable full-height sheet in a two-pupil lesson. */
+.student-workspaces--overview[data-overview-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.student-workspaces--overview[data-overview-count="2"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+.student-workspace {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #dce6f3;
+  border-radius: 13px;
+  background: #fff;
+}
+.student-workspaces[hidden], .student-workspace[hidden],
+.student-workspace__board[hidden], .student-workspace__camera-board[hidden] { display: none; }
+.student-workspace .online-class-room__student-tile-header { flex-wrap: wrap; }
+.student-workspace .online-class-room__student-tile-header strong { min-width: 0; }
+.student-workspace .online-class-room__student-tile-header button { flex-shrink: 0; }
+.student-workspace .online-class-room__student-tile-header .student-workspace__follow {
+  min-height: 28px;
+  white-space: nowrap;
+}
+.student-workspace .online-class-room__student-tile-header .student-workspace__follow[aria-pressed='true'] {
+  border-color: #2563a9;
+  background: #e7f1ff;
+  color: #174d8a;
+}
+.online-class-room--original-v3 .student-workspace .online-class-room__student-tile-header .student-workspace__follow[aria-pressed='true'] {
+  border-color: var(--v3-orange, #ff812f);
+  background: var(--v3-selected, #553824);
+  color: var(--v3-orange, #ff812f);
+}
+.student-workspace__kind {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 11px;
+  color: #526b88;
+}
+.student-workspace__content { position: relative; flex: 1 1 0%; min-width: 0; min-height: 0; }
+.student-workspace__board, .student-workspace__camera-board, .student-workspace__camera { position: absolute; inset: 0; min-width: 0; min-height: 0; }
+.student-workspace__board, .student-workspace__camera-board { display: flex; flex-direction: column; }
+.student-workspace__board > .whiteboard, .student-workspace__camera-board > .whiteboard { flex: 1 1 0%; min-height: 0; }
+.student-workspace__camera { pointer-events: none; }
+.student-workspace__camera > div { height: 100%; min-height: 0; }
+.notebook-camera-viewer__source { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.student-workspace__camera [role='alert'] { position: absolute; inset: 0 0 auto; z-index: 4; pointer-events: auto; margin: 0; }
+/* The live frame and ink share one Konva stage, including its pan and zoom.
+   Keep the normal board's floating controls over the entire workspace. */
+.whiteboard--camera.school-islands-board,
+.whiteboard--camera.school-islands-board .whiteboard__stage,
+.whiteboard--camera .whiteboard__surface { background: #edf1f5; background-image: none; }
+.student-workspaces--overview .whiteboard__topline,
+.student-workspaces--overview .whiteboard__topline-pages,
+.student-workspaces--overview .whiteboard__zoom,
+.student-workspaces--overview .whiteboard__notice { display: none !important; }
+@media (min-width: 901px) {
+  .online-class-room__stage--student-workspaces > .online-class-room__videos-drawer.is-open {
+    position: relative;
+    flex: 0 0 clamp(160px, 23vw, 250px);
+  }
+}
+@media (max-width: 600px) {
+  .student-workspaces { padding: 4px 4px calc(72px + env(safe-area-inset-bottom)); }
+  .student-workspaces--overview { gap: 4px; }
+  .student-workspace .online-class-room__student-tile-header { flex-wrap: wrap; gap: 3px; padding: 4px; }
+  .student-workspace__kind { font-size: 10px; }
+}

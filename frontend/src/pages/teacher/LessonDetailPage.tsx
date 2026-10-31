@@ -1,0 +1,1003 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { api } from '../../api/client';
+import { isNativeLesson, lessonDurationLabel } from '../../lib/lessonSchedule';
+import { lessonPreparationApi, completedLessonApi, type CompletedLessonDocument } from '../../api/lessonPreparation';
+import { aiPilotApi } from '../../api/aiPilot';
+import { useAuth } from '../../auth/AuthContext';
+import type { GroupLesson, Homework, LessonPreparation, StudentListItem } from '../../api/types';
+import { toErrorMessage } from '../../lib/errors';
+import { useI18n } from '../../i18n/I18nContext';
+import { StartOnlineClassButton } from '../../features/online-classes/StartOnlineClassButton';
+import { LessonClassArtifacts } from '../../features/online-classes/LessonClassArtifacts';
+import { GoogleDrivePdfPicker } from './GoogleDrivePdfPicker';
+
+type HomeworkSummary = {
+  assigned: number;
+  submitted: number;
+  open: number;
+  students: Array<{ id: string; name: string; assigned: number; submitted: number }>;
+};
+
+type LessonStudent = Pick<StudentListItem, 'id' | 'fullName' | 'chatGptProjectUrl'>;
+type TextSectionKind = 'homework' | 'difficulties' | 'plan';
+type MaterialKind = 'workbook' | 'answers' | 'transcript';
+
+type LessonHomeworkItem = {
+  studentId: string;
+  studentName: string;
+  homework: Homework;
+};
+
+type NoteGroup = {
+  key: string;
+  title: string;
+  items: string[];
+  student: boolean;
+};
+
+const NICK_AI_PILOT_TEACHER_ID = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
+
+export function LessonDetailPage() {
+  const { eventId = '' } = useParams();
+  const { language, t } = useI18n();
+  const { user } = useAuth();
+  const isNickAiPilot = user?.id === NICK_AI_PILOT_TEACHER_ID;
+  const [lesson, setLesson] = useState<GroupLesson | null>(null);
+  const hasLessonAudience = Boolean(lesson?.studentId || lesson?.groupId);
+  const [lessonStudents, setLessonStudents] = useState<LessonStudent[]>([]);
+  const [preparation, setPreparation] = useState<LessonPreparation | null>(null);
+  const [coveredMaterial, setCoveredMaterial] = useState('');
+  const [homeworkNotes, setHomeworkNotes] = useState('');
+  const [difficulties, setDifficulties] = useState('');
+  const [lessonPlan, setLessonPlan] = useState('');
+  const [transcriptText, setTranscriptText] = useState('');
+  const [homeworkSummary, setHomeworkSummary] = useState<HomeworkSummary | null>(null);
+  const [lessonHomeworks, setLessonHomeworks] = useState<LessonHomeworkItem[]>([]);
+  const [workbookUrl, setWorkbookUrl] = useState<string | null>(null);
+  const [answersUrl, setAnswersUrl] = useState<string | null>(null);
+  const [transcriptUrl, setTranscriptUrl] = useState<string | null>(null);
+  const [completedDocuments, setCompletedDocuments] = useState<CompletedLessonDocument[]>([]);
+  const [uploadingCompleted, setUploadingCompleted] = useState(false);
+  const [completedUploadError, setCompletedUploadError] = useState<string | null>(null);
+  const [completedUploadSuccess, setCompletedUploadSuccess] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingWorkbook, setUploadingWorkbook] = useState(false);
+  const [uploadingAnswers, setUploadingAnswers] = useState(false);
+  const [uploadingTranscript, setUploadingTranscript] = useState(false);
+  const [openingChatGpt, setOpeningChatGpt] = useState<MaterialKind | null>(null);
+  const [archivingDrive, setArchivingDrive] = useState(false);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [aiModel, setAiModel] = useState('');
+  const [aiRunning, setAiRunning] = useState<'prepare' | 'analyze' | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!eventId) return;
+    let cancelled = false;
+    void completedLessonApi.list(eventId)
+      .then(items => { if (!cancelled) setCompletedDocuments(items); })
+      .catch(() => { if (!cancelled) setCompletedUploadError('Не удалось получить список сохранённых документов. Обновите страницу.'); });
+    return () => { cancelled = true; };
+  }, [eventId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [lessons, prep, allStudents] = await Promise.all([
+          api.lessons.groupLessons(),
+          lessonPreparationApi.get(eventId),
+          api.students.list(),
+        ]);
+        if (cancelled) return;
+        const currentLesson = lessons.find((item) => item.eventId === eventId) ?? null;
+        setLesson(currentLesson);
+        setPreparation(prep);
+        setCoveredMaterial(prep.coveredMaterial ?? '');
+        setHomeworkNotes(prep.homeworkNotes ?? '');
+        setDifficulties(prep.difficulties ?? '');
+        setLessonPlan(prep.lessonPlan ?? '');
+        setTranscriptText(prep.transcriptText ?? '');
+
+        if (prep.hasWorkbook) {
+          try { if (!cancelled) setWorkbookUrl(await lessonPreparationApi.workbookUrl(eventId)); } catch { /* page still works */ }
+        }
+        if (prep.hasAnswers) {
+          try { if (!cancelled) setAnswersUrl(await lessonPreparationApi.answersUrl(eventId)); } catch { /* page still works */ }
+        }
+        if (prep.hasTranscript) {
+          try { if (!cancelled) setTranscriptUrl(await lessonPreparationApi.transcriptUrl(eventId)); } catch { /* page still works */ }
+        }
+        if (currentLesson) {
+          const [summary, students, homeworkItems] = await Promise.all([
+            buildHomeworkSummary(currentLesson),
+            resolveLessonStudents(currentLesson, allStudents),
+            buildLessonHomeworkDetails(currentLesson),
+          ]);
+          if (!cancelled) {
+            setHomeworkSummary(summary);
+            setLessonStudents(students);
+            setLessonHomeworks(homeworkItems);
+          }
+        }
+      } catch (e) {
+        if (!cancelled) setError(toErrorMessage(e, t));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, t]);
+
+  useEffect(() => {
+    if (!isNickAiPilot) return;
+    let cancelled = false;
+    aiPilotApi.status()
+      .then((status) => {
+        if (cancelled) return;
+        setAiConfigured(status.configured);
+        setAiModel(status.model);
+      })
+      .catch(() => {
+        if (!cancelled) setAiConfigured(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isNickAiPilot]);
+
+  useEffect(() => () => {
+    if (workbookUrl) URL.revokeObjectURL(workbookUrl);
+  }, [workbookUrl]);
+
+  useEffect(() => () => {
+    if (answersUrl) URL.revokeObjectURL(answersUrl);
+  }, [answersUrl]);
+
+  useEffect(() => () => {
+    if (transcriptUrl) URL.revokeObjectURL(transcriptUrl);
+  }, [transcriptUrl]);
+
+  const dateText = useMemo(() => {
+    if (!lesson) return '';
+    if (isNativeLesson(lesson)) {
+      return new Intl.DateTimeFormat('ru-RU', {
+        weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin',
+      }).format(new Date(lesson.startsAt)) + ' · ' + lessonDurationLabel(lesson, 'RU');
+    }
+    return new Intl.DateTimeFormat('ru-RU', {
+      weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin',
+    }).format(new Date(lesson.startsAt));
+  }, [lesson]);
+
+  function applyPreparation(updated: LessonPreparation) {
+    setPreparation(updated);
+    setCoveredMaterial(updated.coveredMaterial ?? '');
+    setHomeworkNotes(updated.homeworkNotes ?? '');
+    setDifficulties(updated.difficulties ?? '');
+    setLessonPlan(updated.lessonPlan ?? '');
+    setTranscriptText(updated.transcriptText ?? '');
+  }
+
+  async function runAiPilot(action: 'prepare' | 'analyze') {
+    if (!isNickAiPilot || aiRunning) return;
+    setAiRunning(action);
+    setError(null);
+    setMessage(null);
+    try {
+      const saved = await lessonPreparationApi.update(eventId, { coveredMaterial, homeworkNotes, difficulties, lessonPlan, transcriptText });
+      applyPreparation(saved);
+      const updated = action === 'prepare'
+        ? await aiPilotApi.prepareLesson(eventId)
+        : await aiPilotApi.analyzeTranscript(eventId);
+      applyPreparation(updated);
+      setMessage(action === 'prepare'
+        ? 'AI подготовил черновик урока по плану месяца. Проверьте и отредактируйте его перед занятием.'
+        : 'AI разобрал транскрипцию и подготовил черновик домашки и направление следующего урока.');
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      setAiRunning(null);
+    }
+  }
+
+  async function savePreparation() {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const updated = await lessonPreparationApi.update(eventId, { coveredMaterial, homeworkNotes, difficulties, lessonPlan, transcriptText });
+      setPreparation(updated);
+      setMessage('Информация для урока сохранена.');
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function uploadCompletedPdf(file: File) {
+    if (!eventId || uploadingCompleted) return;
+    setCompletedUploadError(null);
+    setCompletedUploadSuccess(null);
+    setError(null);
+    setMessage(null);
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setCompletedUploadError('Выберите файл PDF.');
+      return;
+    }
+    if (!file.size || file.size > 25 * 1024 * 1024) {
+      setCompletedUploadError('PDF пустой или больше 25 МБ. Выберите файл размером до 25 МБ.');
+      return;
+    }
+    setUploadingCompleted(true);
+    try {
+      const uploaded = await completedLessonApi.uploadManual(eventId, file);
+      const verified = await completedLessonApi.list(eventId);
+      const present = verified.some(item => item.id === uploaded.id && item.boardId === 'manual-shared');
+      if (!present) throw new Error('Сервер не подтвердил сохранение PDF. Пожалуйста, повторите попытку.');
+      setCompletedDocuments(verified);
+      setCompletedUploadSuccess(`Файл «${uploaded.filename}» сохранён в пройденном уроке.`);
+    } catch (e) {
+      const detail = toErrorMessage(e, t);
+      setCompletedUploadError(`Не удалось загрузить PDF: ${detail}`);
+    } finally {
+      setUploadingCompleted(false);
+    }
+  }
+
+  async function uploadPdf(kind: MaterialKind, file: File) {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setError('Нужен PDF-файл.');
+      return;
+    }
+    if (kind === 'workbook' && uploadingWorkbook) return;
+    if (kind === 'answers' && uploadingAnswers) return;
+    if (kind === 'transcript' && uploadingTranscript) return;
+    if (kind === 'workbook') setUploadingWorkbook(true);
+    if (kind === 'answers') setUploadingAnswers(true);
+    if (kind === 'transcript') setUploadingTranscript(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const updated = kind === 'workbook'
+        ? await lessonPreparationApi.uploadWorkbook(eventId, file)
+        : kind === 'answers'
+          ? await lessonPreparationApi.uploadAnswers(eventId, file)
+          : await lessonPreparationApi.uploadTranscript(eventId, file);
+      applyPreparation(updated);
+      if (kind === 'workbook') setWorkbookUrl(await lessonPreparationApi.workbookUrl(eventId));
+      if (kind === 'answers') setAnswersUrl(await lessonPreparationApi.answersUrl(eventId));
+      if (kind === 'transcript') setTranscriptUrl(await lessonPreparationApi.transcriptUrl(eventId));
+      setMessage(kind === 'workbook'
+        ? 'Рабочая тетрадь обновлена.'
+        : kind === 'answers'
+          ? 'Ответы для учителя обновлены.'
+          : 'PDF транскрипции сохранён в уроке.');
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      if (kind === 'workbook') setUploadingWorkbook(false);
+      if (kind === 'answers') setUploadingAnswers(false);
+      if (kind === 'transcript') setUploadingTranscript(false);
+    }
+  }
+
+  async function archiveToDrive() {
+    if (archivingDrive || (!preparation?.hasWorkbook && !preparation?.hasAnswers)) return;
+    setArchivingDrive(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await lessonPreparationApi.archiveToDrive(eventId);
+      setMessage('PDF сохранены в Google Drive. Копии в Mindcrafti остаются основными.');
+    } catch (e) {
+      setError(toErrorMessage(e, t));
+    } finally {
+      setArchivingDrive(false);
+    }
+  }
+
+  async function editPdfInChatGpt(kind: MaterialKind, url: string | null, filename?: string | null) {
+    if (!url || openingChatGpt) return;
+    setOpeningChatGpt(kind);
+    setError(null);
+    setMessage(null);
+
+    const singleStudentProject = lessonStudents.length === 1 ? lessonStudents[0].chatGptProjectUrl?.trim() : null;
+    const chatUrl = singleStudentProject || 'https://chatgpt.com/';
+    const chatTab = window.open(chatUrl, '_blank');
+    if (chatTab) chatTab.opener = null;
+
+    try {
+      downloadObjectUrl(url, filename || (kind === 'workbook' ? 'lesson-workbook.pdf' : kind === 'answers' ? 'lesson-answers.pdf' : 'lesson-transcript.pdf'));
+      const lessonLabel = lesson?.groupName
+        ? `группы «${lesson.groupName}»`
+        : lesson?.studentName
+          ? `ученика ${lesson.studentName}`
+          : 'этого урока';
+      const instruction = kind === 'workbook'
+        ? `Отредактируй прикреплённую рабочую тетрадь для ${lessonLabel}. Меняй только то, что я попрошу в чате. Сохрани формат страниц, структуру заданий и удобство для ученика. Верни результат снова PDF-файлом.`
+        : kind === 'answers'
+          ? `Отредактируй прикреплённый PDF с ответами для учителя к уроку ${lessonLabel}. Меняй только то, что я попрошу в чате. Сохрани соответствие рабочей тетради и верни результат снова PDF-файлом.`
+          : `Проанализируй прикреплённую PDF-транскрипцию урока ${lessonLabel}. Используй именно этот документ как первичный источник фактов о проведённом уроке.`;
+      try {
+        await navigator.clipboard.writeText(instruction);
+      } catch {
+        // Clipboard can be unavailable; opening ChatGPT and downloading the file still works.
+      }
+      setMessage('PDF скачан, ChatGPT открыт, инструкция для редактирования скопирована.');
+    } catch (e) {
+      if (chatTab) chatTab.close();
+      setError(toErrorMessage(e, t));
+    } finally {
+      setOpeningChatGpt(null);
+    }
+  }
+
+  if (loading) return <p className="muted">{t('common.loading')}</p>;
+
+  return (
+    <div style={{ maxWidth: 1320, margin: '0 auto' }}>
+      <div className="lesson-detail-header">
+        <div>
+          <Link to="/teacher/lessons" className="muted">← Назад к расписанию</Link>
+          <h1 style={{ margin: '10px 0 4px' }}>{lesson?.title ?? 'Урок'}</h1>
+          <div className="muted">{dateText || 'Событие Google Calendar'}</div>
+          {(lesson?.groupName || lesson?.studentName) && (
+            <div style={{ marginTop: 8, fontWeight: 800, color: 'var(--teacher-selected-text, #d94f00)' }}>
+              {lesson?.groupName ? `Группа: ${lesson.groupName}` : `Ученик: ${lesson?.studentName}`}
+            </div>
+          )}
+        </div>
+        <div className="lesson-detail-actions">
+          {(preparation?.hasWorkbook || preparation?.hasAnswers) && (
+            <button className="btn btn--ghost" type="button" onClick={() => void archiveToDrive()} disabled={archivingDrive}>
+              {archivingDrive ? 'Сохраняем в Drive…' : 'Сохранить в Google Drive'}
+            </button>
+          )}
+          {lesson?.calendarUrl && <a className="btn btn--ghost" href={lesson.calendarUrl} target="_blank" rel="noreferrer">Google Calendar</a>}
+          {lesson && hasLessonAudience && (
+            <StartOnlineClassButton eventId={lesson.eventId} />
+          )}
+          {lesson?.meetUrl && <a className="btn btn--ghost" href={lesson.meetUrl} target="_blank" rel="noreferrer">{t('onlineClass.meetFallback')}</a>}
+          {lesson && !hasLessonAudience && (
+            <p className="muted" style={{ maxWidth: 340, fontSize: 13 }}>{language === 'DE'
+              ? 'Ordnen Sie diesem Unterricht einen Schüler zu, damit er teilnehmen kann.'
+              : 'Для подключения ученика назначьте его этому уроку'}</p>
+          )}
+          {/* Retain the configured standalone board for lessons that do not use the video classroom. */}
+          {user?.role === 'TEACHER' && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && (import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED !== 'true' || !hasLessonAudience) && (
+            <Link className="btn btn--secondary" to={`/lesson-board/${encodeURIComponent(eventId)}`}>
+              Mindcrafti доска (тест)
+            </Link>
+          )}
+        </div>
+        {/* Renders nothing unless an online class was actually held. */}
+        {eventId && <LessonClassArtifacts eventId={eventId} />}
+      </div>
+
+      {error && <div className="banner banner--error" style={{ marginBottom: 14 }}>{error}</div>}
+      {message && <div className="banner banner--success" style={{ marginBottom: 14 }}>{message}</div>}
+
+      {isNickAiPilot && (
+        <section className="panel" style={{ padding: 18, margin: '0 0 18px', border: '1px solid var(--teacher-selected-border, #f0c7ad)', background: 'var(--teacher-selected, #fffaf7)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 12, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--teacher-selected-text, #d94f00)' }}>AI пилот Николая</p>
+              <h2 style={{ margin: '5px 0 4px' }}>Автоподготовка урока</h2>
+              <div className="muted" style={{ fontSize: 13, maxWidth: 760 }}>
+                Доступно только вашему аккаунту. AI использует план на месяц, школьный промт, прошлый урок и сохранённую транскрипцию. Ничего ученикам автоматически не отправляется.
+              </div>
+            </div>
+            <span className={aiConfigured ? 'pill pill--learned' : 'pill'}>
+              {aiConfigured === null ? 'проверяем API' : aiConfigured ? `API готов · ${aiModel}` : 'API ещё не подключён'}
+            </span>
+          </div>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+            <button
+              className="btn"
+              type="button"
+              disabled={!aiConfigured || aiRunning !== null}
+              onClick={() => void runAiPilot('prepare')}
+            >
+              {aiRunning === 'prepare' ? 'AI готовит урок…' : 'AI подготовить урок'}
+            </button>
+            <button
+              className="btn btn--secondary"
+              type="button"
+              disabled={!aiConfigured || aiRunning !== null || (!preparation?.hasTranscript && !transcriptText.trim())}
+              onClick={() => void runAiPilot('analyze')}
+            >
+              {aiRunning === 'analyze' ? 'AI разбирает урок…' : 'AI разобрать транскрипцию и сделать домашку'}
+            </button>
+          </div>
+          {aiConfigured === false && (
+            <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+              Код пилота уже подключён. Для запуска осталось добавить OPENAI_API_KEY в backend Railway.
+            </div>
+          )}
+        </section>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, marginBottom: 18 }}>
+        <MaterialPanel
+          title="Рабочая тетрадь"
+          subtitle="Материал, который используется на уроке"
+          filename={preparation?.workbookFilename}
+          url={workbookUrl}
+          emptyText="Рабочая тетрадь ещё не добавлена"
+          uploading={uploadingWorkbook}
+          editingInChatGpt={openingChatGpt === 'workbook'}
+          onUpload={(file) => void uploadPdf('workbook', file)}
+          onEditInChatGpt={() => void editPdfInChatGpt('workbook', workbookUrl, preparation?.workbookFilename)}
+        />
+        <MaterialPanel
+          title="Ответы для учителя"
+          subtitle="Решения и подсказки, которые видит только учитель"
+          filename={preparation?.answersFilename}
+          url={answersUrl}
+          emptyText="Ответы ещё не добавлены"
+          uploading={uploadingAnswers}
+          editingInChatGpt={openingChatGpt === 'answers'}
+          onUpload={(file) => void uploadPdf('answers', file)}
+          onEditInChatGpt={() => void editPdfInChatGpt('answers', answersUrl, preparation?.answersFilename)}
+        />
+        <MaterialPanel
+          title="Транскрипция урока"
+          subtitle="Оригинальный PDF Soniox хранится прямо внутри этого урока"
+          filename={preparation?.transcriptFilename}
+          url={transcriptUrl}
+          emptyText="PDF транскрипции ещё не добавлен"
+          uploading={uploadingTranscript}
+          editingInChatGpt={openingChatGpt === 'transcript'}
+          onUpload={(file) => void uploadPdf('transcript', file)}
+          onEditInChatGpt={() => void editPdfInChatGpt('transcript', transcriptUrl, preparation?.transcriptFilename)}
+        />
+        <section className="panel" style={{padding:20,margin:0,border:'1px solid #ffdfca'}}>
+          <div style={{display:'flex',gap:12,alignItems:'flex-start',justifyContent:'space-between'}}>
+            <div style={{display:'flex',gap:12,alignItems:'center'}}>
+              <span style={{background:'#fff7ed',borderRadius:12,padding:'14px 9px',fontSize:22}}>PDF</span>
+              <div><h2 style={{margin:0}}>Пройденный урок</h2><div className="muted" style={{fontSize:13,marginTop:4}}>Документы с записями общей доски и каждого ученика</div></div>
+            </div>
+            <span style={{color:completedDocuments.length?'#138a48':'#778399',fontWeight:700,fontSize:12}}>{completedDocuments.length?'ГОТОВО':'НЕТ ФАЙЛОВ'}</span>
+          </div>
+          {(() => {
+            const boardId = 'manual-shared';
+            const item = completedDocuments.find(doc=>doc.boardId===boardId)
+              ?? completedDocuments.find(doc=>doc.boardId==='board-1')
+              ?? completedDocuments.find(doc=>doc.boardId==='imported-workbook');
+            return <div style={{border:'1px solid #e5e7eb',borderRadius:16,padding:16,marginBottom:12}}>
+              <strong style={{overflowWrap:'anywhere'}}>{item?.filename ?? 'PDF ещё не загружен'}</strong>
+              <div className="muted" style={{fontSize:13,marginTop:6}}>{item ? (item.boardId === 'board-1' ? 'Автоматически сохранённая общая доска. Открывается отдельно.' : 'Открывается отдельно — страница урока остаётся на месте.') : 'Загрузи PDF с результатами урока.'}</div>
+              {item && <button type="button" className="btn" style={{width:'100%',marginTop:12}} onClick={()=>void completedLessonApi.open(eventId,item.id)}>Открыть PDF ↗</button>}
+            </div>;
+          })()}
+          <label className="btn btn--secondary" style={{display:'inline-flex',cursor:uploadingCompleted?'wait':'pointer'}}>
+            {uploadingCompleted?'Загружаем…':completedDocuments.some(doc=>doc.boardId==='manual-shared')?'Заменить PDF':'Загрузить PDF'}
+            <input type="file" accept=".pdf,application/pdf" disabled={uploadingCompleted} style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];if(file)void uploadCompletedPdf(file);e.currentTarget.value='';}}/>
+          </label>
+          {completedUploadError && <p role="alert" style={{color:'#b91c1c',marginTop:10,fontSize:13}}>{completedUploadError}</p>}
+          {completedUploadSuccess && <p role="status" style={{color:'#138a48',marginTop:10,fontSize:13}}>{completedUploadSuccess}</p>}
+        </section>
+      </div>
+
+      <section className="panel" style={{padding:20,marginBottom:18}}>
+        <h2 style={{marginTop:0}}>Пройденный урок</h2>
+        <p className="muted">Архив общих и личных досок со всеми страницами и записями. Оригинальная рабочая тетрадь не меняется.</p>
+        {completedDocuments.length === 0 ? <p className="muted">Документы ещё не сохранены. В онлайн-уроке нажми «Сохранить документы урока».</p> :
+          <div className="stack" style={{gap:8}}>{completedDocuments.map(item => (
+            <div key={item.id} style={{display:'flex',gap:12,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap'}}>
+              <strong>{item.boardId === 'board-1' || item.boardId === 'manual-shared' ? 'Общая доска' : item.boardId === 'imported-workbook' ? 'Материал урока' : 'Личная доска ученика'} · {item.filename}</strong>
+              <button type="button" className="btn btn--secondary" onClick={() => void completedLessonApi.open(eventId!, item.id)}>Открыть PDF</button>
+            </div>
+          ))}</div>}
+        <button type="button" className="btn btn--secondary" style={{marginTop:12}} onClick={() => { if(eventId) void completedLessonApi.list(eventId).then(setCompletedDocuments).catch(e => setCompletedUploadError(toErrorMessage(e, t))); }}>Обновить список документов</button>
+      </section>
+
+      <div className="stack" style={{ gap: 14 }}>
+        <section className="panel" style={{ padding: 20, margin: 0 }}>
+          <h2 style={{ margin: '0 0 8px' }}><label htmlFor="lesson-covered-material">Пройденный материал</label></h2>
+          <p className="muted" style={{ margin: '0 0 12px', fontSize: 13 }}>Что разобрали на занятии и к чему вернуться в следующий раз</p>
+          <textarea id="lesson-covered-material" className="input" rows={5} maxLength={100000}
+            value={coveredMaterial} onChange={event => setCoveredMaterial(event.target.value)}
+            placeholder="Темы, задания и результаты урока" style={{ width: '100%', resize: 'vertical' }} />
+        </section>
+        <section className="panel" style={{ padding: 20, margin: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={{ margin: 0 }}>Домашняя работа</h2>
+              <div className="muted" style={{ marginTop: 4, fontSize: 13 }}>Что было сделано перед уроком и что требует внимания</div>
+            </div>
+          </div>
+
+          {homeworkSummary ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(90px, 1fr))', gap: 10, marginTop: 16 }}>
+                <Stat value={homeworkSummary.assigned} label="выдано" />
+                <Stat value={homeworkSummary.submitted} label="сдано" />
+                <Stat value={homeworkSummary.open} label="не сдано" />
+              </div>
+              {homeworkSummary.students.length > 1 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8, marginTop: 12 }}>
+                  {homeworkSummary.students.map((student) => (
+                    <div key={student.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', background: 'var(--teacher-surface, #fff)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                        <strong>{student.name}</strong>
+                        <span style={{ fontWeight: 800 }}>{student.submitted} / {student.assigned}</span>
+                      </div>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>сдано за последние задания</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : <div className="muted" style={{ marginTop: 14 }}>Нет привязанного ученика или группы.</div>}
+
+          {lessonHomeworks.length > 0 && (
+            <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
+              {lessonHomeworks.map(({ studentId, studentName, homework }) => (
+                <Link
+                  key={`${studentId}-${homework.id}`}
+                  to={`/teacher/students/${studentId}/homeworks/${homework.id}`}
+                  style={{ textDecoration: 'none', color: 'inherit', border: '1px solid var(--border)', borderRadius: 12, padding: '11px 12px', background: 'var(--teacher-surface, #fff)', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}
+                >
+                  <div>
+                    <strong>{studentName}</strong>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                      {homework.worksheetFilename ?? 'PDF-домашка'} · {formatHomeworkDate(homework.startDate)}
+                    </div>
+                  </div>
+                  <span className={`pill ${homework.submitted ? 'pill--learned' : 'pill--pending'}`}>
+                    {homework.submitted ? 'сдано' : 'не сдано'}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+
+          <div style={{ marginTop: 16 }}>
+            <StructuredTextSection
+              kind="homework"
+              value={homeworkNotes}
+              students={lessonStudents}
+              onChange={setHomeworkNotes}
+              placeholder="Например: ## Мелисса — что сдала, где ошиблась; ## София — что сдала; ## Общее — что проверить."
+              rows={6}
+            />
+          </div>
+        </section>
+
+        <section className="panel" style={{ padding: 20, margin: 0 }}>
+          <div>
+            <h2 style={{ margin: 0 }}>Проблемы и сложности</h2>
+            <div className="muted" style={{ marginTop: 4, fontSize: 13 }}>Отдельно по каждому ученику — что не понял, где ошибается и что проверить</div>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <StructuredTextSection
+              kind="difficulties"
+              value={difficulties}
+              students={lessonStudents}
+              onChange={setDifficulties}
+              placeholder="Например: ## Мелисса\n- Отрицательные числа: путает знаки...\n## София\n- Probe не автоматизирована...\n## Общее\n- Дать 60 секунд самостоятельной работы."
+              rows={10}
+            />
+          </div>
+        </section>
+
+        {transcriptText && !preparation?.hasTranscript && (
+          <section className="panel" style={{ padding: 20, margin: 0 }}>
+            <h2 style={{ margin: 0 }}>Старая текстовая транскрипция</h2>
+            <div className="muted" style={{ marginTop: 4, fontSize: 13 }}>
+              Это старый формат. Новые транскрипции сохраняются как PDF-документы.
+            </div>
+            <textarea className="input" rows={8} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} style={{ marginTop: 12, width: '100%', resize: 'vertical' }} />
+          </section>
+        )}
+
+        <section className="panel" style={{ padding: 20, margin: 0 }}>
+          <div>
+            <h2 style={{ margin: 0 }}>Рекомендованный план урока</h2>
+            <div className="muted" style={{ marginTop: 4, fontSize: 13 }}>План автоматически раскладывается по времени, чтобы его можно было быстро читать во время занятия</div>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <StructuredTextSection
+              kind="plan"
+              value={lessonPlan}
+              students={lessonStudents}
+              onChange={setLessonPlan}
+              placeholder="0–15 мин: разминка... 15–25 мин: общая числовая прямая..."
+              rows={11}
+            />
+          </div>
+        </section>
+
+        <div className="panel" style={{ padding: 14, margin: 0, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="muted" style={{ fontSize: 13 }}>Текст можно менять вручную. После изменения нажмите «Сохранить информацию».</div>
+          <button className="btn" type="button" onClick={() => void savePreparation()} disabled={saving} style={{ minWidth: 220 }}>
+            {saving ? 'Сохраняем…' : 'Сохранить информацию'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MaterialPanel({ title, subtitle, filename, url, emptyText, uploading, editingInChatGpt, onUpload, onEditInChatGpt }: {
+  title: string;
+  subtitle: string;
+  filename?: string | null;
+  url: string | null;
+  emptyText: string;
+  uploading: boolean;
+  editingInChatGpt: boolean;
+  onUpload: (file: File) => void;
+  onEditInChatGpt: () => void;
+}) {
+  const hasPdf = Boolean(url);
+  const uploadLabel = hasPdf ? 'Заменить PDF' : 'Загрузить PDF';
+
+  return (
+    <section className="panel" style={{ padding: 20, margin: 0, minHeight: 210 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <div aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 12, display: 'grid', placeItems: 'center', background: 'var(--teacher-selected, #fff7ed)', fontSize: 22, flex: '0 0 auto' }}>PDF</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>
+          <div className="muted" style={{ marginTop: 3, fontSize: 12 }}>{subtitle}</div>
+        </div>
+        {hasPdf && <span className="pill pill--learned">готово</span>}
+      </div>
+
+      {hasPdf ? (
+        <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 14, padding: 14, background: 'var(--teacher-surface, #fff)' }}>
+          <div style={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{filename || 'PDF-файл'}</div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Открывается отдельно — страница урока остаётся на месте.</div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <a className="btn" href={url ?? undefined} target="_blank" rel="noopener noreferrer">Открыть PDF ↗</a>
+            <button className="btn btn--secondary" type="button" onClick={onEditInChatGpt} disabled={editingInChatGpt}>
+              {editingInChatGpt ? 'Открываем…' : 'Редактировать в ChatGPT'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginTop: 16, border: '2px dashed var(--teacher-selected-border, #f0c7ad)', borderRadius: 14, padding: 20, background: 'var(--teacher-selected, #fffaf7)' }}>
+          <strong>{emptyText}</strong>
+          <div className="muted" style={{ marginTop: 5, fontSize: 12 }}>Выберите PDF с компьютера или из Google Drive.</div>
+        </div>
+      )}
+
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+        <GoogleDrivePdfPicker disabled={uploading} onSelect={onUpload} />
+        <label className="btn btn--ghost" style={{ cursor: uploading ? 'default' : 'pointer' }}>
+          {uploading ? 'Загружаем…' : uploadLabel}
+          <input type="file" accept="application/pdf,.pdf" hidden disabled={uploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) onUpload(file); e.currentTarget.value = ''; }} />
+        </label>
+      </div>
+    </section>
+  );
+}
+
+function StructuredTextSection({ kind, value, students, onChange, placeholder, rows }: {
+  kind: TextSectionKind;
+  value: string;
+  students: LessonStudent[];
+  onChange: (value: string) => void;
+  placeholder: string;
+  rows: number;
+}) {
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: editing ? 8 : 10 }}>
+        <button className="btn btn--ghost" type="button" onClick={() => setEditing((current) => !current)}>
+          {editing ? 'Показать красиво' : 'Редактировать текст'}
+        </button>
+      </div>
+      {editing ? (
+        <div>
+          <textarea className="input" rows={rows} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+          {kind !== 'plan' && (
+            <div className="muted" style={{ marginTop: 7, fontSize: 12 }}>
+              Для идеального разделения можно писать заголовки <strong>## Имя ученика</strong> и <strong>## Общее</strong>. Старый обычный текст тоже распознаётся автоматически.
+            </div>
+          )}
+        </div>
+      ) : kind === 'plan' ? (
+        <PlanPreview value={value} />
+      ) : (
+        <StudentNotesPreview value={value} students={students} />
+      )}
+    </div>
+  );
+}
+
+function StudentNotesPreview({ value, students }: { value: string; students: LessonStudent[] }) {
+  const groups = useMemo(() => buildNoteGroups(value, students), [value, students]);
+  if (!value.trim()) return <div className="muted">Пока нет заметок.</div>;
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
+      {groups.map((group) => (
+        <article key={group.key} style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 14, background: group.student ? 'var(--teacher-surface, #fff)' : 'var(--teacher-selected, #fffaf7)' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 9 }}>
+            <div aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 999, display: 'grid', placeItems: 'center', background: group.student ? 'var(--teacher-selected, #fff7ed)' : 'var(--teacher-surface, #f8fafc)', fontWeight: 900 }}>
+              {group.student ? studentInitial(group.title) : '•'}
+            </div>
+            <strong style={{ fontSize: 16 }}>{group.title}</strong>
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 7, lineHeight: 1.45 }}>
+            {group.items.map((item, index) => <li key={`${group.key}-${index}`}>{item}</li>)}
+          </ul>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function PlanPreview({ value }: { value: string }) {
+  if (!value.trim()) return <div className="muted">План пока не заполнен.</div>;
+  const parsed = parsePlan(value);
+
+  return (
+    <div>
+      {parsed.intro && (
+        <div style={{ borderRadius: 14, padding: 14, background: 'var(--teacher-selected, #fffaf7)', border: '1px solid var(--teacher-selected-border, #f0c7ad)', lineHeight: 1.5, marginBottom: 12 }}>
+          <strong>Цель и основа урока</strong>
+          <div style={{ marginTop: 5 }}>{parsed.intro}</div>
+        </div>
+      )}
+      {parsed.steps.length > 0 ? (
+        <div style={{ display: 'grid', gap: 9 }}>
+          {parsed.steps.map((step, index) => (
+            <div key={`${step.time}-${index}`} style={{ display: 'grid', gridTemplateColumns: '95px minmax(0, 1fr)', gap: 12, alignItems: 'start', border: '1px solid var(--border)', borderRadius: 13, padding: 12, background: 'var(--teacher-surface, #fff)' }}>
+              <div style={{ fontWeight: 900, color: 'var(--teacher-selected-text, #d94f00)' }}>{step.time}</div>
+              <div style={{ lineHeight: 1.48 }}>{step.text}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 8, lineHeight: 1.5 }}>
+          {splitStatements(value).map((item, index) => <li key={index}>{item}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function buildNoteGroups(value: string, students: LessonStudent[]): NoteGroup[] {
+  const explicit = parseExplicitNoteGroups(value, students);
+  if (explicit.length > 0) return explicit;
+
+  const buckets = new Map<string, string[]>();
+  students.forEach((student) => buckets.set(student.id, []));
+  const common: string[] = [];
+  let lastOwner: string | null = null;
+
+  for (const statement of splitStatements(value)) {
+    const normalized = normalizeText(statement);
+    if (isCommonStatement(normalized)) {
+      common.push(statement);
+      lastOwner = null;
+      continue;
+    }
+    const matched = students.filter((student) => normalized.includes(studentStem(student.fullName)));
+    if (matched.length > 1) {
+      common.push(statement);
+      lastOwner = null;
+      continue;
+    }
+    if (matched.length === 1) {
+      buckets.get(matched[0].id)?.push(statement);
+      lastOwner = matched[0].id;
+      continue;
+    }
+    if (lastOwner && buckets.has(lastOwner)) buckets.get(lastOwner)?.push(statement);
+    else common.push(statement);
+  }
+
+  const groups: NoteGroup[] = students
+    .map((student) => ({ key: student.id, title: student.fullName, items: buckets.get(student.id) ?? [], student: true }))
+    .filter((group) => group.items.length > 0);
+  if (common.length > 0) groups.push({ key: 'common', title: 'Общее для урока', items: common, student: false });
+  if (groups.length === 0 && value.trim()) return [{ key: 'common', title: 'Сводка', items: splitStatements(value), student: false }];
+  return groups;
+}
+
+function parseExplicitNoteGroups(value: string, students: LessonStudent[]): NoteGroup[] {
+  const lines = value.replace(/\r/g, '').split('\n');
+  const sections: Array<{ key: string; title: string; student: boolean; items: string[] }> = [];
+  let current: { key: string; title: string; student: boolean; items: string[] } | null = null;
+  let recognizedHeading = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const headingMatch = line.match(/^#{1,3}\s+(.+?)\s*$/);
+    if (headingMatch) {
+      const heading = headingMatch[1].replace(/:$/, '').trim();
+      const normalizedHeading = normalizeText(heading);
+      const student = students.find((item) => normalizedHeading.includes(studentStem(item.fullName)) || studentStem(item.fullName).includes(normalizedHeading));
+      const commonHeading = /^(общее|общая|для всех|группа|всем)/u.test(normalizedHeading);
+      if (student || commonHeading) {
+        current = {
+          key: student?.id ?? `common-${sections.length}`,
+          title: student?.fullName ?? 'Общее для урока',
+          student: Boolean(student),
+          items: [],
+        };
+        sections.push(current);
+        recognizedHeading = true;
+        continue;
+      }
+    }
+    const item = line.replace(/^[-–—•*]\s*/, '').trim();
+    if (!item) continue;
+    if (!current) {
+      current = { key: 'common-before', title: 'Общее для урока', student: false, items: [] };
+      sections.push(current);
+    }
+    current.items.push(item);
+  }
+
+  if (!recognizedHeading) return [];
+  return sections.filter((section) => section.items.length > 0);
+}
+
+function parsePlan(value: string): { intro: string; steps: Array<{ time: string; text: string }> } {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  const timePattern = /(\d{1,3}\s*[–—-]\s*\d{1,3}\s*мин(?:ут(?:ы)?)?)\s*:/giu;
+  const matches = Array.from(normalized.matchAll(timePattern));
+  if (matches.length === 0) return { intro: '', steps: [] };
+
+  const firstIndex = matches[0].index ?? 0;
+  const intro = normalized.slice(0, firstIndex).trim().replace(/[.;]\s*$/, '');
+  const steps = matches.map((match, index) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = index + 1 < matches.length ? (matches[index + 1].index ?? normalized.length) : normalized.length;
+    return {
+      time: match[1].replace(/\s+/g, ' '),
+      text: normalized.slice(start, end).trim().replace(/^[-–—]\s*/, '').replace(/\s+$/, ''),
+    };
+  }).filter((step) => step.text.length > 0);
+  return { intro, steps };
+}
+
+function splitStatements(value: string): string[] {
+  return value
+    .replace(/\r/g, '')
+    .split(/\n+|(?<=[.!?])\s+(?=[А-ЯA-ZЁ0-9«(])/u)
+    .map((item) => item.replace(/^[-–—•*]\s*/, '').trim())
+    .filter(Boolean);
+}
+
+function studentStem(fullName: string): string {
+  const firstName = normalizeText(fullName).split(' ')[0] ?? '';
+  if (firstName.length <= 4) return firstName;
+  if (/[ая]$/u.test(firstName)) return firstName.slice(0, -1);
+  return firstName;
+}
+
+function normalizeText(value: string): string {
+  return value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+}
+
+function isCommonStatement(normalized: string): boolean {
+  return /^(обеим|обоим|обеих|обоих|обе |оба |для обеих|для обоих|для группы|общее|всем |в группе)/u.test(normalized);
+}
+
+function studentInitial(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || '?';
+}
+
+function downloadObjectUrl(url: string, filename: string) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function Stat({ value, label }: { value: number; label: string }) {
+  return <div style={{ background: 'var(--teacher-selected, #fff7ed)', borderRadius: 12, padding: '11px 8px', textAlign: 'center' }}><div style={{ fontSize: 23, fontWeight: 900 }}>{value}</div><div className="muted" style={{ fontSize: 11 }}>{label}</div></div>;
+}
+
+async function resolveLessonStudents(lesson: GroupLesson, allStudents: StudentListItem[]): Promise<LessonStudent[]> {
+  if (lesson.groupId) {
+    const group = await api.groups.get(lesson.groupId);
+    const memberIds = new Set(group.students.map((student) => student.id));
+    return allStudents
+      .filter((student) => memberIds.has(student.id))
+      .map((student) => ({ id: student.id, fullName: student.fullName, chatGptProjectUrl: student.chatGptProjectUrl }));
+  }
+  if (lesson.studentId) {
+    const student = allStudents.find((item) => item.id === lesson.studentId) ?? await api.students.get(lesson.studentId);
+    return [{ id: student.id, fullName: student.fullName, chatGptProjectUrl: student.chatGptProjectUrl }];
+  }
+  return [];
+}
+
+async function buildLessonHomeworkDetails(lesson: GroupLesson): Promise<LessonHomeworkItem[]> {
+  const targets: Array<{ id: string; fullName: string }> = [];
+  if (lesson.groupId) {
+    const group = await api.groups.get(lesson.groupId);
+    targets.push(...group.students.map((student) => ({ id: student.id, fullName: student.fullName })));
+  } else if (lesson.studentId) {
+    const student = await api.students.get(lesson.studentId);
+    targets.push({ id: student.id, fullName: student.fullName });
+  } else {
+    return [];
+  }
+
+  const lessonDate = localLessonDate(lesson.startsAt);
+  const untilDate = plusDays(lessonDate, 7);
+  const rows = await Promise.all(targets.map(async (student) => {
+    const homeworks = await api.homeworks.listForStudent(student.id);
+    return homeworks
+      .filter((homework) => homework.hasWorksheet && homework.startDate >= lessonDate && homework.startDate <= untilDate)
+      .map((homework) => ({ studentId: student.id, studentName: student.fullName, homework }));
+  }));
+  return rows.flat().sort((a, b) => a.homework.startDate.localeCompare(b.homework.startDate) || a.studentName.localeCompare(b.studentName));
+}
+
+function localLessonDate(value: string) {
+  const date = new Date(value);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${read('year')}-${read('month')}-${read('day')}`;
+}
+
+function plusDays(value: string, days: number) {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatHomeworkDate(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    .format(new Date(year, month - 1, day));
+}
+
+async function buildHomeworkSummary(lesson: GroupLesson): Promise<HomeworkSummary | null> {
+  if (lesson.groupId) {
+    const group = await api.groups.get(lesson.groupId);
+    const rows = await Promise.all(group.students.map(async (student) => {
+      const homeworks = await api.homeworks.listForStudent(student.id);
+      return studentHomeworkRow(student.id, student.fullName, homeworks);
+    }));
+    return combine(rows);
+  }
+  if (lesson.studentId) {
+    const student = await api.students.get(lesson.studentId);
+    const homeworks = await api.homeworks.listForStudent(lesson.studentId);
+    return combine([studentHomeworkRow(student.id, student.fullName, homeworks)]);
+  }
+  return null;
+}
+
+function studentHomeworkRow(id: string, name: string, homeworks: Homework[]) {
+  const recent = homeworks.filter((item) => item.hasWorksheet).sort((a, b) => b.startDate.localeCompare(a.startDate)).slice(0, 5);
+  return { id, name, assigned: recent.length, submitted: recent.filter((item) => item.submitted).length };
+}
+
+function combine(students: Array<{ id: string; name: string; assigned: number; submitted: number }>): HomeworkSummary {
+  const assigned = students.reduce((sum, item) => sum + item.assigned, 0);
+  const submitted = students.reduce((sum, item) => sum + item.submitted, 0);
+  return { assigned, submitted, open: Math.max(0, assigned - submitted), students };
+}

@@ -8,10 +8,30 @@ COPY . .
 # so the browser talks to the same origin and no CORS is needed.
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+# Vite replaces import.meta.env during npm run build, not at nginx runtime.
+# Explicitly declare the Railway build arg so the owner-only pilot button
+# can be included in the static bundle when enabled.
+ARG VITE_MINDCRAFTI_ONLINE_ENABLED=false
+ENV VITE_MINDCRAFTI_ONLINE_ENABLED=$VITE_MINDCRAFTI_ONLINE_ENABLED
+# Full Farhad classroom is separately gated; this remains OFF on the live site
+# until verified with a dedicated staging LiveKit configuration.
+ARG VITE_MINDCRAFTI_LIVEKIT_ENABLED=false
+ENV VITE_MINDCRAFTI_LIVEKIT_ENABLED=$VITE_MINDCRAFTI_LIVEKIT_ENABLED
 RUN npm run build
 
 # --- Runtime stage: serve the bundle with nginx ---
 FROM nginx:1.29-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Rendered at container start by the image's envsubst entrypoint. The filter
+# restricts substitution to LIVEKIT_* and API_PROXY_* so nginx's own $uri/$scheme/$remote_addr
+# are left untouched.
+ENV NGINX_ENVSUBST_FILTER='LIVEKIT_|API_PROXY_'
+# The Railway host remains the default; backups override these variables.
+ENV API_PROXY_SCHEME=https
+ENV API_PROXY_HOST=mindcrafti-school-production.up.railway.app
+ENV API_PROXY_PORT=443
+# Empty by default: with online classes disabled the CSP is byte-for-byte the
+# strict policy that shipped before the feature.
+ENV LIVEKIT_CSP_ORIGINS=""
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

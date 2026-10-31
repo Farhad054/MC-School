@@ -1,0 +1,558 @@
+
+/* Mindcrafti School — independent floating controls for classroom and homework.
+   Keep these selectors scoped: do not change the personal study tracker.
+   Placement never affects the canvas coordinate system, touch-action or ink. */
+.school-islands-board,
+.pdf-homework-page {
+  --island-surface:rgba(255,255,255,.97);
+  --island-edge:#dce6f3;
+  --island-muted:#6c7e99;
+  --island-active:#e8f1ff;
+  --island-blue:#2763d1;
+  --island-shadow:0 7px 23px rgba(32,58,99,.13);
+}
+.school-islands-board {
+  position:relative;
+  isolation:isolate;
+  background:#f7faff;
+}
+.school-islands-board .whiteboard__stage {
+  background-color:#f8fbff;
+  background-image:radial-gradient(circle,#d7e2f0 .8px,transparent 1px);
+  background-size:24px 24px;
+}
+/* Top panel is merely a transparent placement region: each control inside
+   floats as its own pill, rather than one solid header. */
+.school-islands-board .whiteboard__topline {
+  position:absolute;
+  top:10px;left:10px;right:10px;
+  z-index:9;
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  height:auto;min-height:0;max-height:none;
+  padding:0;
+  background:transparent;
+  border:0;
+  color:#233d60;
+  pointer-events:none;
+}
+.school-islands-board .whiteboard__topline > * {pointer-events:auto}
+.school-islands-board .whiteboard__topline .board-toolbar {
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:9px;
+  min-width:0;
+  max-width:100%;
+  padding:0;
+  height:auto;max-height:none;
+  overflow-x:auto;overflow-y:visible;
+  scrollbar-width:none;
+  background:transparent;
+  box-shadow:none;border:0;color:#233d60;
+}
+.school-islands-board .board-toolbar::-webkit-scrollbar {display:none}
+.school-islands-board .board-toolbar__tools,
+.school-islands-board .board-toolbar__swatches,
+.school-islands-board .board-toolbar__size,
+.school-islands-board .board-toolbar__text-style,
+.school-islands-board .board-toolbar__group,
+.school-islands-board .whiteboard__topline-pages,
+.school-islands-board .whiteboard__zoom {
+  border:1px solid var(--island-edge);
+  border-radius:15px;
+  background:var(--island-surface);
+  box-shadow:var(--island-shadow);
+  color:#2e4566;
+}
+.school-islands-board .board-toolbar__tools,
+.school-islands-board .board-toolbar__swatches,
+.school-islands-board .board-toolbar__group {
+  flex:0 0 auto;
+  flex-wrap:nowrap;
+  padding:5px;
+  gap:4px;
+}
+.school-islands-board .board-toolbar__swatches{padding:8px;align-items:center}
+.school-islands-board .board-toolbar__size {
+  display:flex;
+  flex-direction:row;
+  align-items:center;
+  white-space:nowrap;
+  padding:7px 11px;
+  font-weight:650;
+  color:var(--island-muted)!important;
+}
+.school-islands-board .board-toolbar__text-style {
+  flex:0 0 auto;
+  padding:5px 8px;
+  gap:7px;
+  background:var(--island-surface);
+  border-color:var(--island-edge);
+}
+.school-islands-board .board-toolbar__text-control {color:#6c7e99}
+.school-islands-board .board-toolbar button {
+  min-width:37px;
+  min-height:37px;
+  padding:6px 10px;
+  border:1px solid transparent;
+  border-radius:10px;
+  color:#627795;
+  background:transparent;
+  box-shadow:none;
+  white-space:nowrap;
+}
+.school-islands-board .board-toolbar button:hover{background:#f1f6ff;color:#264e92}
+.school-islands-board .board-toolbar button.is-active,
+.school-islands-board .board-toolbar .board-toolbar__tool.is-active,
+.school-islands-board .board-toolbar__group button.is-active {
+  background:var(--island-active);
+  color:var(--island-blue);
+  border-color:#bcd4fd;
+  box-shadow:none;
+}
+.school-islands-board .board-toolbar button:disabled {opacity:.4}
+.school-islands-board .board-toolbar__swatches button {padding:0;border-radius:50%;min-width:29px;min-height:29px}
+.school-islands-board .board-toolbar__menu {
+  z-index:30;
+  background:#fff;
+  color:#243b5d;
+  border:1px solid var(--island-edge);
+  border-radius:12px;
+  box-shadow:var(--island-shadow);
+}
+.school-islands-board .board-toolbar__menu button {color:#324966;background:#fff}
+.school-islands-board .board-toolbar__menu [role='radio'].is-active {color:var(--island-blue)}
+/* Bottom controls sit over the stage, separate from the toolbar. */
+.school-islands-board .whiteboard__topline-pages {
+  position:absolute;
+  left:12px;
+  bottom:12px;
+  top:auto;
+  z-index:8;
+  padding:4px;
+  pointer-events:auto;
+}
+.school-islands-board .whiteboard__topline-pages .page-nav{
+  border:0;
+  padding:0;
+  box-shadow:none;
+  background:transparent;
+  color:#29415f;
+}
+.school-islands-board .whiteboard__topline-pages .page-nav button,
+.school-islands-board .whiteboard__zoom button {
+  border:0;
+  min-width:37px;
+  min-height:37px;
+  border-radius:10px;
+  color:#4d6583;
+  background:transparent;
+}
+.school-islands-board .whiteboard__topline-pages .page-nav button:hover,
+.school-islands-board .whiteboard__zoom button:hover{background:var(--island-active)}
+.school-islands-board .whiteboard__topline-pages .page-nav__label{color:#344a67;font-weight:700}
+.school-islands-board .whiteboard__topline-pages .page-nav__add {color:var(--island-blue);background:var(--island-active)}
+.school-islands-board .whiteboard__zoom {
+  bottom:12px;
+  right:12px;
+  padding:4px;
+  gap:4px;
+}
+.school-islands-board .whiteboard__notice:not(:empty) {
+  position:absolute;
+  top:70px;
+  left:12px;
+  z-index:6;
+  max-width:calc(100% - 24px);
+  padding:5px 10px;
+  background:rgba(255,255,255,.94);
+  border:1px solid var(--island-edge);
+  border-radius:11px;
+  box-shadow:0 3px 12px #29436612;
+  font-size:12px;
+}
+.school-islands-board .whiteboard__stage:has(.answers-panel) .whiteboard__topline-pages{
+  left:calc(clamp(320px,33vw,560px) + 12px);
+}
+/* Homework uses exactly the same token set, but its tools are contextual to
+   the PDF. Desktop remains in document flow; iPad uses a safe-area floating dock. */
+.pdf-homework-page .homework-island-header {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  margin-bottom:10px;
+}
+.pdf-homework-page .homework-island,
+.pdf-homework-page .homework-island-rail {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:6px;
+  border:1px solid var(--island-edge);
+  border-radius:15px;
+  background:var(--island-surface);
+  box-shadow:var(--island-shadow);
+  color:#344d71;
+}
+.pdf-homework-page .homework-island-rail{
+  position:fixed;
+  left:10px;
+  top:50%;
+  z-index:60;
+  transform:translateY(-50%);
+  flex-direction:column;
+  width:56px;
+  max-height:min(85dvh,770px);
+  overflow-y:auto;
+  overflow-x:hidden;
+  scrollbar-width:none;
+  touch-action:manipulation;
+}
+.pdf-homework-page .homework-island-rail::-webkit-scrollbar{display:none}
+.pdf-homework-page .homework-island button,
+.pdf-homework-page .homework-island-rail button{
+  min-width:36px;
+  min-height:36px;
+  border-radius:10px;
+  padding:6px 10px;
+  border:1px solid transparent;
+  background:transparent;
+  color:#5b7192;
+  box-shadow:none;
+}
+.pdf-homework-page .homework-island button:hover,
+.pdf-homework-page .homework-island-rail button:hover {background:#f0f5ff}
+.pdf-homework-page .homework-island button.is-active,
+.pdf-homework-page .homework-island-rail button.is-active{
+  background:var(--island-active);
+  border-color:#bbd3ff;
+  color:#245fc9;
+}
+.pdf-homework-page .homework-island button:disabled,
+.pdf-homework-page .homework-island-rail button:disabled {opacity:.4}
+.pdf-homework-page .homework-island-separator {width:1px;height:25px;background:#dfe8f4;margin:0 4px;flex:0 0 auto}
+.pdf-homework-page .homework-island-rail .homework-island-separator {height:1px;width:32px;margin:5px 0}
+.pdf-homework-page .homework-island-pager {gap:8px;white-space:nowrap}
+.pdf-homework-page .homework-island-pager strong {min-width:45px;text-align:center;font-size:13px}
+.pdf-homework-page .homework-island-rail .homework-island-pager {display:flex;flex-direction:column}
+.pdf-homework-page .homework-island-colors {display:flex;gap:5px;align-items:center}
+.pdf-homework-page .homework-island-rail .homework-island-colors {flex-direction:column}
+.pdf-homework-page .homework-island-rail .homework-island-colors button{width:31px;height:31px;min-width:31px;min-height:31px;padding:0;border-radius:50%}
+.pdf-homework-page .homework-island-rail button.homework-color-dot {width:32px;height:32px;min-width:32px;min-height:32px;border-radius:50%;padding:0}
+.pdf-homework-page .homework-island-rail .homework-island-size {display:flex;flex-direction:column;gap:4px}
+.pdf-homework-page .homework-island-size {display:flex;gap:5px;align-items:center}
+.pdf-homework-page .homework-island-rail .homework-island-size button{padding:4px}
+.pdf-homework-page .homework-island-zoom {
+  align-self:flex-start;
+  gap:3px;
+}
+.pdf-homework-page .homework-island-zoom button {font-size:18px}
+@media (max-width:900px){
+  .school-islands-board .whiteboard__topline {left:7px;right:7px;top:7px}
+  .school-islands-board .whiteboard__topline .board-toolbar{gap:6px}
+  .school-islands-board .board-toolbar__tools,
+  .school-islands-board .board-toolbar__group {padding:4px;gap:2px}
+  .school-islands-board .board-toolbar button{min-width:41px;min-height:41px}
+  .school-islands-board .whiteboard__notice:not(:empty){top:63px}
+  .school-islands-board .whiteboard__topline-pages{bottom:8px;left:8px}
+  .school-islands-board .whiteboard__zoom{bottom:8px;right:8px}
+}
+@media (max-width:620px){
+  .school-islands-board .board-toolbar__text-control select {width:110px}
+  .school-islands-board .board-toolbar__size {padding:4px 7px}
+  .school-islands-board .whiteboard__topline .board-toolbar{scrollbar-width:none}
+  .school-islands-board .whiteboard__topline-pages .page-nav button{min-width:39px;min-height:39px}
+  .pdf-homework-page .homework-island-rail{left:6px;width:52px;padding:5px}
+}
+
+/* Independently framed groups on iPad — each group looks like a separate island. */
+.pdf-homework-page .homework-island-rail {
+  background:transparent;
+  border:0;
+  box-shadow:none;
+  padding:0;
+  width:auto;
+  max-height:min(86dvh,850px);
+  overflow:visible;
+  gap:7px;
+}
+.pdf-homework-page .homework-island-rail-group {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
+  padding:6px;
+  background:var(--island-surface);
+  border:1px solid var(--island-edge);
+  border-radius:14px;
+  box-shadow:var(--island-shadow);
+}
+.pdf-homework-page .homework-island-rail-group button {
+  width:40px;
+  min-width:40px;
+  min-height:40px;
+  color:#556d8e;
+  background:transparent;
+  border:1px solid transparent;
+}
+.pdf-homework-page .homework-island-rail-group button.is-active {
+  color:var(--island-blue);
+  border-color:#bad1f8;
+  background:var(--island-active);
+}
+.pdf-homework-page .homework-island-rail-group.homework-island-colors button {
+  border-radius:50%;
+  width:32px;
+  min-width:32px;
+  min-height:32px;
+}
+.pdf-homework-page .homework-island-header .homework-island {
+  flex:0 0 auto;
+}
+.pdf-homework-page .homework-island-header .homework-island .btn {
+  color:#556d8e;
+  background:transparent;
+  border:1px solid transparent;
+  box-shadow:none;
+}
+.pdf-homework-page .homework-island-header .homework-island button.is-active{
+  background:var(--island-active);
+  border-color:#bad1f8;
+  color:var(--island-blue);
+}
+.pdf-homework-page .homework-island-header .homework-island .btn:disabled{opacity:.4}
+@media(max-height:650px) and (pointer:coarse){
+  .pdf-homework-page .homework-island-rail{
+    transform:translateY(-50%) scale(.8)!important;
+    transform-origin:left center;
+  }
+}
+
+/* Refinements: touch targets, accessible focus, independent docks. */
+.school-islands-board .board-toolbar button:focus-visible,
+.school-islands-board .whiteboard__topline-pages button:focus-visible,
+.school-islands-board .whiteboard__zoom button:focus-visible,
+.pdf-homework-page .homework-island button:focus-visible,
+.pdf-homework-page .homework-island-rail button:focus-visible {
+  outline:2px solid #3977da;
+  outline-offset:2px;
+}
+.school-islands-board .whiteboard__topline {
+  max-width:calc(100% - 20px);
+}
+.school-islands-board .whiteboard__topline .board-toolbar {
+  overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.school-islands-board .whiteboard__topline-pages,
+.school-islands-board .whiteboard__zoom {
+  bottom:max(12px,env(safe-area-inset-bottom));
+}
+.pdf-homework-page .homework-island-header {
+  position:relative;
+  z-index:6;
+}
+.pdf-homework-page .homework-island-rail {
+  top:clamp(64px,50%,calc(100% - 64px));
+}
+@media (pointer:coarse) {
+  .school-islands-board .board-toolbar button,
+  .school-islands-board .whiteboard__zoom button,
+  .school-islands-board .whiteboard__topline-pages .page-nav button,
+  .pdf-homework-page .homework-island button,
+  .pdf-homework-page .homework-island-rail-group button {
+    min-width:44px;
+    min-height:44px;
+  }
+  .pdf-homework-page .homework-island-rail {
+    max-height:calc(100dvh - 120px);
+    overflow-y:auto;
+    overflow-x:visible;
+    scrollbar-width:none;
+  }
+}
+@media (max-width:620px) {
+  .school-islands-board .whiteboard__topline {
+    max-width:calc(100% - 14px);
+  }
+  .school-islands-board .whiteboard__topline .board-toolbar {
+    max-width:100%;
+  }
+  .pdf-homework-page .homework-island-header {
+    gap:6px;
+  }
+  .pdf-homework-page .homework-island-rail {
+    left:max(6px,env(safe-area-inset-left));
+    top:50%;
+  }
+}
+
+/* Keep the top tools legible on narrow iPads: every island has a fixed
+   non-shrinking footprint and the strip can be swiped to reach offscreen tools. */
+.school-islands-board .whiteboard__topline {
+  overflow:visible;
+}
+.school-islands-board .whiteboard__topline .board-toolbar {
+  width:100%;
+  flex:1 1 auto;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scroll-snap-type:x proximity;
+  scrollbar-width:thin;
+  scrollbar-color:#bfcee4 transparent;
+  padding-bottom:3px;
+}
+.school-islands-board .whiteboard__topline .board-toolbar::-webkit-scrollbar {
+  display:block;
+  height:3px;
+}
+.school-islands-board .whiteboard__topline .board-toolbar::-webkit-scrollbar-thumb {
+  background:#bfcee4;
+  border-radius:999px;
+}
+.school-islands-board .board-toolbar__tools,
+.school-islands-board .board-toolbar__swatches,
+.school-islands-board .board-toolbar__size,
+.school-islands-board .board-toolbar__group {
+  flex:0 0 auto;
+  scroll-snap-align:start;
+}
+.school-islands-board .board-toolbar__tool:focus-visible {
+  outline:2px solid #3977da;
+}
+
+/* Tablet contrast and separation: do not inherit LiveKit's white icons. */
+.school-islands-board .board-toolbar__tools {
+  width:max-content;
+  min-width:0;
+  background:#fff;
+}
+.school-islands-board .board-toolbar__slot {
+  flex:0 0 auto;
+}
+.school-islands-board .board-toolbar__tool,
+.school-islands-board .board-toolbar__tool span,
+.school-islands-board .board-toolbar__group button {
+  color:#344b6e!important;
+  opacity:1;
+}
+.school-islands-board .board-toolbar__tool.is-active,
+.school-islands-board .board-toolbar__tool.is-active span,
+.school-islands-board .board-toolbar__group button.is-active {
+  color:#1556c0!important;
+  background:#e8f1ff;
+}
+.school-islands-board .board-toolbar__swatches {
+  width:max-content;
+  min-width:max-content;
+  flex:0 0 auto;
+  gap:9px;
+}
+.school-islands-board .board-toolbar__swatches button {
+  flex:0 0 29px;
+  width:29px!important;
+  height:29px!important;
+  min-width:29px;
+  min-height:29px;
+  padding:0!important;
+  opacity:1;
+  box-shadow:0 0 0 1px rgba(30,50,80,.14);
+}
+.school-islands-board .board-toolbar__size {
+  color:#344b6e!important;
+  background:#fff;
+}
+
+/* Collapsed ink color: one island, with choices anchored below it. */
+.school-islands-board .board-toolbar__color-picker {
+  position:relative;
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  padding:4px;
+  background:#fff;
+  border:1px solid var(--island-edge);
+  border-radius:14px;
+  box-shadow:var(--island-shadow);
+}
+.school-islands-board .board-toolbar button.board-toolbar__color-trigger {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:auto;
+  min-width:48px;
+  min-height:40px;
+  padding:5px 8px;
+  color:#526887;
+}
+.school-islands-board .board-toolbar__color-preview {
+  display:block;
+  flex:0 0 24px;
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  border:1px solid rgba(35,56,85,.22);
+}
+.school-islands-board .board-toolbar__color-popover {
+  position:absolute;
+  z-index:50;
+  top:calc(100% + 8px);
+  left:0;
+  display:grid;
+  grid-template-columns:repeat(3,34px);
+  gap:9px;
+  padding:12px;
+  width:max-content;
+  background:#fff;
+  border:1px solid var(--island-edge);
+  border-radius:14px;
+  box-shadow:0 10px 30px rgba(31,52,83,.2);
+}
+.school-islands-board .board-toolbar .board-toolbar__color-popover button {
+  width:34px;
+  height:34px;
+  min-width:34px;
+  min-height:34px;
+  padding:0;
+  border:2px solid rgba(35,56,85,.16);
+  border-radius:50%;
+}
+.school-islands-board .board-toolbar .board-toolbar__color-popover button.is-active {
+  outline:2px solid #2563eb;
+  outline-offset:2px;
+}
+
+.school-islands-board .board-toolbar__color-popover { position:fixed; }
+
+/* Portal is outside the board's clipping/stacking context on iPad Safari. */
+body > .board-toolbar__color-popover {
+  position:fixed;
+  z-index:9999;
+  display:grid;
+  grid-template-columns:repeat(3,38px);
+  gap:10px;
+  padding:12px;
+  width:max-content;
+  background:#fff;
+  border:1px solid #dce6f3;
+  border-radius:14px;
+  box-shadow:0 12px 32px rgba(31,52,83,.22);
+  touch-action:manipulation;
+}
+body > .board-toolbar__color-popover button {
+  width:38px;
+  height:38px;
+  min-width:38px;
+  min-height:38px;
+  padding:0;
+  border:2px solid rgba(35,56,85,.2);
+  border-radius:50%;
+  cursor:pointer;
+}
+body > .board-toolbar__color-popover button.is-active {
+  outline:2px solid #2563eb;
+  outline-offset:2px;
+}
