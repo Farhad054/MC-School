@@ -140,6 +140,28 @@ public class ManualLessonService {
         history.save(lesson);
     }
 
+    /**
+     * Removes every future website-only individual lesson for the student.
+     * Imported Google Calendar lessons are intentionally left untouched.
+     * Historical lessons and lesson artifacts remain available through tombstones.
+     */
+    @Transactional
+    public int cancelFutureLocalLessonsForStudent(AuthenticatedUser caller, UUID studentId) {
+        requireTeacher(caller);
+        Instant now = Instant.now();
+        List<String> eventIds = history
+                .findAllByTeacherIdAndStudentIdAndDeletedAtIsNullAndStartsAtAfterOrderByStartsAtAsc(
+                        caller.id(), studentId, now)
+                .stream()
+                .map(LessonHistoryEntry::getEventId)
+                .filter(eventId -> eventId != null && eventId.startsWith(EVENT_PREFIX))
+                .toList();
+        for (String eventId : eventIds) {
+            delete(caller, eventId);
+        }
+        return eventIds.size();
+    }
+
     @Transactional
     public void bindStudent(AuthenticatedUser caller, String eventId, UUID studentId) {
         rebind(caller, eventId, null, studentId);
