@@ -1,5 +1,6 @@
 package com.mcschool.flashcard.lessons;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,6 +20,9 @@ public interface LessonHistoryRepository extends JpaRepository<LessonHistoryEntr
     List<LessonHistoryEntry> findAllByTeacherIdOrderByStartsAtAsc(UUID teacherId);
     List<LessonHistoryEntry> findAllByTeacherIdAndDeletedAtIsNullOrderByStartsAtAsc(UUID teacherId);
     List<LessonHistoryEntry> findAllByStudentIdAndDeletedAtIsNullOrderByStartsAtDesc(UUID studentId);
+
+    List<LessonHistoryEntry> findAllByTeacherIdAndStudentIdAndDeletedAtIsNullAndStartsAtAfterOrderByStartsAtAsc(
+            UUID teacherId, UUID studentId, Instant startsAfter);
 
     List<LessonHistoryEntry> findAllByParticipantStudentIdsContainingAndDeletedAtIsNullOrderByStartsAtDesc(
             String studentId);
