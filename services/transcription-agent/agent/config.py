@@ -26,6 +26,7 @@ class AgentConfig:
     internal_token: str
     default_languages: list[str] = field(default_factory=lambda: ["ru", "de"])
     health_port: int = 8090
+    soniox_base_url: str = "wss://stt-rt.eu.soniox.com/transcribe-websocket"
 
     @staticmethod
     def from_env(env: dict[str, str] | None = None) -> "AgentConfig":
@@ -53,4 +54,5 @@ class AgentConfig:
             internal_token=required("TRANSCRIPTION_INTERNAL_TOKEN"),
             default_languages=languages or ["ru", "de"],
             health_port=int(source.get("HEALTH_PORT", "8090")),
+            soniox_base_url=source.get("SONIOX_BASE_URL", "wss://stt-rt.eu.soniox.com/transcribe-websocket"),
         )
