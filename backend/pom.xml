@@ -20,6 +20,7 @@
 		<pdfbox.version>3.0.5</pdfbox.version>
 		<web-push.version>5.1.2</web-push.version>
 		<livekit-server.version>0.16.0</livekit-server.version>
+		<docker.api.version>1.44</docker.api.version>
 		<aws-sdk.version>2.55.1</aws-sdk.version>
 	</properties>
 	<dependencyManagement>
@@ -101,6 +102,10 @@
 					<!-- Tests run in the app's review timezone so LocalDate.now() in the
 					     code and in the tests agree; otherwise date assertions flake near midnight. -->
 					<argLine>-Duser.timezone=Europe/Berlin</argLine>
+					<!-- docker-java defaults to an API rejected by current CI engines. -->
+					<systemPropertyVariables>
+						<api.version>${docker.api.version}</api.version>
+					</systemPropertyVariables>
 				</configuration>
 			</plugin>
 		</plugins>

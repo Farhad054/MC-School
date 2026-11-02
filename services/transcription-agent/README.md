@@ -38,7 +38,7 @@ the `classId` and language hints.
 
 ```bash
 pip install -r requirements.txt
-python -m agent.main
+python -m agent.main start
 ```
 
 Health: `GET http://localhost:8090/healthz` → `{"status":"ok"}`.
@@ -50,11 +50,25 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The tests cover segment batching, idempotency-key stability and the retry/backoff
-behaviour **without** contacting LiveKit or Soniox.
+The tests cover participant attribution, track shutdown, the last unfinished
+utterance, idempotency keys and retries without contacting LiveKit or Soniox.
+
+Each audio track uses its own Soniox WebSocket with 16 kHz mono PCM. On track
+unsubscription or job shutdown, the worker stops the audio reader, sends Soniox
+`finalize` followed by end-of-audio, waits for `finished`, persists the remaining
+final tokens, and closes the connection. The LiveKit job shutdown callback keeps
+the backend HTTP client open until this drain finishes (bounded to 16 seconds).
+This uses the documented Soniox protocol because the pinned LiveKit Soniox
+plugin does not forward its input-close operation to Soniox.
+Protocol references: [manual finalization](https://docs.soniox.com/stt/rt/manual-finalization)
+and [ending a WebSocket stream](https://docs.soniox.com/api-reference/stt/websocket-api).
 
 ## Failure behaviour
 
-If Soniox or the agent dies, the class keeps running. The backend marks
-transcription `FAILED` and the room is unaffected — media never depends on this
-service.
+If a Soniox stream fails, the worker reconnects that participant's track with
+bounded backoff while other tracks continue. The class keeps running. An agent
+process outage requires infrastructure recovery; the backend currently records
+dispatch failures, but does not receive a runtime failure heartbeat from the
+worker. In a provider/backend outage, audio spoken during the gap and finals
+that exceed the bounded retry/drain window cannot be recovered: audio is never
+stored.
