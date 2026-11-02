@@ -22,7 +22,26 @@ from agent.ingestion import FinalSegment, TranscriptIngestionClient, segment_id
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("transcription-agent")
-_state: dict[str, Any] = {"registered": False}
+_state: dict[str, Any] = {"registered": False, "soniox_ready": False}
+
+
+def _safe_status_code(value: Any) -> int | None:
+    """Only a numeric HTTP status is safe to copy from an upstream error."""
+    return value if type(value) is int and 100 <= value <= 599 else None
+
+
+class SonioxError(RuntimeError):
+    """Provider rejection without retaining its potentially sensitive message."""
+
+    def __init__(self, code: Any) -> None:
+        self.code = _safe_status_code(code)
+        super().__init__("Soniox rejected an audio stream")
+
+
+def _failure_details(exc: Exception) -> tuple[str, int | None]:
+    status = exc.code if isinstance(exc, SonioxError) else _safe_status_code(
+        getattr(exc, "status", None))
+    return type(exc).__name__, status
 
 
 class AiohttpPoster:
@@ -134,7 +153,7 @@ async def receive_finals(websocket, on_final) -> None:
             # Parsing failures and provider errors restart only the affected track.
             content = json.loads(message.data)
             if content.get("error_code") or content.get("error_message"):
-                raise RuntimeError("Soniox rejected an audio stream")
+                raise SonioxError(content.get("error_code"))
             for token in content.get("tokens", []):
                 if not token.get("is_final"):
                     continue
@@ -152,6 +171,50 @@ async def receive_finals(websocket, on_final) -> None:
         if tokens:
             await asyncio.wait_for(publish(), timeout=10)
         raise
+
+
+async def probe_soniox(config, *, aiohttp) -> None:
+    """Verify the configured endpoint with generated silence, never lesson audio."""
+    async def run() -> None:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10, connect=5)) as http:
+            async with http.ws_connect(config.soniox_base_url) as websocket:
+                await websocket.send_json({
+                    "api_key": config.soniox_api_key, "model": "stt-rt-v5",
+                    "audio_format": "pcm_s16le", "sample_rate": 16000,
+                    "num_channels": 1, "language_hints": config.default_languages,
+                    "enable_language_identification": True,
+                    "enable_endpoint_detection": True,
+                })
+                # 0.25 seconds of 16 kHz mono signed 16-bit digital silence.
+                await websocket.send_bytes(bytes(8000))
+                await websocket.send_str("")
+
+                async def discard_final(_alternative) -> None:
+                    pass
+
+                await receive_finals(websocket, discard_final)
+
+    await asyncio.wait_for(run(), timeout=10)
+
+
+async def check_soniox_startup(config, *, aiohttp=None) -> None:
+    """Diagnostic only: failed vendor access must not stop the LiveKit worker."""
+    _state["soniox_ready"] = False
+    _state.pop("soniox_code", None)
+    try:
+        if aiohttp is None:
+            import aiohttp
+        await probe_soniox(config, aiohttp=aiohttp)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        error_type, status = _failure_details(exc)
+        _state["soniox_code"] = status
+        log.warning("Soniox startup self-test failed (error=%s status=%s)",
+                    error_type, status if status is not None else "unknown")
+    else:
+        _state["soniox_ready"] = True
+        log.info("Soniox startup self-test succeeded")
 
 
 async def stream_audio(audio, websocket, stop: asyncio.Event, on_final) -> None:
@@ -248,9 +311,12 @@ async def run_classroom(ctx, config, *, agents, rtc, aiohttp) -> None:
                 return
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
                 # Do not include provider responses, API keys or lesson text.
-                log.warning("Soniox audio stream failed; retrying affected track")
+                error_type, status = _failure_details(exc)
+                log.warning(
+                    "Soniox audio stream failed; retrying affected track (error=%s status=%s)",
+                    error_type, status if status is not None else "unknown")
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=backoff)
                 except asyncio.TimeoutError:
@@ -345,11 +411,29 @@ def main() -> None:
     # Longer than the 16-second final-transcript drain: the SDK otherwise kills
     # a job after its default 10 seconds, before our shutdown callback finishes.
     server = agents.AgentServer(shutdown_process_timeout=30)
+    startup_probe_task = None
 
     @server.on("worker_registered")
     def registered(worker_id, server_info) -> None:
+        nonlocal startup_probe_task
         # Jobs run in child processes; readiness belongs to the parent worker.
         _state["registered"] = True
+        if startup_probe_task is None:
+            startup_probe_task = asyncio.create_task(check_soniox_startup(config))
+
+            def completed(task) -> None:
+                if task.cancelled():
+                    return
+                # Retrieve the result even if an unexpected diagnostic failure
+                # escapes its wrapper; never print its potentially raw message.
+                exc = task.exception()
+                if exc is not None:
+                    error_type, status = _failure_details(exc)
+                    _state["soniox_ready"] = False
+                    _state["soniox_code"] = status
+                    log.warning("Soniox startup self-test failed (error=%s status=%s)",
+                                error_type, status if status is not None else "unknown")
+            startup_probe_task.add_done_callback(completed)
 
     server.rtc_session(agent_name=config.agent_name)(entrypoint)
 

@@ -60,6 +60,13 @@ python -m agent.main start
 
 Health: `GET http://localhost:8090/healthz` → `{"status":"ok"}`.
 
+After worker registration, a non-blocking, once-per-process Soniox self-test
+sends 0.25 seconds of generated digital silence and waits up to 10 seconds for
+`finished`. It does not use lesson audio or write transcript segments. Logs
+include success or only the exception class and numeric provider status;
+credentials, upstream messages and transcript text are never logged. The result
+is diagnostic and does not change process liveness.
+
 ## Tests
 
 ```bash
