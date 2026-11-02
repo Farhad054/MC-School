@@ -116,6 +116,7 @@ def main() -> None:
 
             async def process_track(track: rtc.RemoteAudioTrack, participant: rtc.RemoteParticipant) -> None:
                 stt = soniox.STT(api_key=config.soniox_api_key,
+                                 base_url=config.soniox_base_url,
                                  params=soniox.STTOptions(language_hints=languages))
                 audio = rtc.AudioStream(track)
                 async with stt.stream() as speech_stream:
