@@ -53,7 +53,8 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
 
     static final String INTERNAL_TOKEN = "internal-worker-token-not-a-real-secret";
 
-    private static final Instant START = Instant.now().minus(5, ChronoUnit.MINUTES);
+    private static final Instant START = Instant.now().minus(5, ChronoUnit.MINUTES)
+            .truncatedTo(ChronoUnit.MICROS);
     private static final Instant END = START.plus(1, ChronoUnit.HOURS);
 
     @Autowired
