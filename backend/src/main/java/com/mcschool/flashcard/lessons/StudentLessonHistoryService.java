@@ -90,7 +90,7 @@ public class StudentLessonHistoryService {
                 preparation == null ? null : preparation.getDifficulties(),
                 preparation == null ? null : preparation.getLessonPlan(),
                 preparation == null ? null : preparation.getCoveredMaterial(),
-                preparation == null || preparation.hasTranscriptPdf() ? null : preparation.getTranscriptText(),
+                preparation == null || preparation.hasTranscriptPdf() ? null : preparation.getTranscriptTextForDisplay(),
                 preparation != null && preparation.hasWorkbook(),
                 preparation == null ? null : preparation.getWorkbookFilename(),
                 preparation != null && preparation.hasAnswers(),
