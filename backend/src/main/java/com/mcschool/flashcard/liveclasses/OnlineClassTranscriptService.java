@@ -39,17 +39,20 @@ public class OnlineClassTranscriptService {
     private final OnlineClassAccessService accessService;
     private final ClassTranscriptionProvider transcriptionProvider;
     private final java.time.Clock clock;
+    private final OnlineClassTranscriptArchiveService archive;
 
     public OnlineClassTranscriptService(OnlineClassTranscriptSegmentRepository segmentRepository,
                                         OnlineClassRepository classRepository,
                                         OnlineClassAccessService accessService,
                                         ClassTranscriptionProvider transcriptionProvider,
-                                        java.time.Clock clock) {
+                                        java.time.Clock clock,
+                                        OnlineClassTranscriptArchiveService archive) {
         this.segmentRepository = segmentRepository;
         this.classRepository = classRepository;
         this.accessService = accessService;
         this.transcriptionProvider = transcriptionProvider;
         this.clock = clock;
+        this.archive = archive;
     }
 
     // --- Teacher control -----------------------------------------------------
@@ -85,6 +88,7 @@ public class OnlineClassTranscriptService {
                     : languageHints;
             String sessionId = transcriptionProvider.startTranscription(
                     onlineClass.getRoomName(), classId.toString(), hints);
+            onlineClass.setTranscriptionDispatchId(sessionId);
             onlineClass.setTranscriptionState(ClassFeatureState.ACTIVE);
             log.info("Transcription started: classId={} sessionId={}", classId, sessionId);
         } catch (MediaProviderException e) {
@@ -101,7 +105,11 @@ public class OnlineClassTranscriptService {
         OnlineClass onlineClass = accessService.requireHost(caller, classId);
         onlineClass.setTranscriptionState(ClassFeatureState.INACTIVE);
         try {
-            transcriptionProvider.stopTranscription(onlineClass.getRoomName(), classId.toString());
+            String dispatchId = onlineClass.getTranscriptionDispatchId();
+            if (dispatchId != null && !dispatchId.isBlank()) {
+                transcriptionProvider.stopTranscription(onlineClass.getRoomName(), dispatchId);
+            }
+            onlineClass.setTranscriptionDispatchId(null);
         } catch (MediaProviderException e) {
             log.debug("Transcription stop was a no-op: classId={}", classId);
         }
@@ -149,7 +157,9 @@ public class OnlineClassTranscriptService {
                 request.endMs(),
                 text,
                 request.confidence());
-        return TranscriptSegmentResponse.from(segmentRepository.save(segment));
+        OnlineClassTranscriptSegment persisted = segmentRepository.saveAndFlush(segment);
+        archive.sync(onlineClass);
+        return TranscriptSegmentResponse.from(persisted);
     }
 
     private Optional<User> resolveUser(UUID userId) {
