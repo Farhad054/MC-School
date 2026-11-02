@@ -324,6 +324,24 @@ public class OnlineClassService {
             metrics.providerFailure("ensureRoom");
             throw new ConflictException("The class could not be opened; please try again");
         }
+        // A school lesson always starts Soniox automatically when configured.
+        // This belongs on the server so transcription does not depend on a
+        // particular teacher browser/tab or on a separate button.
+        if (transcriptionProvider.isConfigured()
+                && onlineClass.getTranscriptionState() == ClassFeatureState.INACTIVE) {
+            try {
+                onlineClass.setTranscriptionState(ClassFeatureState.STARTING);
+                String dispatchId = transcriptionProvider.startTranscription(
+                        onlineClass.getRoomName(), classId.toString(), List.of("ru", "de"));
+                onlineClass.setTranscriptionDispatchId(dispatchId);
+                onlineClass.setTranscriptionState(ClassFeatureState.ACTIVE);
+            } catch (MediaProviderException e) {
+                // Preserve the live class on an STT outage, but make failure
+                // visible to the teacher in the existing compact status.
+                onlineClass.setTranscriptionState(ClassFeatureState.FAILED);
+                log.warn("Automatic Soniox start failed: classId={}", classId);
+            }
+        }
         metrics.classTransition(OnlineClassStatus.LIVE);
         log.info("Online class started: classId={}", onlineClass.getId());
         return toResponse(onlineClass, caller);
@@ -529,6 +547,18 @@ public class OnlineClassService {
     }
 
     private void finishSession(OnlineClass onlineClass, Instant endedAt) {
+        // Stop the actual agent dispatch, not the lesson UUID. No audio is
+        // retained by this operation; final text segments are stored separately.
+        String dispatchId = onlineClass.getTranscriptionDispatchId();
+        if (dispatchId != null && !dispatchId.isBlank()) {
+            try {
+                transcriptionProvider.stopTranscription(onlineClass.getRoomName(), dispatchId);
+                onlineClass.setTranscriptionDispatchId(null);
+            } catch (MediaProviderException e) {
+                log.warn("Soniox stop failed; room teardown will stop the agent: classId={}",
+                        onlineClass.getId());
+            }
+        }
         onlineClass.end(endedAt);
         onlineClass.setMediaClosePending(true);
         notebookCameras.revokeClass(onlineClass.getId());

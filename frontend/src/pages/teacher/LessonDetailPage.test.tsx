@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,7 +21,7 @@ vi.mock('../../api/client', async importOriginal => {
 });
 vi.mock('../../api/lessonPreparation', async importOriginal => {
   const actual = await importOriginal<typeof import('../../api/lessonPreparation')>();
-  return { ...actual, lessonPreparationApi: { ...actual.lessonPreparationApi, get: vi.fn(), update: vi.fn() },
+  return { ...actual, lessonPreparationApi: { ...actual.lessonPreparationApi, get: vi.fn(), update: vi.fn(), transcriptUrl: vi.fn() },
     completedLessonApi: { ...actual.completedLessonApi, list: vi.fn(), uploadManual: vi.fn(), open: vi.fn() } };
 });
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ user: { id: currentUser.id, role: 'TEACHER' } }) }));
@@ -46,7 +46,7 @@ beforeEach(() => {
   vi.mocked(completedLessonApi.uploadManual).mockResolvedValue(uploaded);
   vi.mocked(completedLessonApi.open).mockResolvedValue(undefined);
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 function mount() {
   return render(<I18nProvider><MemoryRouter initialEntries={['/teacher/lessons/local-trial']}><Routes>
     <Route path="/teacher/lessons/:eventId" element={<LessonDetailPage />} />
@@ -91,6 +91,59 @@ describe('native lesson details preserve completed documents', () => {
       coveredMaterial: 'Дроби и уравнения', homeworkNotes: '', difficulties: '', lessonPlan: '', transcriptText: '',
     }));
     expect(await screen.findByText('Информация для урока сохранена.')).toBeInTheDocument();
+  });
+  it('shows the automatic transcript without copying it into manual notes when saving', async () => {
+    const preparation = {
+      eventId: 'local-trial', coveredMaterial: '', hasWorkbook: false, hasAnswers: false, hasTranscript: true,
+      transcriptText: '[00:00:01] Student: Первая фраза', manualTranscriptText: null,
+      sonioxTranscriptText: '[00:00:01] Student: Первая фраза',
+    } as LessonPreparation;
+    vi.mocked(lessonPreparationApi.get).mockResolvedValue(preparation);
+    vi.mocked(lessonPreparationApi.update).mockResolvedValue(preparation);
+    mount();
+    expect(await screen.findByRole('heading', { name: 'Автоматическая транскрипция Soniox' })).toBeInTheDocument();
+    expect(screen.getByText('[00:00:01] Student: Первая фраза')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Текст транскрипции преподавателя' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Пройденный материал' }), { target: { value: 'Дроби' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить информацию' }));
+    await waitFor(() => expect(lessonPreparationApi.update).toHaveBeenCalledWith('local-trial', {
+      coveredMaterial: 'Дроби', homeworkNotes: '', difficulties: '', lessonPlan: '', transcriptText: '',
+    }));
+  });
+  it('keeps automatic speech visible alongside a PDF and independently editable teacher text', async () => {
+    const preparation = {
+      eventId: 'local-trial', hasWorkbook: false, hasAnswers: false, hasTranscript: true,
+      transcriptText: null, transcriptFilename: 'Учитель.pdf', manualTranscriptText: 'Заметки преподавателя',
+      sonioxTranscriptText: '[00:00:02] Student: Автоматическая фраза',
+    } as LessonPreparation;
+    vi.stubGlobal('URL', class extends URL { static revokeObjectURL = vi.fn(); });
+    vi.mocked(lessonPreparationApi.transcriptUrl).mockResolvedValue('blob:teacher-transcript');
+    vi.mocked(lessonPreparationApi.get).mockResolvedValue(preparation);
+    vi.mocked(lessonPreparationApi.update).mockResolvedValue(preparation);
+    mount();
+    expect(await screen.findByText('Учитель.pdf')).toBeInTheDocument();
+    expect(screen.getByText('[00:00:02] Student: Автоматическая фраза')).toBeInTheDocument();
+    const manual = screen.getByRole('textbox', { name: 'Текст транскрипции преподавателя' });
+    expect(manual).toHaveValue('Заметки преподавателя');
+    fireEvent.change(manual, { target: { value: 'Исправленные заметки' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить информацию' }));
+    await waitFor(() => expect(lessonPreparationApi.update).toHaveBeenCalledWith('local-trial', expect.objectContaining({
+      transcriptText: 'Исправленные заметки',
+    })));
+  });
+  it('preserves legacy manual text when the older API omits the separate source fields', async () => {
+    const preparation = {
+      eventId: 'local-trial', hasWorkbook: false, hasAnswers: false, hasTranscript: true,
+      transcriptText: 'Сохранённый старый текст',
+    } as LessonPreparation;
+    vi.mocked(lessonPreparationApi.get).mockResolvedValue(preparation);
+    vi.mocked(lessonPreparationApi.update).mockResolvedValue(preparation);
+    mount();
+    expect(await screen.findByRole('textbox', { name: 'Текст транскрипции преподавателя' })).toHaveValue('Сохранённый старый текст');
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить информацию' }));
+    await waitFor(() => expect(lessonPreparationApi.update).toHaveBeenCalledWith('local-trial', expect.objectContaining({
+      transcriptText: 'Сохранённый старый текст',
+    })));
   });
   it('keeps the configured trial board available to a regular teacher but requires an assigned pupil for video', async () => {
     vi.stubEnv('VITE_MINDCRAFTI_LIVEKIT_ENABLED', 'true');

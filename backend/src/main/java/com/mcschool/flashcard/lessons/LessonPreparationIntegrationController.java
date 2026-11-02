@@ -73,7 +73,7 @@ public class LessonPreparationIntegrationController {
                 homeworkNotes != null ? homeworkNotes : current.homeworkNotes(),
                 difficulties != null ? difficulties : current.difficulties(),
                 lessonPlan != null ? lessonPlan : current.lessonPlan(),
-                current.transcriptText());
+                current.manualTranscriptText());
 
         LessonPreparationResponse result = preparationService.update(teacher, eventId, merged);
         if (workbook != null && !workbook.isEmpty()) {

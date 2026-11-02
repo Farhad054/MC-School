@@ -107,7 +107,12 @@ export function StudentLessonHistoryDetailPage() {
             {files.workbook && <p><a href={files.workbook} target="_blank" rel="noreferrer">Рабочий лист: {detail.workbookFilename ?? 'PDF'}</a></p>}
             {files.answers && <p><a href={files.answers} target="_blank" rel="noreferrer">Ответы: {detail.answersFilename ?? 'PDF'}</a></p>}
             {files.transcript && <p><a href={files.transcript} target="_blank" rel="noreferrer">Транскрипция: {detail.transcriptFilename ?? 'PDF'}</a></p>}
-            {detail.transcriptText && <HistoryText title="Текст транскрипции" value={detail.transcriptText} />}
+            {detail.transcriptText && detail.transcriptText !== detail.sonioxTranscriptText && (
+              <HistoryText title="Текст транскрипции" value={detail.transcriptText} />
+            )}
+            {detail.sonioxTranscriptText && (
+              <HistoryText title="Автоматическая транскрипция Soniox" value={detail.sonioxTranscriptText} />
+            )}
             {completedFiles.length > 0 && (
               <div>
                 <h3>Сохранённые документы урока</h3>
@@ -123,7 +128,7 @@ export function StudentLessonHistoryDetailPage() {
                 ))}
               </div>
             )}
-            {!files.workbook && !files.answers && !files.transcript && !detail.transcriptText && completedFiles.length === 0 && (
+            {!files.workbook && !files.answers && !files.transcript && !detail.transcriptText && !detail.sonioxTranscriptText && completedFiles.length === 0 && (
               <p className="muted">Сохранённых файлов или транскрипции для этого урока нет.</p>
             )}
           </section>

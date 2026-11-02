@@ -57,7 +57,7 @@ export function TranscriptionControls({
   return (
     <div className="transcription">
       <div role="status" aria-live="polite">
-        {transcriptionState === 'ACTIVE' && <span>{t('onlineClass.transcription.active')}</span>}
+        {transcriptionState === 'ACTIVE' && <span><span aria-hidden="true">● </span>{t('onlineClass.transcription.active')}</span>}
         {/* A provider failure is reported without implying the class is over. */}
         {transcriptionState === 'FAILED' && (
           <span role="alert">{t('onlineClass.transcription.failed')}</span>

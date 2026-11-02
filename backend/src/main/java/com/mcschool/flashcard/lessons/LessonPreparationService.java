@@ -190,7 +190,7 @@ public class LessonPreparationService {
                 throw new IllegalArgumentException("Stored transcript PDF could not be read", ex);
             }
         }
-        String legacy = preparation.getTranscriptText();
+        String legacy = preparation.getTranscriptTextForDisplay();
         return legacy == null ? "" : legacy.trim();
     }
 
@@ -252,7 +252,7 @@ public class LessonPreparationService {
                 preparation.getHomeworkNotes(),
                 preparation.getDifficulties(),
                 preparation.getLessonPlan(),
-                preparation.hasTranscriptPdf() ? null : preparation.getTranscriptText(),
+                preparation.hasTranscriptPdf() ? null : preparation.getTranscriptTextForDisplay(),
                 preparation.hasTranscript(),
                 preparation.getTranscriptFilename(),
                 preparation.hasWorkbook(),
@@ -261,6 +261,8 @@ public class LessonPreparationService {
                 preparation.getAnswersFilename(),
                 preparation.hasAnswers() ? null : ANSWERS_UPLOAD_HINT,
                 preparation.getSiteOpenedAt(),
-                preparation.getCoveredMaterial());
+                preparation.getCoveredMaterial(),
+                preparation.getTranscriptText(),
+                preparation.getSonioxTranscriptText());
     }
 }
