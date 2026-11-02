@@ -40,7 +40,9 @@ public record OnlineClassResponse(
         Instant entryOpensAt,
         Instant entryClosesAt,
         boolean viewerHasJoined,
-        Instant serverNow
+        Instant serverNow,
+        /** Physical media presence is separate from a lesson remaining available. */
+        String mediaState
 ) {
 
     public static OnlineClassResponse from(OnlineClass source, boolean viewerIsHost, boolean joinWindowOpen,
@@ -74,6 +76,8 @@ public record OnlineClassResponse(
                 transcriptionAvailable, entryState,
                 LessonEntryPolicy.lessonDate(source.getScheduledStartAt()),
                 LessonEntryPolicy.dayStart(source.getScheduledStartAt()),
-                LessonEntryPolicy.dayEnd(source.getScheduledStartAt()), viewerHasJoined, serverNow);
+                LessonEntryPolicy.dayEnd(source.getScheduledStartAt()), viewerHasJoined, serverNow,
+                source.isTerminal() ? "ENDED" : source.getStatus() != OnlineClassStatus.LIVE
+                        || source.getEmptySince() != null ? "IDLE" : "ACTIVE");
     }
 }

@@ -21,9 +21,21 @@ The backend verifies the teacher is present in LiveKit before issuing an
 **explicit dispatch**. Opening the lesson, lobby or prejoin screen does not
 start transcription; a connection token alone is insufficient.
 
-An active dispatch is reused when the teacher reconnects or opens another tab.
-Previously saved text remains attached to the same lesson. Explicitly ending
-the lesson stops the dispatch. Metadata carries the `classId` and language hints.
+LiveKit media is created on demand when the teacher connects. An active dispatch
+is reused when the teacher reconnects or opens another tab. After the room has
+no human participants for the 60-second grace period, the backend stops its
+dispatch and releases the media room while keeping the lesson open for reentry.
+The next teacher entry can resume transcription under the same lesson; saved
+text remains. Explicitly ending the lesson closes it permanently.
+
+Metadata carries `classId`, language hints and `lessonStartedAtMs`. Each resumed
+job anchors timestamps to the original lesson start, then uses monotonic time
+for its running streams. Its LiveKit job ID prefixes segment idempotency keys,
+so separate runs cannot collapse identical phrases onto one stored row. Legacy
+dispatches without a valid lesson timestamp retain job-relative timing.
+
+The Railway AgentServer remains registered on standby between lessons. It does
+not join a room or open a Soniox audio stream until a lesson dispatch arrives.
 
 ## Configuration
 

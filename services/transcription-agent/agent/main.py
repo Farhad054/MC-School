@@ -12,6 +12,7 @@ import json
 import logging
 import threading
 import time
+import uuid
 from types import SimpleNamespace
 from typing import Any
 
@@ -50,8 +51,25 @@ def parse_dispatch_metadata(raw: str | None, fallback_languages: list[str]) -> t
     return (class_id if isinstance(class_id, str) and class_id else None), languages
 
 
+def lesson_timeline_offset_ms(raw: str | None, *, now_ms: int | None = None) -> int:
+    """Anchor a resumed job to the lesson without changing legacy metadata.
+
+    Read wall time once at job start; ongoing track offsets use monotonic time
+    so an NTP adjustment cannot reorder utterances within the running job.
+    """
+    try:
+        metadata = json.loads(raw) if raw else None
+        origin = metadata.get("lessonStartedAtMs") if isinstance(metadata, dict) else None
+    except (ValueError, TypeError):
+        return 0
+    if not isinstance(origin, int) or isinstance(origin, bool) or origin <= 0:
+        return 0
+    wall_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    return max(0, wall_ms - origin)
+
+
 def build_final_segment(room_name: str, identity: str, label: str, alternative: Any,
-                        elapsed_ms: int) -> FinalSegment | None:
+                        elapsed_ms: int, *, run_id: str | None = None) -> FinalSegment | None:
     """Convert one Soniox final into a stable, speaker-attributed payload."""
     text = str(getattr(alternative, "text", "") or "").strip()
     if not text:
@@ -65,7 +83,8 @@ def build_final_segment(room_name: str, identity: str, label: str, alternative: 
     start_ms = max(0, end_ms - duration_ms)
     stable_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     return FinalSegment(
-        provider_segment_id=f"{segment_id(room_name, identity, start_ms, end_ms)}:{stable_hash}",
+        provider_segment_id=(f"{run_id}:" if run_id else "")
+        + f"{segment_id(room_name, identity, start_ms, end_ms)}:{stable_hash}",
         participant_identity=identity,
         speaker_label=label or "Участник",
         language=str(getattr(alternative, "language", "") or "") or None,
@@ -183,14 +202,19 @@ async def stream_audio(audio, websocket, stop: asyncio.Event, on_final) -> None:
 
 
 async def run_classroom(ctx, config, *, agents, rtc, aiohttp) -> None:
+    metadata = getattr(ctx.job, "metadata", None)
     class_id, languages = parse_dispatch_metadata(
-        getattr(ctx.job, "metadata", None), config.default_languages)
+        metadata, config.default_languages)
     if not class_id:
         log.warning("Transcription dispatch had no valid classId; skipping")
         ctx.shutdown(reason="invalid transcription metadata")
         return
 
     started_at = time.monotonic()
+    lesson_offset_ms = lesson_timeline_offset_ms(metadata)
+    # Stable for HTTP retries, distinct when the same lesson resumes in a new
+    # LiveKit job even if its participant, words and source timestamps match.
+    run_id = getattr(ctx.job, "id", None) or uuid.uuid4().hex
     active: dict[str, tuple[asyncio.Task, asyncio.Event]] = {}
     closing = False
     cleanup_task = None
@@ -201,12 +225,12 @@ async def run_classroom(ctx, config, *, agents, rtc, aiohttp) -> None:
     async def process_track(track, participant, stop) -> None:
         backoff = 1
         while not stop.is_set():
-            stream_offset_ms = int((time.monotonic() - started_at) * 1000)
+            stream_offset_ms = lesson_offset_ms + int((time.monotonic() - started_at) * 1000)
 
             async def on_final(alternative) -> None:
                 payload = build_final_segment(
                     ctx.room.name, participant.identity, participant.name or "Участник",
-                    alternative, stream_offset_ms + int(alternative.end_time * 1000))
+                    alternative, stream_offset_ms + int(alternative.end_time * 1000), run_id=run_id)
                 if payload is not None:
                     await ingestion.submit(class_id, payload)
 

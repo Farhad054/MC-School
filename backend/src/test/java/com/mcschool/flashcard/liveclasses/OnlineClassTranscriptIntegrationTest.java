@@ -106,7 +106,8 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
         onlineClass = classRepository.save(created);
 
         when(transcriptionProvider.isConfigured()).thenReturn(true);
-        when(transcriptionProvider.startTranscription(anyString(), anyString(), any()))
+        when(transcriptionProvider.isTranscriptionRunning(anyString(), anyString())).thenReturn(true);
+        when(transcriptionProvider.startTranscription(anyString(), anyString(), any(), any()))
                 .thenReturn("dispatch-1");
         when(mediaProvider.isConfigured()).thenReturn(true);
         when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(
@@ -142,7 +143,71 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
         transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de"));
 
         org.mockito.Mockito.verify(transcriptionProvider, org.mockito.Mockito.times(1))
-                .startTranscription(anyString(), anyString(), any());
+                .startTranscription(anyString(), anyString(), any(), any());
+        verify(transcriptionProvider).isTranscriptionRunning(onlineClass.getRoomName(), "dispatch-1");
+    }
+
+    @Test
+    void aNativeClosedDispatchIsReplacedOnTeacherReentryWithoutLosingTheTranscript() {
+        transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de"));
+        TranscriptSegmentResponse original = transcriptService.ingest(onlineClass.getId(),
+                segment("before-native-close", 0, 1000, "Before native close"));
+        when(transcriptionProvider.isTranscriptionRunning(onlineClass.getRoomName(), "dispatch-1"))
+                .thenReturn(false);
+        when(transcriptionProvider.startTranscription(anyString(), anyString(), any(), any()))
+                .thenReturn("dispatch-after-native-close");
+
+        transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de"));
+        transcriptService.ingest(onlineClass.getId(),
+                segment("after-native-close", 5000, 6000, "After native close"));
+
+        OnlineClass reloaded = classRepository.findById(onlineClass.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(reloaded.getActualStartAt()).isEqualTo(START);
+        assertThat(reloaded.getActualEndAt()).isNull();
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
+        assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-after-native-close");
+        assertThat(classRepository.count()).isEqualTo(1);
+        assertThat(transcriptService.segments(teacherPrincipal, onlineClass.getId()))
+                .extracting(TranscriptSegmentResponse::text)
+                .containsExactly("Before native close", "After native close");
+        assertThat(segmentRepository.findByOnlineClassIdAndProviderSegmentId(
+                onlineClass.getId(), "before-native-close").orElseThrow().getId()).isEqualTo(original.id());
+        verify(transcriptionProvider, times(2)).startTranscription(
+                org.mockito.ArgumentMatchers.eq(onlineClass.getRoomName()),
+                org.mockito.ArgumentMatchers.eq(onlineClass.getId().toString()), any(),
+                org.mockito.ArgumentMatchers.eq(START));
+    }
+
+    @Test
+    void anUnknownDispatchStatusDoesNotClearOrDuplicateAnActiveRun() {
+        transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de"));
+        when(transcriptionProvider.isTranscriptionRunning(onlineClass.getRoomName(), "dispatch-1"))
+                .thenThrow(new MediaProviderException("dispatch API unavailable"));
+
+        assertThatThrownBy(() -> transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de")))
+                .isInstanceOf(ConflictException.class);
+
+        OnlineClass reloaded = classRepository.findById(onlineClass.getId()).orElseThrow();
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
+        assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-1");
+        verify(transcriptionProvider, times(1)).startTranscription(anyString(), anyString(), any(), any());
+        verify(transcriptionProvider, never()).stopTranscription(anyString(), anyString());
+    }
+
+    @Test
+    void anActiveFlagDoesNotBypassTeacherPresenceOnReentry() {
+        transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de"));
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de")))
+                .isInstanceOf(ConflictException.class);
+
+        OnlineClass reloaded = classRepository.findById(onlineClass.getId()).orElseThrow();
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
+        assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-1");
+        verify(transcriptionProvider, times(1)).startTranscription(anyString(), anyString(), any(), any());
+        verify(transcriptionProvider, never()).isTranscriptionRunning(anyString(), anyString());
     }
 
     @Test
@@ -222,7 +287,7 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
         assertThat(segmentRepository.findByOnlineClassIdAndProviderSegmentId(
                 onlineClass.getId(), "before-rejoin").orElseThrow().getId()).isEqualTo(original.id());
         verify(transcriptionProvider, times(1))
-                .startTranscription(anyString(), anyString(), any());
+                .startTranscription(anyString(), anyString(), any(), any());
         verify(transcriptionProvider, never()).stopTranscription(anyString(), anyString());
     }
 
@@ -233,7 +298,7 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
         CountDownLatch firstDispatchEntered = new CountDownLatch(1);
         CountDownLatch releaseDispatch = new CountDownLatch(1);
         CountDownLatch secondRequestStarted = new CountDownLatch(1);
-        when(transcriptionProvider.startTranscription(anyString(), anyString(), any()))
+        when(transcriptionProvider.startTranscription(anyString(), anyString(), any(), any()))
                 .thenAnswer(invocation -> {
                     firstDispatchEntered.countDown();
                     if (!releaseDispatch.await(5, TimeUnit.SECONDS)) {
@@ -257,7 +322,7 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
             second.get(5, TimeUnit.SECONDS);
 
             verify(transcriptionProvider, times(1))
-                    .startTranscription(anyString(), anyString(), any());
+                    .startTranscription(anyString(), anyString(), any(), any());
             OnlineClass reloaded = classRepository.findById(onlineClass.getId()).orElseThrow();
             assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
             assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-1");
@@ -272,7 +337,7 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void assertNoDispatchAndLiveClassUnchanged() {
-        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any());
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any(), any());
         OnlineClass reloaded = classRepository.findById(onlineClass.getId()).orElseThrow();
         assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
         assertThat(reloaded.getTranscriptionDispatchId()).isNull();
@@ -285,7 +350,8 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
 
         org.mockito.Mockito.verify(transcriptionProvider)
                 .startTranscription(anyString(), anyString(),
-                        org.mockito.ArgumentMatchers.eq(List.of("ru", "de")));
+                        org.mockito.ArgumentMatchers.eq(List.of("ru", "de")),
+                        org.mockito.ArgumentMatchers.eq(START));
     }
 
     @Test
@@ -299,7 +365,7 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void aProviderFailureDoesNotEndTheClass() {
-        when(transcriptionProvider.startTranscription(anyString(), anyString(), any()))
+        when(transcriptionProvider.startTranscription(anyString(), anyString(), any(), any()))
                 .thenThrow(new MediaProviderException("agent unavailable"));
 
         assertThatThrownBy(() ->

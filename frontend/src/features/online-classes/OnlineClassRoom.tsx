@@ -151,14 +151,20 @@ function RoomBody({
     return () => observer.disconnect();
   }, []);
   // Automatically start Soniox transcription when the teacher joins a live lesson.
-  // Never start for a student or if the feature is unavailable, already running,
-  // or deliberately stopped during this room session.
+  // Each new media connection verifies the dispatch with the server, including
+  // cached ACTIVE status after LiveKit has closed an empty physical room.
+  // Never restart a deliberately stopped dispatch during the same entry.
   const connectionState = useConnectionState();
-  const transcriptionInProgress = transcriptionState !== 'INACTIVE' && transcriptionState !== 'FAILED';
+  const transcriptionStopping = transcriptionState === 'STOPPING';
   const transcriptionAutoEntry = useRef({ classId, attempted: false });
   const onTranscriptionStateChanged = useRef(onStateChanged);
   onTranscriptionStateChanged.current = onStateChanged;
   const [transcriptionAutoError, setTranscriptionAutoError] = useState(false);
+  useEffect(() => {
+    if (transcriptionState === 'ACTIVE' || transcriptionState === 'STARTING') {
+      setTranscriptionAutoError(false);
+    }
+  }, [transcriptionState]);
   useEffect(() => {
     if (transcriptionAutoEntry.current.classId !== classId) {
       transcriptionAutoEntry.current = { classId, attempted: false };
@@ -168,11 +174,8 @@ function RoomBody({
       return;
     }
     if (!connection.host || !transcriptionAvailable) return;
-    if (transcriptionInProgress) {
-      // Also remember an existing dispatch: a manual stop during this entry
-      // must not immediately trigger another automatic start.
+    if (transcriptionStopping) {
       transcriptionAutoEntry.current.attempted = true;
-      setTranscriptionAutoError(false);
       return;
     }
     if (transcriptionAutoEntry.current.attempted) return;
@@ -214,7 +217,7 @@ function RoomBody({
       clearTimeout(retryTimer);
       if (!begun) entry.attempted = false;
     };
-  }, [classId, connection.host, connectionState, transcriptionAvailable, transcriptionInProgress]);
+  }, [classId, connection.host, connectionState, transcriptionAvailable, transcriptionStopping]);
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [videosOpen, setVideosOpen] = useState(false);
   const materialInput = useRef<HTMLInputElement>(null);

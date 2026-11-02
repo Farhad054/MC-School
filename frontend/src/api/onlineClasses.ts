@@ -19,6 +19,8 @@ export interface OnlineClass {
   studentId: string | null;
   groupId: string | null;
   status: OnlineClassStatus;
+  /** Physical media room; an idle lesson remains available for teacher re-entry. */
+  mediaState?: 'IDLE' | 'ACTIVE' | 'ENDED';
   waitingRoomEnabled: boolean;
   studentScreenShareEnabled: boolean;
   recordingState: ClassFeatureState;

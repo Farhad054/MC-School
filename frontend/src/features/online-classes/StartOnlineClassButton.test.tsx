@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError } from '../../api/client';
 import { onlineClassesApi } from '../../api/onlineClasses';
@@ -53,5 +53,19 @@ describe('StartOnlineClassButton error handling', () => {
       name: /Начать онлайн-урок|Online-Unterricht starten/,
     })).toBeEnabled();
     expect(screen.queryByText(/не настроены на этом сервере|nicht konfiguriert/)).not.toBeInTheDocument();
+  });
+
+  it('re-enters the same idle classroom instead of creating a replacement lesson', async () => {
+    api.materializeFromCalendar.mockResolvedValue({ id: 'existing-class', status: 'LIVE', mediaState: 'IDLE' } as
+      Awaited<ReturnType<typeof onlineClassesApi.materializeFromCalendar>>);
+    api.start.mockResolvedValue({ id: 'existing-class', status: 'LIVE', mediaState: 'IDLE' } as never);
+    render(<I18nProvider><MemoryRouter initialEntries={['/lesson']}><Routes>
+      <Route path="/lesson" element={<StartOnlineClassButton eventId="calendar-lesson" />} />
+      <Route path="/online-classes/existing-class" element={<p>Existing classroom</p>} />
+    </Routes></MemoryRouter></I18nProvider>);
+    await userEvent.click(screen.getByRole('button', { name: /Начать онлайн-урок|Online-Unterricht starten/ }));
+    expect(await screen.findByText('Existing classroom')).toBeInTheDocument();
+    expect(api.materializeFromCalendar).toHaveBeenCalledExactlyOnceWith('calendar-lesson');
+    expect(api.start).toHaveBeenCalledExactlyOnceWith('existing-class');
   });
 });
