@@ -52,6 +52,13 @@ public class LessonPreparation {
     @Column(name = "transcript_text", columnDefinition = "text")
     private String transcriptText;
 
+    /** Durable Soniox transcript; never overwrites a teacher's notes or uploaded PDF. */
+    @Column(name = "soniox_transcript_text", columnDefinition = "text")
+    private String sonioxTranscriptText;
+
+    @Column(name = "soniox_transcript_updated_at")
+    private Instant sonioxTranscriptUpdatedAt;
+
     @Column(name = "transcript_pdf", columnDefinition = "bytea")
     private byte[] transcriptPdf;
 
@@ -141,6 +148,18 @@ public class LessonPreparation {
         this.transcriptText = null;
     }
 
+    /** Called only by the trusted classroom ingestion pipeline. */
+    public void replaceSonioxTranscript(String text, Instant updatedAt) {
+        this.sonioxTranscriptText = normalize(text);
+        this.sonioxTranscriptUpdatedAt = updatedAt;
+    }
+
+    /** Choose human-provided notes if present; otherwise display the live Soniox transcript. */
+    public String getTranscriptTextForDisplay() {
+        return transcriptText == null || transcriptText.isBlank()
+                ? sonioxTranscriptText : transcriptText;
+    }
+
     public void markSiteOpened(Instant openedAt) {
         this.siteOpenedAt = openedAt;
     }
@@ -158,7 +177,8 @@ public class LessonPreparation {
     }
 
     public boolean hasTranscript() {
-        return hasTranscriptPdf() || (transcriptText != null && !transcriptText.isBlank());
+        return hasTranscriptPdf() || (transcriptText != null && !transcriptText.isBlank())
+                || (sonioxTranscriptText != null && !sonioxTranscriptText.isBlank());
     }
 
     private String normalize(String value) {
