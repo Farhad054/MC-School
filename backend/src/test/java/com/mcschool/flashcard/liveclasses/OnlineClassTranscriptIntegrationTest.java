@@ -12,6 +12,7 @@ import com.mcschool.flashcard.AbstractIntegrationTest;
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.lessons.LessonPreparationRepository;
 import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentRequest;
 import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentResponse;
 import com.mcschool.flashcard.liveclasses.provider.ClassTranscriptionProvider;
@@ -54,6 +55,9 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private OnlineClassTranscriptSegmentRepository segmentRepository;
+
+    @Autowired
+    private LessonPreparationRepository preparations;
 
     @Autowired
     private UserRepository userRepository;
@@ -104,6 +108,8 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
                 .getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
 
         transcriptService.stop(teacherPrincipal, onlineClass.getId());
+        org.mockito.Mockito.verify(transcriptionProvider)
+                .stopTranscription(anyString(), org.mockito.ArgumentMatchers.eq("dispatch-1"));
         assertThat(classRepository.findById(onlineClass.getId()).orElseThrow()
                 .getTranscriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
     }
@@ -186,6 +192,40 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
                 segment("seg-long", 0, 1000, "a".repeat(9000)));
 
         assertThat(stored.text()).hasSize(OnlineClassTranscriptService.MAX_SEGMENT_TEXT_LENGTH);
+    }
+
+    @Test
+    void everyFinalSegmentAppearsAutomaticallyInTheCorrectLessonTranscript() {
+        transcriptService.ingest(onlineClass.getId(), segment("seg-2", 2000, 3000, "zweite"));
+        transcriptService.ingest(onlineClass.getId(), segment("seg-1", 0, 1500, "erste"));
+
+        var prep = preparations.findByTeacherIdAndEventId(teacher.getId(), "event-1")
+                .orElseThrow();
+        assertThat(prep.hasTranscript()).isTrue();
+        assertThat(prep.getSonioxTranscriptText())
+                .contains("Student: erste", "Student: zweite");
+        assertThat(prep.getSonioxTranscriptText().indexOf("erste"))
+                .isLessThan(prep.getSonioxTranscriptText().indexOf("zweite"));
+        assertThat(prep.getTranscriptTextForDisplay()).contains("erste", "zweite");
+
+        transcriptService.ingest(onlineClass.getId(), segment("seg-2", 2000, 3000, "zweite"));
+        assertThat(segmentRepository.count()).isEqualTo(2);
+        assertThat(preparations.findByTeacherIdAndEventId(teacher.getId(), "event-1")
+                .orElseThrow().getSonioxTranscriptText())
+                .isEqualTo(prep.getSonioxTranscriptText());
+    }
+
+    @Test
+    void aManualTranscriptCannotBeOverwrittenBySoniox() {
+        var manual = com.mcschool.flashcard.lessons.LessonPreparation.create(teacher, "event-1");
+        manual.updateNotes(null, null, null, "Notes written by teacher");
+        preparations.saveAndFlush(manual);
+
+        transcriptService.ingest(onlineClass.getId(), segment("seg-1", 0, 800, "Automatic speech"));
+        var prep = preparations.findByTeacherIdAndEventId(teacher.getId(), "event-1")
+                .orElseThrow();
+        assertThat(prep.getTranscriptTextForDisplay()).isEqualTo("Notes written by teacher");
+        assertThat(prep.getSonioxTranscriptText()).contains("Automatic speech");
     }
 
     // --- Internal token ------------------------------------------------------
