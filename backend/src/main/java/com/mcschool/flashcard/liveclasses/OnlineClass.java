@@ -89,6 +89,10 @@ public class OnlineClass {
     @Column(name = "transcription_state", nullable = false, length = 20)
     private ClassFeatureState transcriptionState;
 
+    /** LiveKit dispatch identifier, required for correct agent shutdown. */
+    @Column(name = "transcription_dispatch_id", length = 255)
+    private String transcriptionDispatchId;
+
     @Column(name = "actual_start_at")
     private Instant actualStartAt;
 
@@ -258,6 +262,10 @@ public class OnlineClass {
 
     public void setRecordingState(ClassFeatureState state) {
         this.recordingState = state;
+    }
+
+    public void setTranscriptionDispatchId(String dispatchId) {
+        this.transcriptionDispatchId = dispatchId;
     }
 
     public void setTranscriptionState(ClassFeatureState state) {
