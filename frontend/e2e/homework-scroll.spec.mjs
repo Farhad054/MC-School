@@ -15,6 +15,7 @@ async function openHomework(page, { submitted = false, viewport = { width: 1280,
     startDate: '2026-11-02', dueDate: '2026-11-09',
   };
   await page.addInitScript(user => {
+    localStorage.setItem('language', 'DE');
     localStorage.setItem('accessToken', 'browser-fixture-only');
     localStorage.setItem('authUser', JSON.stringify(user));
   }, student);
@@ -42,6 +43,15 @@ async function openHomework(page, { submitted = false, viewport = { width: 1280,
   await page.goto(`/student/homeworks/${homeworkId}/worksheet`);
   await expect(page.getByRole('region', { name: 'Seite 1', exact: true })).toBeVisible();
   return captured;
+}
+
+function toolbar(page) {
+  return page.getByRole('toolbar', { name: 'Werkzeuge', exact: true });
+}
+
+async function clearActivePage(page) {
+  await toolbar(page).getByRole('button', { name: 'Weitere Werkzeuge', exact: true }).click();
+  await page.getByRole('button', { name: 'Seite leeren', exact: true }).click();
 }
 
 async function drawOn(page, index) {
@@ -82,15 +92,21 @@ test('children scroll between worksheet pages and submit ink from both pages', a
   await expect(first).toBeAttached();
 
   const firstCanvas = await drawOn(page, 0);
-  await expect(first.getByRole('button', { name: 'Rückgängig', exact: true })).toBeEnabled();
+  await expect(toolbar(page)).toHaveCount(1);
+  await expect(toolbar(page).getByRole('button', { name: 'Rückgängig', exact: true })).toBeEnabled();
   const firstInk = await firstCanvas.evaluate(canvas => canvas.toDataURL());
   const secondCanvas = await drawOn(page, 1);
-  await expect(second.getByRole('button', { name: 'Rückgängig', exact: true })).toBeEnabled();
+  await expect(toolbar(page).getByRole('button', { name: 'Rückgängig', exact: true })).toBeEnabled();
   expect(await firstCanvas.evaluate(canvas => canvas.toDataURL())).toBe(firstInk);
   const secondInk = await secondCanvas.evaluate(canvas => canvas.toDataURL());
-  await second.getByRole('button', { name: 'Rückgängig', exact: true }).click();
-  await expect(second.getByRole('button', { name: 'Rückgängig', exact: true })).toBeDisabled();
+  await toolbar(page).getByRole('button', { name: 'Rückgängig', exact: true }).click();
+  await expect(toolbar(page).getByRole('button', { name: 'Rückgängig', exact: true })).toBeDisabled();
   await expect.poll(() => secondCanvas.evaluate(canvas => canvas.toDataURL())).not.toBe(secondInk);
+  expect(await firstCanvas.evaluate(canvas => canvas.toDataURL())).toBe(firstInk);
+  await toolbar(page).getByRole('button', { name: 'Wiederholen', exact: true }).click();
+  await expect.poll(() => secondCanvas.evaluate(canvas => canvas.toDataURL())).toBe(secondInk);
+  await clearActivePage(page);
+  await expect(toolbar(page).getByRole('button', { name: 'Rückgängig', exact: true })).toBeDisabled();
   expect(await firstCanvas.evaluate(canvas => canvas.toDataURL())).toBe(firstInk);
   await drawOn(page, 1);
   await expect(secondCanvas).toBeAttached();
@@ -102,6 +118,40 @@ test('children scroll between worksheet pages and submit ink from both pages', a
   await expect(page.getByText('Hausaufgabe wurde abgegeben.', { exact: true })).toBeVisible();
 });
 
+test('the lesson-board toolbar applies pen settings and erases real homework ink', async ({ page }) => {
+  await openHomework(page);
+  await expect(toolbar(page)).toHaveCount(1);
+  const pen = toolbar(page).getByRole('button', { name: 'Stift', exact: true });
+  await expect(pen).toHaveAttribute('aria-pressed', 'true');
+  await pen.click();
+  const width = page.getByRole('slider', { name: 'Толщина инструмента', exact: true });
+  await width.focus();
+  await width.press('Home');
+  for (let step = 0; step < 11; step++) await width.press('ArrowRight');
+  await expect(width).toHaveValue('12');
+  await page.getByRole('button', { name: /Выбрать цвет/ }).click();
+  await page.getByRole('radio', { name: '#df6835', exact: true }).click();
+  await page.keyboard.press('Escape');
+  const canvas = await drawOn(page, 0);
+  const penInk = await canvas.evaluate(node => node.toDataURL());
+  const hasSelectedColor = await canvas.evaluate(node => {
+    const data = node.getContext('2d').getImageData(0, 0, node.width, node.height).data;
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index] === 223 && data[index + 1] === 104 && data[index + 2] === 53 && data[index + 3] > 200) return true;
+    }
+    return false;
+  });
+  expect(hasSelectedColor).toBe(true);
+  const eraser = toolbar(page).getByRole('button', { name: 'Radierer', exact: true });
+  await eraser.click();
+  await expect(eraser).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await drawOn(page, 0);
+  await expect.poll(() => canvas.evaluate(node => node.toDataURL())).not.toBe(penInk);
+  await toolbar(page).getByRole('button', { name: 'Rückgängig', exact: true }).click();
+  await expect.poll(() => canvas.evaluate(node => node.toDataURL())).toBe(penInk);
+});
+
 test('submitted homework also keeps every page in the vertical read-only flow', async ({ page }) => {
   await openHomework(page, { submitted: true });
   const second = page.getByRole('region', { name: 'Seite 2', exact: true });
@@ -110,6 +160,7 @@ test('submitted homework also keeps every page in the vertical read-only flow', 
   await expect(page.getByRole('region', { name: 'Seite 1', exact: true })).toBeAttached();
   await expect(page.getByTestId('homework-ink-0')).toHaveCount(0);
   await expect(page.getByTestId('homework-ink-1')).toHaveCount(0);
+  await expect(page.getByRole('toolbar')).toHaveCount(0);
 });
 
 test.describe('Android finger scrolling', () => {
@@ -121,6 +172,7 @@ test.describe('Android finger scrolling', () => {
     const canvas = page.getByTestId('homework-ink-0');
     await canvas.scrollIntoViewIfNeeded();
     await expect(canvas).toHaveCSS('opacity', '1');
+    await expect(toolbar(page)).toHaveCount(1);
     const box = await canvas.boundingBox();
     const startY = Math.min(box.y + box.height * 0.85, 700);
     const endY = Math.max(box.y + box.height * 0.1, 140);
@@ -136,7 +188,8 @@ test.describe('Android finger scrolling', () => {
     }
     await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before + 80);
-    await expect(page.getByTitle('Rückgängig', { exact: true })).toBeDisabled();
+    await expect(toolbar(page).getByRole('button', { name: 'Rückgängig', exact: true })).toBeDisabled();
+    await expect(toolbar(page)).toHaveCount(1);
     const hasInk = await page.getByRole('region', { name: 'Seite 1', exact: true }).locator('canvas').first()
       .evaluate(node => node.getContext('2d').getImageData(0, 0, node.width, node.height).data
         .some((value, index) => index % 4 === 3 && value > 0));
@@ -151,7 +204,9 @@ test.describe('Android finger scrolling', () => {
     const canvas = page.getByTestId('homework-ink-0');
     await canvas.scrollIntoViewIfNeeded();
     await expect(canvas).toHaveCSS('opacity', '1');
-    await page.getByTitle('Android/Finger schreiben', { exact: true }).click();
+    await toolbar(page).getByRole('button', { name: 'Stift', exact: true }).click();
+    await page.getByRole('button', { name: 'Mit dem Finger zeichnen', exact: true }).click();
+    await page.keyboard.press('Escape');
     await expect(canvas).toHaveCSS('touch-action', 'pinch-zoom');
     const box = await canvas.boundingBox();
     const x = box.x + box.width * 0.3;
@@ -166,12 +221,33 @@ test.describe('Android finger scrolling', () => {
       await page.waitForTimeout(20);
     }
     await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    await expect(page.getByTitle('Rückgängig', { exact: true })).toBeEnabled();
+    await expect(toolbar(page).getByRole('button', { name: 'Rückgängig', exact: true })).toBeEnabled();
     const hasInk = await first.locator('canvas').first()
       .evaluate(node => node.getContext('2d').getImageData(0, 0, node.width, node.height).data
         .some((value, index) => index % 4 === 3 && value > 0));
     expect(hasInk).toBe(true);
     expect(Math.abs(await page.evaluate(() => window.scrollY) - before)).toBeLessThan(10);
+
+    // Pan must restore native finger scrolling even though Finger writing was
+    // selected earlier. It must not add an invisible second stroke to the PDF.
+    const inkBeforePan = await first.locator('canvas').first().evaluate(node => node.toDataURL());
+    await toolbar(page).getByRole('button', { name: 'Verschieben', exact: true }).click();
+    // Chromium can serialize pan-x + pan-y + pinch-zoom as its equivalent
+    // `manipulation` alias. Both retain native pan and pinch without ink.
+    await expect(canvas).toHaveCSS('touch-action', /^(manipulation|pan-x pan-y pinch-zoom)$/);
+    const panBox = await canvas.boundingBox();
+    const panX = panBox.x + panBox.width * 0.6;
+    const panY = Math.min(panBox.y + panBox.height * 0.8, 700);
+    const beforePan = await page.evaluate(() => window.scrollY);
+    await input.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: panX, y: panY, id: 2 }] });
+    for (let step = 1; step <= 8; step++) {
+      await input.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: panX, y: panY - step * 24, id: 2 }] });
+      await page.waitForTimeout(20);
+    }
+    await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(beforePan + 50);
+    expect(await first.locator('canvas').first().evaluate(node => node.toDataURL())).toBe(inkBeforePan);
+    await expect(toolbar(page)).toHaveCount(1);
     await input.detach();
   });
 });

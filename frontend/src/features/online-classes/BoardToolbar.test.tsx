@@ -22,6 +22,8 @@ function Harness({
   onUndo = vi.fn(),
   onRedo = vi.fn(),
   onClearMine = vi.fn(),
+  availableTools,
+  eraserModes,
 }: {
   onSettings?: (tool: Tool, patch: unknown) => void;
   onEraserMode?: (mode: EraserMode) => void;
@@ -37,6 +39,8 @@ function Harness({
   onUndo?: () => void;
   onRedo?: () => void;
   onClearMine?: () => void;
+  availableTools?: Tool[];
+  eraserModes?: EraserMode[];
 }) {
   const [tool, setTool] = useState<Tool>('pen');
   const [settings, setSettings] = useState<Record<Tool, ToolSettings>>(DEFAULT_TOOL_SETTINGS);
@@ -59,6 +63,8 @@ function Harness({
         onUndo={onUndo}
         onRedo={onRedo}
         onClearMine={onClearMine}
+        availableTools={availableTools}
+        eraserModes={eraserModes}
         hostActions={hostActions}
         sharedActions={sharedActions}
         fileAction={fileAction}
@@ -159,6 +165,44 @@ describe('BoardToolbar', () => {
     expect(screen.getByRole('radio', { name: 'Удалять штрих' })).toBeChecked();
     expect(screen.queryByRole('button', { name: 'Выбрать цвет / Farbe wählen' })).not.toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Размер ластика' })).toBeInTheDocument();
+  });
+
+  it('limits homework tools to its supported capabilities while keeping its actions reachable by keyboard', async () => {
+    const user = userEvent.setup(), clear = vi.fn();
+    render(<Harness availableTools={['pan', 'pen', 'erase']} eraserModes={['partial']} onClearMine={clear} />);
+    expect(screen.getByRole('button', { name: 'Перемещение' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Перо' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ластик' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Маркер' })).not.toBeInTheDocument();
+
+    const more = screen.getByRole('button', { name: 'Другие инструменты' });
+    more.focus();
+    await user.keyboard('{ArrowDown}');
+    const clearAction = screen.getByRole('button', { name: 'Очистить мой слой' });
+    expect(clearAction).toHaveFocus();
+    for (const name of ['Выделение', 'Текст', 'Линия', 'Стрелка', 'Прямоугольник', 'Эллипс', 'Указка']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    await user.keyboard('{Enter}');
+    expect(clear).toHaveBeenCalledOnce();
+    expect(more).toHaveFocus();
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('omits unsupported eraser modes without removing size and input controls from the homework profile', async () => {
+    const user = userEvent.setup(), onSettings = vi.fn(), onInputMode = vi.fn(), onEraserMode = vi.fn();
+    render(<Harness availableTools={['pan', 'pen', 'erase']} eraserModes={['partial']}
+      onSettings={onSettings} onInputMode={onInputMode} onEraserMode={onEraserMode} />);
+    await user.click(screen.getByRole('button', { name: 'Ластик' }));
+    expect(screen.queryByRole('radio', { name: 'Удалять штрих' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('slider', { name: 'Размер ластика' }), { target: { value: '18' } });
+    expect(onSettings).toHaveBeenCalledWith('erase', { width: 0.018 });
+    await user.click(screen.getByRole('button', { name: 'Рисовать пальцем' }));
+    expect(onInputMode).toHaveBeenCalledWith('finger');
+    expect(onEraserMode).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Ластик' })).toHaveFocus();
+    expect(screen.queryByRole('group', { name: 'Настройки инструмента' })).not.toBeInTheDocument();
   });
 
   it('shows a working stylus / finger switch in contextual settings', async () => {
