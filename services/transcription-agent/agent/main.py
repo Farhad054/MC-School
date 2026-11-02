@@ -173,13 +173,18 @@ def main() -> None:
                     if pending:
                         await asyncio.gather(*pending, return_exceptions=True)
 
-            ctx.add_shutdown_callback(cleanup)
-            await ctx.connect(auto_subscribe=agents.AutoSubscribe.AUDIO_ONLY)
-            _state["registered"] = True
-            # The callback is registered before connect(), including for peers
-            # already in the room when the teacher starts the lesson.
-            log.info("Soniox started for classId=%s", class_id)
-            await asyncio.Event().wait()
+            try:
+                await ctx.connect(auto_subscribe=agents.AutoSubscribe.AUDIO_ONLY)
+                _state["registered"] = True
+                # Handler is registered before connect: this also captures
+                # audio published by participants already in the room.
+                log.info("Soniox started for classId=%s", class_id)
+                await asyncio.Event().wait()
+            finally:
+                # Drain final Soniox responses while HTTP ingestion is still
+                # available. Closing the HTTP session first would lose finals.
+                await cleanup()
+                _state["registered"] = False
 
     agents.cli.run_app(server)
 
