@@ -22,6 +22,9 @@ jobs:
     timeout-minutes: 20
     env:
       DOCKER_API_VERSION: "1.44"
+      # docker-java reads api.version as a JVM property, including in Surefire's
+      # forked test JVM. DOCKER_API_VERSION alone only configures the Docker CLI.
+      JAVA_TOOL_OPTIONS: "-Dapi.version=1.44"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -29,8 +32,6 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Configure Testcontainers Docker client API compatibility
-        run: printf 'api.version=1.44\\n' > "$HOME/.docker-java.properties"
       - name: Run transcript and classroom integration tests (Docker)
         working-directory: backend
         run: ./mvnw -B -ntp -Dtest=OnlineClassTranscriptIntegrationTest,OnlineClassServiceIntegrationTest test
@@ -50,3 +51,38 @@ jobs:
       - name: Test agent ingest and dispatch
         working-directory: services/transcription-agent
         run: pytest -q
+      - name: Build production agent image
+        run: docker build -t soniox-agent:ci services/transcription-agent
+      - name: Smoke test production command without provider access
+        shell: bash
+        run: |
+          # Exercise the image's actual default command. With no CLI subcommand
+          # LiveKit prints help and exits; unit tests cannot detect that failure.
+          container_id=$(docker run -d --network none \
+            -e LIVEKIT_URL=wss://127.0.0.1:443 \
+            -e LIVEKIT_API_KEY=ci-no-provider-access \
+            -e LIVEKIT_API_SECRET=ci-no-provider-access \
+            -e LIVEKIT_AGENT_NAME=ci-transcription \
+            -e SONIOX_API_KEY=ci-no-provider-access \
+            -e MCSCHOOL_API_BASE_URL=http://127.0.0.1:8080/api/v1 \
+            -e TRANSCRIPTION_INTERNAL_TOKEN=ci-no-provider-access \
+            soniox-agent:ci)
+          trap 'docker logs "$container_id"; docker rm -f "$container_id" >/dev/null' EXIT
+          healthy=0
+          for attempt in {1..30}; do
+            test "$(docker inspect -f '{{.State.Running}}' "$container_id")" = true
+            if docker exec "$container_id" python -c \
+              "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=2).status == 200"; then
+              healthy=$((healthy + 1))
+              # Stay up across multiple checks so an early import/configuration
+              # crash cannot pass on a briefly available health endpoint.
+              if test "$healthy" -ge 5; then
+                exit 0
+              fi
+            else
+              healthy=0
+            fi
+            sleep 2
+          done
+          echo 'Production agent did not remain healthy' >&2
+          exit 1
