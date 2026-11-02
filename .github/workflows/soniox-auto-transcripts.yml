@@ -2,7 +2,7 @@ name: Automatic Soniox lesson transcripts
 
 on:
   push:
-    branches: [feature/automatic-soniox-lesson-transcripts-20261102]
+    branches: [fix/soniox-start-on-teacher-entry]
   pull_request:
     paths:
       - 'backend/src/main/java/com/mcschool/flashcard/liveclasses/**'
@@ -13,6 +13,7 @@ on:
       - 'frontend/src/api/types.ts'
       - 'frontend/src/pages/teacher/LessonDetailPage*'
       - 'frontend/src/pages/teacher/StudentLessonHistoryDetailPage*'
+      - 'frontend/src/features/online-classes/OnlineClassRoom*'
       - '.github/workflows/soniox-auto-transcripts.yml'
   workflow_dispatch:
 
@@ -33,9 +34,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Test transcript visibility and source isolation
+      - name: Test transcript startup, visibility and source isolation
         working-directory: frontend
-        run: npm test -- src/pages/teacher/LessonDetailPage.test.tsx src/pages/teacher/StudentLessonHistoryDetailPage.test.tsx
+        run: npm test -- src/pages/teacher/LessonDetailPage.test.tsx src/pages/teacher/StudentLessonHistoryDetailPage.test.tsx src/features/online-classes/OnlineClassRoom.test.tsx
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20

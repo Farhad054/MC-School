@@ -5,6 +5,7 @@ import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentRequest;
 import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentResponse;
 import com.mcschool.flashcard.liveclasses.provider.ClassTranscriptionProvider;
+import com.mcschool.flashcard.liveclasses.provider.LiveClassMediaProvider;
 import com.mcschool.flashcard.liveclasses.provider.MediaProviderException;
 import com.mcschool.flashcard.users.User;
 import java.time.Duration;
@@ -38,6 +39,7 @@ public class OnlineClassTranscriptService {
     private final OnlineClassRepository classRepository;
     private final OnlineClassAccessService accessService;
     private final ClassTranscriptionProvider transcriptionProvider;
+    private final LiveClassMediaProvider mediaProvider;
     private final java.time.Clock clock;
     private final OnlineClassTranscriptArchiveService archive;
 
@@ -45,12 +47,14 @@ public class OnlineClassTranscriptService {
                                         OnlineClassRepository classRepository,
                                         OnlineClassAccessService accessService,
                                         ClassTranscriptionProvider transcriptionProvider,
+                                        LiveClassMediaProvider mediaProvider,
                                         java.time.Clock clock,
                                         OnlineClassTranscriptArchiveService archive) {
         this.segmentRepository = segmentRepository;
         this.classRepository = classRepository;
         this.accessService = accessService;
         this.transcriptionProvider = transcriptionProvider;
+        this.mediaProvider = mediaProvider;
         this.clock = clock;
         this.archive = archive;
     }
@@ -67,7 +71,7 @@ public class OnlineClassTranscriptService {
      */
     @Transactional(noRollbackFor = ConflictException.class)
     public void start(AuthenticatedUser caller, UUID classId, List<String> languageHints) {
-        OnlineClass onlineClass = accessService.requireHost(caller, classId);
+        OnlineClass onlineClass = accessService.requireHostForUpdate(caller, classId);
         if (!transcriptionProvider.isConfigured()) {
             throw new ConflictException("Transcription is not available on this server");
         }
@@ -77,6 +81,22 @@ public class OnlineClassTranscriptService {
         if (onlineClass.getTranscriptionState() == ClassFeatureState.ACTIVE
                 || onlineClass.getTranscriptionState() == ClassFeatureState.STARTING) {
             return;
+        }
+
+        // A connection token and the attendance row are created before media
+        // connects. Only LiveKit's current participant list proves the teacher
+        // has entered this classroom. Student-only rooms must not start STT.
+        final boolean hostPresent;
+        try {
+            hostPresent = mediaProvider.listParticipantIdentities(onlineClass.getRoomName()).stream()
+                    .map(ParticipantIdentity::userId)
+                    .flatMap(Optional::stream)
+                    .anyMatch(onlineClass.getTeacher().getId()::equals);
+        } catch (MediaProviderException e) {
+            throw new ConflictException("Teacher presence could not be verified; please try again");
+        }
+        if (!hostPresent) {
+            throw new ConflictException("Join the classroom before starting transcription");
         }
 
         onlineClass.setTranscriptionState(ClassFeatureState.STARTING);
@@ -102,7 +122,7 @@ public class OnlineClassTranscriptService {
     /** Teacher-only. Safe when nothing is running. */
     @Transactional
     public void stop(AuthenticatedUser caller, UUID classId) {
-        OnlineClass onlineClass = accessService.requireHost(caller, classId);
+        OnlineClass onlineClass = accessService.requireHostForUpdate(caller, classId);
         onlineClass.setTranscriptionState(ClassFeatureState.INACTIVE);
         try {
             String dispatchId = onlineClass.getTranscriptionDispatchId();

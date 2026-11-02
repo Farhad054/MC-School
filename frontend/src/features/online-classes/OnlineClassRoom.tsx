@@ -154,20 +154,67 @@ function RoomBody({
   // Never start for a student or if the feature is unavailable, already running,
   // or deliberately stopped during this room session.
   const connectionState = useConnectionState();
-  const transcriptionAutoAttempted = useRef(false);
+  const transcriptionInProgress = transcriptionState !== 'INACTIVE' && transcriptionState !== 'FAILED';
+  const transcriptionAutoEntry = useRef({ classId, attempted: false });
+  const onTranscriptionStateChanged = useRef(onStateChanged);
+  onTranscriptionStateChanged.current = onStateChanged;
   const [transcriptionAutoError, setTranscriptionAutoError] = useState(false);
   useEffect(() => {
-    if (!connection.host || !transcriptionAvailable ||
-        connectionState !== ConnectionState.Connected ||
-        transcriptionState !== 'INACTIVE' || transcriptionAutoAttempted.current) return;
-    transcriptionAutoAttempted.current = true;
-    let alive = true;
-    void onlineClassesApi.startTranscription(classId).then(
-      () => { if (alive) onStateChanged?.(); },
-      () => { if (alive) setTranscriptionAutoError(true); },
-    );
-    return () => { alive = false; };
-  }, [classId, connection.host, connectionState, transcriptionAvailable, transcriptionState, onStateChanged]);
+    if (transcriptionAutoEntry.current.classId !== classId) {
+      transcriptionAutoEntry.current = { classId, attempted: false };
+    }
+    if (connectionState !== ConnectionState.Connected) {
+      transcriptionAutoEntry.current.attempted = false;
+      return;
+    }
+    if (!connection.host || !transcriptionAvailable) return;
+    if (transcriptionInProgress) {
+      // Also remember an existing dispatch: a manual stop during this entry
+      // must not immediately trigger another automatic start.
+      transcriptionAutoEntry.current.attempted = true;
+      setTranscriptionAutoError(false);
+      return;
+    }
+    if (transcriptionAutoEntry.current.attempted) return;
+    const entry = transcriptionAutoEntry.current;
+    entry.attempted = true;
+    setTranscriptionAutoError(false);
+    let cancelled = false;
+    let begun = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const start = async () => {
+      attempts += 1;
+      try {
+        await onlineClassesApi.startTranscription(classId);
+      } catch {
+        if (cancelled) return;
+        if (attempts < 3) {
+          // Connected can precede the teacher appearing in LiveKit's room API.
+          retryTimer = setTimeout(() => { void start(); }, attempts * 500);
+        } else {
+          setTranscriptionAutoError(true);
+        }
+        return;
+      }
+      if (!cancelled) {
+        setTranscriptionAutoError(false);
+        onTranscriptionStateChanged.current?.();
+      }
+    };
+    // React StrictMode rehearses setup/cleanup before committing this entry.
+    // Defer the first request so that rehearsal cannot consume its attempts.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      begun = true;
+      void start();
+    });
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+      if (!begun) entry.attempted = false;
+    };
+  }, [classId, connection.host, connectionState, transcriptionAvailable, transcriptionInProgress]);
   const [panelsOpen, setPanelsOpen] = useState(false);
   const [videosOpen, setVideosOpen] = useState(false);
   const materialInput = useRef<HTMLInputElement>(null);
