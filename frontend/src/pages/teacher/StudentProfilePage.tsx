@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { api } from '../../api/client';
+import { api, request } from '../../api/client';
 import type { CardSummary, GroupLesson, Homework, SchoolType, StudentListItem } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 
@@ -20,6 +20,10 @@ export function StudentProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [timeReport, setTimeReport] = useState<import('../../api/types').StudentTimeReport | null>(null);
+  const [sharingParentLink, setSharingParentLink] = useState(false);
+  const [parentShareUrl, setParentShareUrl] = useState<string | null>(null);
+  const [parentShareStatus, setParentShareStatus] = useState<string | null>(null);
+  const [parentShareError, setParentShareError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null);
@@ -33,13 +37,96 @@ export function StudentProfilePage() {
     return () => { cancelled = true; };
   }, [studentId, revision, overview]);
   useEffect(() => { let live = true; api.learningTime.student(studentId,30).then(r => { if(live) setTimeReport(r); }).catch(()=>{}); return () => { live = false; }; }, [studentId]);
+  useEffect(() => {
+    setParentShareUrl(null);
+    setParentShareStatus(null);
+    setParentShareError(null);
+  }, [studentId]);
+
+  async function copyParentProgressLink() {
+    if (!student || sharingParentLink) return;
+    setSharingParentLink(true);
+    setParentShareStatus(null);
+    setParentShareError(null);
+    setParentShareUrl(null);
+    try {
+      if (student.grade == null) {
+        throw new Error(tr(
+          'Сначала укажите класс ученика в учебном профиле.',
+          'Bitte zuerst die Klassenstufe im Lernprofil angeben.',
+        ));
+      }
+      const availableBoards = await request<Array<{ id: string; grade: number }>>('GET', '/skill-boards/catalog');
+      const board = availableBoards.find((item) => Number(item.grade) === Number(student.grade));
+      if (!board) {
+        throw new Error(tr(
+          'Для этого класса карта навыков пока не создана.',
+          'Für diese Klassenstufe gibt es noch keine Kompetenzkarte.',
+        ));
+      }
+      const issued = await request<{ token: string }>(
+        'POST',
+        `/skill-boards/${encodeURIComponent(board.id)}/students/${encodeURIComponent(student.id)}/parent-share`,
+      );
+      if (!issued?.token) throw new Error(tr('Сервер не вернул ссылку.', 'Der Server hat keinen Link zurückgegeben.'));
+
+      // The root/hash URL works on hosts without SPA fallback and is restored
+      // to /skill-progress#token=... by restorePublicSkillProgressRoute().
+      const url = `${window.location.origin}/#skillProgress=${encodeURIComponent(issued.token)}`;
+      setParentShareUrl(url);
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(url);
+        setParentShareStatus(tr(
+          'Ссылка скопирована. Родитель может просматривать только навыки и историю этого ученика.',
+          'Link kopiert. Eltern können nur die Kompetenzen und den Verlauf dieses Kindes ansehen.',
+        ));
+      } catch {
+        setParentShareStatus(tr(
+          'Ссылка создана. Выделите её в поле ниже и скопируйте вручную.',
+          'Link erstellt. Bitte den Link im Feld unten markieren und manuell kopieren.',
+        ));
+      }
+    } catch (error) {
+      setParentShareError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSharingParentLink(false);
+    }
+  }
+
   const pdfs = homeworks.filter(h => h.hasWorksheet).sort((a, b) => b.startDate.localeCompare(a.startDate));
   const next = lessons.filter(e => new Date(e.startsAt).getTime() > Date.now()).sort((a,b) => a.startsAt.localeCompare(b.startsAt))[0];
   const tabs = [['', tr('Обзор', 'Übersicht')], ['lessons', tr('Уроки', 'Unterricht')], ['homeworks', tr('Домашние задания', 'Hausaufgaben')], ['cards', tr('Карточки', 'Karten')], ['month-plan', tr('План на месяц', 'Monatsplan')], ['drive', 'Google Drive']];
   const date = (value: string) => new Intl.DateTimeFormat(language === 'DE' ? 'de-DE' : 'ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Berlin' }).format(new Date(value.length === 10 ? `${value}T12:00:00` : value));
   return <div className="group-detail-dashboard">
     <Link className="group-detail-back" to="/students">← {tr('К ученикам', 'Schüler')}</Link>
-    <div className="group-detail-heading"><div><h1>{student?.fullName ?? tr('Ученик', 'Schüler')}</h1><p>{tr('Логин', 'Login')}: {student?.username ?? '—'} · {tr('Родитель', 'Elternteil')}: {student?.parentFullName ?? '—'}</p></div><Link to={`${base}/lessons`} className="btn btn--secondary">{tr('История уроков', 'Unterrichtsverlauf')}</Link></div>
+    <div className="group-detail-heading"><div><h1>{student?.fullName ?? tr('Ученик', 'Schüler')}</h1><p>{tr('Логин', 'Login')}: {student?.username ?? '—'} · {tr('Родитель', 'Elternteil')}: {student?.parentFullName ?? '—'}</p></div><div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <button className="btn" type="button" onClick={() => void copyParentProgressLink()} disabled={!student || sharingParentLink}>
+        {sharingParentLink ? tr('Создаём ссылку…', 'Link wird erstellt…') : tr('🔗 Скопировать ссылку для родителя', '🔗 Eltern-Link kopieren')}
+      </button>
+      <Link to={`${base}/lessons`} className="btn btn--secondary">{tr('История уроков', 'Unterrichtsverlauf')}</Link>
+    </div></div>
+    {parentShareError && <div className="banner banner--error" role="alert" style={{ marginBottom: 12 }}>{parentShareError}</div>}
+    {parentShareStatus && <div className="banner banner--success" role="status" style={{ marginBottom: 12 }}>{parentShareStatus}</div>}
+    {parentShareUrl && (
+      <div className="panel" style={{ marginBottom: 14, padding: 14 }}>
+        <label className="field" style={{ margin: 0 }}>
+          <span className="field__label">{tr('Родительская ссылка (только просмотр)', 'Eltern-Link (nur Leserechte)')}</span>
+          <input
+            className="input"
+            type="url"
+            readOnly
+            value={parentShareUrl}
+            onFocus={(event) => event.currentTarget.select()}
+            aria-label={tr('Ссылка для просмотра прогресса', 'Link zum Lernfortschritt')}
+          />
+        </label>
+        <p className="muted" style={{ margin: '8px 0 0', fontSize: 12 }}>
+          {tr('Отправляйте только родителю. Любой, у кого есть ссылка, сможет увидеть прогресс ребёнка. При необходимости отзовите ссылку в разделе «Навыки».',
+              'Nur an die Eltern weitergeben. Wer den Link hat, kann den Fortschritt sehen. Den Link können Sie unter „Kompetenzen“ widerrufen.')}
+        </p>
+      </div>
+    )}
     {error && <div className="banner banner--error">{error} <button className="btn btn--secondary" onClick={() => setRevision(n => n + 1)}>{tr('Повторить', 'Erneut versuchen')}</button></div>}
     <div className="group-summary-grid">
       <button className="group-summary-card" onClick={() => navigate(`${base}/cards`)}><div className="group-summary-card__icon group-summary-card__icon--orange">▤</div><div><strong>{loading || error ? '—' : summary?.total ?? 0}</strong><span>{tr('карточек', 'Karten')}</span></div><small>{tr('Перейти к карточкам', 'Karten öffnen')} →</small></button>
