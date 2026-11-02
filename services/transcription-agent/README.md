@@ -1,7 +1,7 @@
 # Transcription agent
 
 A **separate service** from the MC-School backend. It joins a LiveKit room only
-when a teacher starts transcription, streams audio to Soniox, and posts final
+automatically when the teacher starts a LiveKit lesson, transcribes each participant's audio, and posts final
 segments back to the backend.
 
 It is deliberately isolated:
@@ -16,7 +16,7 @@ It is deliberately isolated:
 ## How it is triggered
 
 The agent registers with LiveKit under `LIVEKIT_AGENT_NAME` and then idles. The
-backend issues an **explicit dispatch** when a teacher starts transcription, so
+backend issues an **explicit dispatch** automatically when the teacher starts the LiveKit lesson, so
 no agent sits in a room that is not being transcribed. Dispatch metadata carries
 the `classId` and language hints.
 
@@ -28,6 +28,7 @@ the `classId` and language hints.
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | yes | agent registration |
 | `LIVEKIT_AGENT_NAME` | yes | must match `ONLINE_CLASS_TRANSCRIPTION_AGENT` in the backend |
 | `SONIOX_API_KEY` | yes | STT provider credential — this service only |
+| `SONIOX_BASE_URL` | no | EU Soniox endpoint by default |
 | `MCSCHOOL_API_BASE_URL` | yes | e.g. `http://backend:8080/api/v1` |
 | `TRANSCRIPTION_INTERNAL_TOKEN` | yes | must match the backend value |
 | `TRANSCRIPTION_LANGUAGES` | no | default hints, e.g. `ru,de` |
