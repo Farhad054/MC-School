@@ -29,3 +29,29 @@ def test_falls_back_when_languages_are_missing_or_malformed():
 
 def test_a_non_string_class_id_is_rejected():
     assert parse_dispatch_metadata('{"classId":123}', FALLBACK)[0] is None
+
+def test_final_segments_keep_participant_identity_without_audio_storage():
+    from types import SimpleNamespace
+    from agent.main import build_final_segment
+
+    utterance = SimpleNamespace(text="Hallo zusammen", start_time=0.0, end_time=2.1,
+                                language="de", confidence=0.95)
+    segment = build_final_segment("room-1", "student-uuid|tab-1", "Student", utterance, 3000)
+    assert segment is not None
+    assert segment.participant_identity == "student-uuid|tab-1"
+    assert segment.speaker_label == "Student"
+    assert segment.text == "Hallo zusammen"
+    assert segment.start_ms == 900
+    assert segment.end_ms == 3000
+    assert segment.to_payload()["language"] == "de"
+    assert segment.provider_segment_id == build_final_segment(
+        "room-1", "student-uuid|tab-1", "Student", utterance, 3000
+    ).provider_segment_id
+
+
+def test_empty_final_is_not_stored():
+    from types import SimpleNamespace
+    from agent.main import build_final_segment
+
+    assert build_final_segment("room", "speaker", "Teacher",
+                               SimpleNamespace(text=" "), 1500) is None
