@@ -894,6 +894,50 @@ h1{
   .zoom-value{display:none}
 }
 
+/* Put read-only parent links next to the selected pupil. The teacher theme hides
+   .top-actions entirely, so parent actions must not live in that container. */
+#parent-share:not([hidden]){
+  display:block;
+  width:100%;
+  min-height:43px;
+  margin:-4px 0 7px;
+  padding:9px 8px;
+  border-radius:11px;
+  background:#ee6528;
+  color:#fff;
+  border-color:#ee6528;
+  font-size:11px;
+  font-weight:800;
+  line-height:1.35;
+  white-space:normal;
+  text-align:center;
+}
+#parent-share:hover:not(:disabled){background:#d9561e;border-color:#d9561e}
+#parent-share-revoke:not([hidden]){
+  display:block;
+  width:100%;
+  min-height:27px;
+  padding:5px 6px;
+  margin:0 0 14px;
+  color:#a5452b;
+  background:transparent;
+  border:1px solid #edc7b9;
+  font-size:10px;
+  line-height:1.3;
+  white-space:normal;
+  text-align:center;
+}
+:root[data-theme='teacher'] #parent-share:not([hidden]){
+  background:#f56b18;
+  color:#fff;
+  border-color:#f56b18;
+}
+:root[data-theme='teacher'] #parent-share-revoke:not([hidden]){
+  background:transparent;
+  color:#ffbd96;
+  border-color:#76543e;
+}
+
 /* Parent read-only progress sharing */
 .public-overall{display:inline-flex;align-items:center;height:30px;padding:0 10px;border-radius:999px;background:#edf9ef;border:1px solid #bae1c2;color:#28763b;font-size:11px;font-weight:900;white-space:nowrap}
 body.public-progress .draft-badge{background:#edf4ff;color:#2e62aa}
@@ -902,4 +946,4 @@ body.public-progress .student-filter select{pointer-events:none;background:#f8fa
 body.public-progress .mastery-box input,body.public-progress .mastery-box button.primary{display:none}
 body.public-progress .mastery-box .mastery-editor-row{grid-template-columns:minmax(0,1fr) auto}
 body.public-progress .mastery-box .mastery-editor-value{display:inline-block}
-@media(max-width:850px){#parent-share-revoke{display:none!important}.public-overall{font-size:10px;padding:0 8px}}
+@media(max-width:850px){.public-overall{font-size:10px;padding:0 8px}}
