@@ -55,3 +55,16 @@ def test_empty_final_is_not_stored():
 
     assert build_final_segment("room", "speaker", "Teacher",
                                SimpleNamespace(text=" "), 1500) is None
+
+def test_pinned_livekit_runtime_has_the_apis_used_by_the_worker():
+    from livekit import agents, rtc
+    from livekit.agents.stt import SpeechEventType
+    from livekit.plugins import soniox
+
+    assert hasattr(agents, "AgentServer")
+    assert hasattr(agents.AgentServer, "rtc_session")
+    assert hasattr(agents.AutoSubscribe, "AUDIO_ONLY")
+    assert hasattr(rtc, "AudioStream")
+    assert hasattr(rtc.TrackKind, "KIND_AUDIO")
+    assert hasattr(soniox, "STTOptions")
+    assert SpeechEventType.FINAL_TRANSCRIPT
