@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.mcschool.flashcard.AbstractIntegrationTest;
 import com.mcschool.flashcard.auth.AuthenticatedUser;
@@ -16,6 +18,7 @@ import com.mcschool.flashcard.lessons.dto.GroupLessonResponse;
 import com.mcschool.flashcard.liveclasses.dto.OnlineClassConnectionResponse;
 import com.mcschool.flashcard.liveclasses.dto.OnlineClassResponse;
 import com.mcschool.flashcard.liveclasses.provider.LiveClassMediaProvider;
+import com.mcschool.flashcard.liveclasses.provider.ClassTranscriptionProvider;
 import com.mcschool.flashcard.liveclasses.provider.MediaProviderException;
 import com.mcschool.flashcard.liveclasses.provider.ParticipantConnection;
 import com.mcschool.flashcard.users.User;
@@ -85,6 +88,9 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     @MockitoBean
     private LiveClassMediaProvider mediaProvider;
 
+    @MockitoBean
+    private ClassTranscriptionProvider transcriptionProvider;
+
     private User teacher;
     private User otherTeacher;
     private User student;
@@ -104,6 +110,7 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
 
         when(lessonService.listGroupLessons(any())).thenReturn(List.of(lesson()));
         when(mediaProvider.isConfigured()).thenReturn(true);
+        when(transcriptionProvider.isConfigured()).thenReturn(true);
         when(mediaProvider.createConnection(anyString(), anyString(), anyString(), any(), any()))
                 .thenAnswer(invocation -> new ParticipantConnection(
                         "wss://test.invalid",
@@ -165,6 +172,40 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     // --- Lifecycle -----------------------------------------------------------
+
+    @Test
+    void openingTheLobbyAndStartingBeforeMediaConnectionNeverDispatchesTranscription() {
+        OnlineClass onlineClass = materialize();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+
+        OnlineClassResponse lobby = service.openLobby(teacherPrincipal, onlineClass.getId());
+        assertThat(lobby.status()).isEqualTo(OnlineClassStatus.LOBBY_OPEN);
+        assertThat(lobby.transcriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+
+        OnlineClassResponse started = service.start(teacherPrincipal, onlineClass.getId());
+        assertThat(started.status()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(started.transcriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+        assertThat(classRepository.findById(onlineClass.getId()).orElseThrow()
+                .getTranscriptionDispatchId()).isNull();
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any());
+    }
+
+    @Test
+    void issuingAHostConnectionTokenDoesNotDispatchTranscription() {
+        OnlineClass onlineClass = materialize();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        service.start(teacherPrincipal, onlineClass.getId());
+
+        OnlineClassConnectionResponse issued = service.connect(
+                teacherPrincipal, onlineClass.getId(), "unconnected-tab");
+
+        assertThat(issued.token()).isEqualTo("issued-token");
+        assertThat(participantRepository.findByOnlineClassIdAndUserId(
+                onlineClass.getId(), teacher.getId()).orElseThrow().isConnected()).isTrue();
+        assertThat(classRepository.findById(onlineClass.getId()).orElseThrow()
+                .getTranscriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any());
+    }
 
     @Test
     void lifecycleIsIdempotentAndCreatesTheHostParticipant() {

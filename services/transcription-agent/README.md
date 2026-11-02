@@ -1,8 +1,8 @@
 # Transcription agent
 
-A **separate service** from the MC-School backend. It joins a LiveKit room only
-automatically when the teacher starts a LiveKit lesson, transcribes each participant's audio, and posts final
-segments back to the backend.
+A **separate service** from the MC-School backend. It joins a LiveKit room
+automatically after the teacher connects to the classroom, transcribes each
+participant's audio, and posts final segments back to the backend.
 
 It is deliberately isolated:
 
@@ -15,10 +15,15 @@ It is deliberately isolated:
 
 ## How it is triggered
 
-The agent registers with LiveKit under `LIVEKIT_AGENT_NAME` and then idles. The
-backend issues an **explicit dispatch** automatically when the teacher starts the LiveKit lesson, so
-no agent sits in a room that is not being transcribed. Dispatch metadata carries
-the `classId` and language hints.
+The agent registers with LiveKit under `LIVEKIT_AGENT_NAME` and then idles.
+After the teacher's browser connects, it requests transcription automatically.
+The backend verifies the teacher is present in LiveKit before issuing an
+**explicit dispatch**. Opening the lesson, lobby or prejoin screen does not
+start transcription; a connection token alone is insufficient.
+
+An active dispatch is reused when the teacher reconnects or opens another tab.
+Previously saved text remains attached to the same lesson. Explicitly ending
+the lesson stops the dispatch. Metadata carries the `classId` and language hints.
 
 ## Configuration
 

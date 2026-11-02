@@ -1,6 +1,8 @@
-import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { StrictMode } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiRequestError } from '../../api/client';
 import { lessonPreparationApi } from '../../api/lessonPreparation';
 import { onlineClassesApi, type OnlineClassConnection } from '../../api/onlineClasses';
 import { I18nProvider } from '../../i18n/I18nContext';
@@ -9,6 +11,7 @@ import type { CameraModule } from '../notebook-camera/cameraModules';
 
 let screenShares: unknown[] = [];
 const notebookFixture = vi.hoisted(() => ({ camerasByOwner: new Map(), viewerProps: new Map(), panelProps: [] as Record<string, any>[] }));
+const livekitFixture = vi.hoisted(() => ({ connectionState: 'connected' }));
 
 vi.mock('@livekit/components-react', () => ({
   LiveKitRoom: ({ children, onDisconnected, onConnected, onError }: {
@@ -38,7 +41,7 @@ vi.mock('@livekit/components-react', () => ({
   ConnectionStateToast: () => null,
   FocusLayoutContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="screen">{children}</div>,
   FocusLayout: () => null,
-  useConnectionState: () => 'connected',
+  useConnectionState: () => livekitFixture.connectionState,
   useTracks: () => screenShares,
 }));
 vi.mock('./CameraColumn', () => ({ CameraColumn: () => <ul aria-label="cameras" /> }));
@@ -100,10 +103,15 @@ vi.mock('../../api/lessonPreparation', () => ({
 }));
 vi.mock('../../api/onlineClasses', async () => {
   const actual = await vi.importActual<typeof import('../../api/onlineClasses')>('../../api/onlineClasses');
-  return { ...actual, onlineClassesApi: { listParticipants: vi.fn(), documentBytes: vi.fn(), documentVersion: vi.fn() } };
+  return { ...actual, onlineClassesApi: { listParticipants: vi.fn(), documentBytes: vi.fn(), documentVersion: vi.fn(), startTranscription: vi.fn() } };
 });
 
 import { OnlineClassRoom } from './OnlineClassRoom';
+
+beforeEach(() => {
+  livekitFixture.connectionState = 'connected';
+  vi.mocked(onlineClassesApi.startTranscription).mockReset().mockResolvedValue(undefined);
+});
 
 const connection = (host: boolean): OnlineClassConnection => ({
   serverUrl: 'wss://x', token: 't', identity: 'me|d', roomName: 'r', expiresAt: '', host,
@@ -222,6 +230,168 @@ describe('PDF upload contract', () => {
     await userEvent.upload(input, new File(['pdf'], 'large.pdf', { type: 'application/pdf' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('HTTP 413');
     await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Добавить документ' })).toBeEnabled());
+  });
+});
+
+describe('transcription starts when the teacher enters the media room', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    screenShares = [];
+    notebookFixture.camerasByOwner.clear();
+    notebookFixture.viewerProps.clear();
+    notebookFixture.panelProps.length = 0;
+    vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([]);
+    vi.mocked(lessonPreparationApi.get).mockResolvedValue({ hasAnswers: false } as never);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it.each(['disconnected', 'connecting', 'reconnecting'])('does not start while the teacher is %s', async (state) => {
+    livekitFixture.connectionState = state;
+    mount(true, { transcriptionAvailable: true });
+    await screen.findByTestId('board-board-1');
+    expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
+  });
+
+  it('starts once after the teacher connects and keeps the same dispatch across refresh and reconnect', async () => {
+    livekitFixture.connectionState = 'connecting';
+    const onStateChanged = vi.fn();
+    const view = mount(true, { transcriptionAvailable: true, onStateChanged });
+    await screen.findByTestId('board-board-1');
+    expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
+
+    livekitFixture.connectionState = 'connected';
+    view.rerender(classroom(true, { transcriptionAvailable: true, onStateChanged }));
+    await waitFor(() => expect(onlineClassesApi.startTranscription).toHaveBeenCalledExactlyOnceWith('c1'));
+    await waitFor(() => expect(onStateChanged).toHaveBeenCalledOnce());
+
+    // An INACTIVE status can remain briefly while the server status refreshes.
+    view.rerender(classroom(true, { transcriptionAvailable: true, onStateChanged }));
+    livekitFixture.connectionState = 'reconnecting';
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'ACTIVE', onStateChanged }));
+    livekitFixture.connectionState = 'connected';
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'ACTIVE', onStateChanged }));
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
+  });
+
+  it('never dispatches transcription from a connected or reconnecting student', async () => {
+    const view = mount(false, { transcriptionAvailable: true });
+    await screen.findByTestId('board-board-1');
+    livekitFixture.connectionState = 'reconnecting';
+    view.rerender(classroom(false, { transcriptionAvailable: true }));
+    livekitFixture.connectionState = 'connected';
+    view.rerender(classroom(false, { transcriptionAvailable: true }));
+    expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
+  });
+
+  it('does not start for a connected teacher when transcription is unavailable', async () => {
+    mount(true, { transcriptionAvailable: false });
+    await screen.findByTestId('board-board-1');
+    expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
+  });
+
+  it.each(['STARTING', 'ACTIVE'] as const)('does not create a new dispatch when a %s lesson is mounted again', async (state) => {
+    const first = mount(true, { transcriptionAvailable: true, transcriptionState: state });
+    await screen.findByTestId('board-board-1');
+    first.unmount();
+    mount(true, { transcriptionAvailable: true, transcriptionState: state });
+    await screen.findByTestId('board-board-1');
+    expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
+  });
+
+  it('does not automatically undo a manual stop during an already active entry', async () => {
+    const view = mount(true, { transcriptionAvailable: true, transcriptionState: 'ACTIVE' });
+    await screen.findByTestId('board-board-1');
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'INACTIVE' }));
+    expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
+  });
+
+  it('retries a transient presence conflict and uses the latest status callback', async () => {
+    vi.useFakeTimers();
+    vi.mocked(onlineClassesApi.startTranscription).mockRejectedValueOnce(
+      new ApiRequestError(409, 'CONFLICT', 'Teacher is not yet present'));
+    const oldCallback = vi.fn(), latestCallback = vi.fn();
+    const view = mount(true, { transcriptionAvailable: true, onStateChanged: oldCallback });
+    await act(async () => {});
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'FAILED', onStateChanged: latestCallback }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(499); });
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(2);
+    expect(latestCallback).toHaveBeenCalledOnce();
+    expect(oldCallback).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Не удалось автоматически запустить транскрипцию/)).not.toBeInTheDocument();
+  });
+
+  it('keeps startup retries working across StrictMode setup and cleanup without duplicate requests', async () => {
+    vi.useFakeTimers();
+    vi.mocked(onlineClassesApi.startTranscription).mockRejectedValueOnce(
+      new ApiRequestError(409, 'CONFLICT', 'Teacher is not yet present'));
+    const onStateChanged = vi.fn();
+    render(<StrictMode>{classroom(true, { transcriptionAvailable: true, onStateChanged })}</StrictMode>);
+    await act(async () => {});
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(2);
+    expect(onStateChanged).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/Не удалось автоматически запустить транскрипцию/)).not.toBeInTheDocument();
+  });
+
+  it('shows the compact failure message after three attempts and stops retrying', async () => {
+    vi.useFakeTimers();
+    vi.mocked(onlineClassesApi.startTranscription).mockRejectedValue(
+      new ApiRequestError(409, 'CONFLICT', 'Teacher is not yet present'));
+    const onStateChanged = vi.fn();
+    const view = mount(true, { transcriptionAvailable: true, onStateChanged });
+    await act(async () => {});
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
+    // Polling the failed backend state must not reset the bounded attempt loop.
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'FAILED', onStateChanged }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole('alert')).toHaveTextContent('Не удалось автоматически запустить транскрипцию');
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(3);
+    expect(onStateChanged).not.toHaveBeenCalled();
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'ACTIVE', onStateChanged }));
+    expect(screen.queryByText(/Не удалось автоматически запустить транскрипцию/)).not.toBeInTheDocument();
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'INACTIVE', onStateChanged }));
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(3);
+  });
+
+  it('cancels pending retries on disconnect and permits a new attempt on the next entry', async () => {
+    vi.useFakeTimers();
+    vi.mocked(onlineClassesApi.startTranscription).mockRejectedValueOnce(
+      new ApiRequestError(409, 'CONFLICT', 'Teacher is not yet present'));
+    const onStateChanged = vi.fn();
+    const view = mount(true, { transcriptionAvailable: true, onStateChanged });
+    await act(async () => {});
+    livekitFixture.connectionState = 'disconnected';
+    view.rerender(classroom(true, { transcriptionAvailable: true, onStateChanged }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
+    livekitFixture.connectionState = 'connected';
+    view.rerender(classroom(true, { transcriptionAvailable: true, onStateChanged }));
+    await act(async () => {});
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(2);
+    expect(onStateChanged).toHaveBeenCalledOnce();
+  });
+
+  it('cancels pending retries when the classroom is unmounted', async () => {
+    vi.useFakeTimers();
+    vi.mocked(onlineClassesApi.startTranscription).mockRejectedValue(
+      new ApiRequestError(409, 'CONFLICT', 'Teacher is not yet present'));
+    const view = mount(true, { transcriptionAvailable: true });
+    await act(async () => {});
+    view.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
   });
 });
 

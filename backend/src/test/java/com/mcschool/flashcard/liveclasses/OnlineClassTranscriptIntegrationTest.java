@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -18,12 +21,16 @@ import com.mcschool.flashcard.lessons.dto.UpdateLessonPreparationRequest;
 import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentRequest;
 import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentResponse;
 import com.mcschool.flashcard.liveclasses.provider.ClassTranscriptionProvider;
+import com.mcschool.flashcard.liveclasses.provider.LiveClassMediaProvider;
 import com.mcschool.flashcard.liveclasses.provider.MediaProviderException;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +63,9 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
     private OnlineClassRepository classRepository;
 
     @Autowired
+    private OnlineClassParticipantRepository participantRepository;
+
+    @Autowired
     private OnlineClassTranscriptSegmentRepository segmentRepository;
 
     @Autowired
@@ -72,6 +82,9 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
 
     @MockitoBean
     private ClassTranscriptionProvider transcriptionProvider;
+
+    @MockitoBean
+    private LiveClassMediaProvider mediaProvider;
 
     private User teacher;
     private User student;
@@ -95,6 +108,10 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
         when(transcriptionProvider.isConfigured()).thenReturn(true);
         when(transcriptionProvider.startTranscription(anyString(), anyString(), any()))
                 .thenReturn("dispatch-1");
+        when(mediaProvider.isConfigured()).thenReturn(true);
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(
+                ParticipantIdentity.of(teacher.getId(), "teacher-tab"),
+                ParticipantIdentity.of(student.getId(), "student-tab")));
     }
 
     private TranscriptSegmentRequest segment(String id, long startMs, long endMs, String text) {
@@ -126,6 +143,140 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
 
         org.mockito.Mockito.verify(transcriptionProvider, org.mockito.Mockito.times(1))
                 .startTranscription(anyString(), anyString(), any());
+    }
+
+    @Test
+    void anEmptyLiveKitRoomCannotStartTranscription() {
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> transcriptService.start(teacherPrincipal, onlineClass.getId(), null))
+                .isInstanceOf(ConflictException.class);
+
+        assertNoDispatchAndLiveClassUnchanged();
+    }
+
+    @Test
+    void aStudentOnlyRoomCannotStartTranscription() {
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(
+                ParticipantIdentity.of(student.getId(), "student-tab")));
+
+        assertThatThrownBy(() -> transcriptService.start(teacherPrincipal, onlineClass.getId(), null))
+                .isInstanceOf(ConflictException.class);
+
+        assertNoDispatchAndLiveClassUnchanged();
+    }
+
+    @Test
+    void anAttendanceFlagFromTokenIssuanceDoesNotProveHostPresence() {
+        // connect() marks this row joined when minting a token, before LiveKit
+        // accepts the media connection. That optimistic flag must not start STT.
+        OnlineClassParticipant host = OnlineClassParticipant.host(onlineClass, teacher);
+        host.markJoined(START);
+        participantRepository.saveAndFlush(host);
+        assertThat(host.isConnected()).isTrue();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> transcriptService.start(teacherPrincipal, onlineClass.getId(), null))
+                .isInstanceOf(ConflictException.class);
+
+        assertNoDispatchAndLiveClassUnchanged();
+    }
+
+    @Test
+    void aPresenceApiOutageCannotStartTranscriptionOrMarkItActive() {
+        when(mediaProvider.listParticipantIdentities(anyString()))
+                .thenThrow(new MediaProviderException("presence unavailable"));
+
+        assertThatThrownBy(() -> transcriptService.start(teacherPrincipal, onlineClass.getId(), null))
+                .isInstanceOf(ConflictException.class);
+
+        assertNoDispatchAndLiveClassUnchanged();
+    }
+
+    @Test
+    void aRejoiningTeacherContinuesTheSameDispatchAndExistingTranscript() {
+        Instant originalStart = classRepository.findById(onlineClass.getId()).orElseThrow()
+                .getActualStartAt();
+        transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de"));
+        TranscriptSegmentResponse original = transcriptService.ingest(onlineClass.getId(),
+                segment("before-rejoin", 0, 1000, "Before reconnect"));
+
+        // The first browser goes away. Rejoining with a different per-device
+        // suffix still identifies the same owning teacher and the same lesson.
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(
+                ParticipantIdentity.of(teacher.getId(), "rejoined-tab"),
+                ParticipantIdentity.of(student.getId(), "student-tab")));
+        transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de"));
+        transcriptService.ingest(onlineClass.getId(),
+                segment("after-rejoin", 1100, 2000, "After reconnect"));
+
+        OnlineClass reloaded = classRepository.findById(onlineClass.getId()).orElseThrow();
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
+        assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-1");
+        assertThat(reloaded.getActualStartAt()).isEqualTo(originalStart);
+        assertThat(reloaded.getEventId()).isEqualTo("event-1");
+        assertThat(classRepository.count()).isEqualTo(1);
+        assertThat(transcriptService.segments(teacherPrincipal, onlineClass.getId()))
+                .extracting(TranscriptSegmentResponse::text)
+                .containsExactly("Before reconnect", "After reconnect");
+        assertThat(segmentRepository.findByOnlineClassIdAndProviderSegmentId(
+                onlineClass.getId(), "before-rejoin").orElseThrow().getId()).isEqualTo(original.id());
+        verify(transcriptionProvider, times(1))
+                .startTranscription(anyString(), anyString(), any());
+        verify(transcriptionProvider, never()).stopTranscription(anyString(), anyString());
+    }
+
+    @Test
+    void twoConnectedTeacherTabsCreateOnlyOneDispatchAndPreserveEarlierSegments() throws Exception {
+        TranscriptSegmentResponse earlier = transcriptService.ingest(onlineClass.getId(),
+                segment("existing-segment", 0, 800, "Already saved"));
+        CountDownLatch firstDispatchEntered = new CountDownLatch(1);
+        CountDownLatch releaseDispatch = new CountDownLatch(1);
+        CountDownLatch secondRequestStarted = new CountDownLatch(1);
+        when(transcriptionProvider.startTranscription(anyString(), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    firstDispatchEntered.countDown();
+                    if (!releaseDispatch.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError("Timed out waiting to release the first dispatch");
+                    }
+                    return "dispatch-1";
+                });
+
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> transcriptService.start(
+                    teacherPrincipal, onlineClass.getId(), List.of("de")));
+            assertThat(firstDispatchEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            var second = executor.submit(() -> {
+                secondRequestStarted.countDown();
+                transcriptService.start(teacherPrincipal, onlineClass.getId(), List.of("de"));
+            });
+            assertThat(secondRequestStarted.await(3, TimeUnit.SECONDS)).isTrue();
+            releaseDispatch.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+
+            verify(transcriptionProvider, times(1))
+                    .startTranscription(anyString(), anyString(), any());
+            OnlineClass reloaded = classRepository.findById(onlineClass.getId()).orElseThrow();
+            assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
+            assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-1");
+            assertThat(transcriptService.segments(teacherPrincipal, onlineClass.getId()))
+                    .extracting(TranscriptSegmentResponse::id).containsExactly(earlier.id());
+            assertThat(classRepository.count()).isEqualTo(1);
+        } finally {
+            releaseDispatch.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private void assertNoDispatchAndLiveClassUnchanged() {
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any());
+        OnlineClass reloaded = classRepository.findById(onlineClass.getId()).orElseThrow();
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+        assertThat(reloaded.getTranscriptionDispatchId()).isNull();
+        assertThat(reloaded.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
     }
 
     @Test
