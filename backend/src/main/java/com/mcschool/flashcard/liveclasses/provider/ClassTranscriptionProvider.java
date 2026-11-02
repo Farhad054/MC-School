@@ -21,6 +21,20 @@ public interface ClassTranscriptionProvider {
     String startTranscription(String roomName, String classId, java.util.List<String> languageHints);
 
     /**
+     * Starts or resumes transcription on the original lesson timeline. Older
+     * providers retain their three-argument implementation for compatibility.
+     */
+    default String startTranscription(String roomName, String classId,
+            java.util.List<String> languageHints, java.time.Instant lessonStartedAt) {
+        return startTranscription(roomName, classId, languageHints);
+    }
+
+    /** Unknown provider state must not create a second job; older adapters keep their run. */
+    default boolean isTranscriptionRunning(String roomName, String dispatchId) {
+        return true;
+    }
+
+    /**
      * Stops a run. Safe if it already stopped.
      *
      * <p>Takes the room as well as the session id because the provider addresses

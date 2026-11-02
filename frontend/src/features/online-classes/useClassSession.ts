@@ -54,7 +54,7 @@ function phaseForError(error: unknown): { phase: SessionPhase; message: string |
     const message = error.message ?? '';
     // A declined student must not wait forever for an answer that has been given.
     if (/declined|removed/i.test(message)) return { phase: 'denied', message };
-    if (/admit/i.test(message)) return { phase: 'waiting', message };
+    if (/admit|waiting for the teacher to enter/i.test(message)) return { phase: 'waiting', message };
     if (/not available|not configured/i.test(message)) return { phase: 'unavailable', message };
     return { phase: 'notOpen', message };
   }
@@ -153,7 +153,17 @@ export function useClassSession(classId: string | undefined): ClassSession {
         const issued = await onlineClassesApi.connect(classId);
         if (!mounted.current || version !== attemptVersion.current || terminal.current) return;
         stopWaiting();
+        // Token issuance can reset an idle room's features. Apply that fresh
+        // snapshot before mounting LiveKit instead of displaying pre-entry
+        // status from an older class refresh.
+        loadSequence.current += 1;
+        setOnlineClass(current => current ? {
+          ...current,
+          recordingState: issued.recordingActive ? 'ACTIVE' : 'INACTIVE',
+          transcriptionState: issued.transcriptionActive ? 'ACTIVE' : 'INACTIVE',
+        } : current);
         setConnection(issued);
+        setErrorMessage(null);
         setPhase('connected');
       } catch (error) {
         if (!mounted.current || version !== attemptVersion.current || terminal.current) return;

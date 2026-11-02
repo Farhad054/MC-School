@@ -25,9 +25,9 @@ INITIAL_BACKOFF_SECONDS = 0.5
 class FinalSegment:
     """One final STT result.
 
-    ``provider_segment_id`` is the ingestion idempotency key. It must be stable
-    across a reconnect: if the provider resends a final we already delivered,
-    the backend collapses it onto the existing row rather than duplicating it.
+    ``provider_segment_id`` is the ingestion idempotency key. It is stable for
+    every retry of an utterance; each new dispatched job has a separate prefix
+    so identical words/times after resuming a lesson remain separate utterances.
     """
 
     provider_segment_id: str

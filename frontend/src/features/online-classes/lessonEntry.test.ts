@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OnlineClass } from '../../api/onlineClasses';
-import { berlinLessonDate, lessonEntry } from './lessonEntry';
+import { berlinLessonDate, entryText, lessonEntry } from './lessonEntry';
 
 const start = '2026-10-24T12:00:00Z';
 const room = (patch: Partial<OnlineClass> = {}) => ({
@@ -41,6 +41,25 @@ describe('lesson entry calendar policy', () => {
   });
   it('closes stale grants after the weekly deadline is reported', () => {
     expect(lessonEntry(room({ entryState: 'CLOSED' }), start, at(start)).canJoin).toBe(false);
+  });
+  it.each([true, false])('shows an idle room without calling it active and only permits its host to enter (host=%s)', viewerIsHost => {
+    expect(lessonEntry(room({ mediaState: 'IDLE', viewerIsHost }), start, at(start)))
+      .toMatchObject({ state: 'IDLE', canJoin: viewerIsHost });
+    expect(entryText('IDLE', 'RU')).toBe('Комната в ожидании входа учителя');
+    expect(entryText('IDLE', 'DE')).toBe('Der Raum wartet auf den Beitritt der Lehrkraft');
+  });
+  it('keeps closed day, closed admission and weekly expiry ahead of idle-room re-entry', () => {
+    const idle = room({ mediaState: 'IDLE', viewerIsHost: true, viewerHasJoined: true });
+    expect(lessonEntry(idle, start, at('2026-10-23T12:00:00Z')).state).toBe('DAY_CLOSED');
+    expect(lessonEntry({ ...idle, entryState: 'CLOSED' }, start, at(start)).state).toBe('CLOSED');
+    expect(lessonEntry({ ...idle, joinWindowOpen: false }, start, at(start)).canJoin).toBe(false);
+    expect(lessonEntry(idle, start, at('2026-10-25T23:00:00Z')).state).toBe('ENDED');
+    expect(lessonEntry({ ...idle, status: 'ENDED' }, start, at(start)).state).toBe('ENDED');
+  });
+  it('keeps older server responses without mediaState compatible', () => {
+    expect(lessonEntry(room(), start, at(start))).toMatchObject({ state: 'OPEN', canJoin: true });
+    expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T12:00:00Z')))
+      .toMatchObject({ state: 'RECONNECT', canJoin: true });
   });
   it.each([
     ['2026-03-29T12:00:00Z', '2026-03-28T23:00:00Z', '2026-03-29T22:00:00Z'],

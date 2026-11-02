@@ -38,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class OnlineClassService {
 
     private static final Logger log = LoggerFactory.getLogger(OnlineClassService.class);
+    static final java.time.Duration EMPTY_MEDIA_GRACE = java.time.Duration.ofSeconds(60);
 
     private final OnlineClassRepository classRepository;
     private final OnlineClassParticipantRepository participantRepository;
@@ -317,11 +318,15 @@ public class OnlineClassService {
         onlineClass.start(now());
         ensureHostParticipant(onlineClass);
         try {
-            // The room is created up front so students are never told to join a
-            // room that does not exist yet.
-            mediaProvider.ensureRoom(onlineClass.getRoomName());
+            // Probe without provisioning media. LiveKit creates the physical
+            // room when the teacher actually connects with their scoped token.
+            if (hasHumanParticipants(mediaProvider.listParticipantIdentities(onlineClass.getRoomName()))) {
+                onlineClass.observeOccupied();
+            } else {
+                onlineClass.observeEmpty(now());
+            }
         } catch (MediaProviderException e) {
-            metrics.providerFailure("ensureRoom");
+            metrics.providerFailure("presence");
             throw new ConflictException("The class could not be opened; please try again");
         }
         // Opening the room precedes prejoin/media connection. The teacher's
@@ -400,15 +405,15 @@ public class OnlineClassService {
             return new MediaApiDiagnosis(false, "NOT_CONFIGURED");
         }
         try {
-            mediaProvider.ensureRoom(onlineClass.getRoomName());
+            mediaProvider.listParticipantIdentities(onlineClass.getRoomName());
             return new MediaApiDiagnosis(true, "OK");
         } catch (MediaProviderException e) {
             metrics.providerFailure("diagnostics");
             // Never pass the raw upstream error to callers. The public response
             // identifies only whether an operator should check credentials.
             String providerMessage = e.getMessage();
-            String status = "LiveKit request failed with HTTP 401".equals(providerMessage)
-                    || "LiveKit request failed with HTTP 403".equals(providerMessage)
+            String status = providerMessage != null && (providerMessage.endsWith("HTTP 401")
+                    || providerMessage.endsWith("HTTP 403"))
                     ? "AUTH_REJECTED" : "UNREACHABLE";
             log.warn("LiveKit API diagnostic status={} for classId={}", status, classId);
             return new MediaApiDiagnosis(false, status);
@@ -463,6 +468,28 @@ public class OnlineClassService {
 
         if (!participant.isAdmitted()) {
             throw new ConflictException("Waiting for the teacher to admit you");
+        }
+
+        try {
+            List<String> present = mediaProvider.listParticipantIdentities(onlineClass.getRoomName());
+            if (!host && !hasHumanParticipants(present)) {
+                // A student token could otherwise auto-create an empty room
+                // before its teacher has entered, or after everyone has left.
+                throw new ConflictException("Waiting for the teacher to enter the classroom");
+            }
+            if (host && present.isEmpty()) {
+                // LiveKit can close an empty room itself. Clear the old run
+                // before returning a fresh token so re-entry starts STT again.
+                stopTranscriptionDispatch(onlineClass);
+                onlineClass.setRecordingState(ClassFeatureState.INACTIVE);
+                onlineClass.setMediaClosePending(false);
+                onlineClass.observeEmpty(now());
+            } else if (hasHumanParticipants(present)) {
+                onlineClass.observeOccupied();
+                onlineClass.setMediaClosePending(false);
+            }
+        } catch (MediaProviderException e) {
+            throw new ConflictException("The classroom connection could not be verified; please try again");
         }
 
         MediaGrant grant = host
@@ -563,11 +590,7 @@ public class OnlineClassService {
         }
     }
 
-    /**
-     * The room stays available when empty. Only a teacher or the Monday 00:00
-     * Berlin weekly deadline can finish it. Never infer termination from an
-     * empty LiveKit presence snapshot, a tab closing or a network failure.
-     */
+    /** Release empty media, retaining the lesson and its re-entry permissions. */
     @Transactional
     public void reconcileIdleSession(UUID classId) {
         if (!properties.enabled()) return;
@@ -579,6 +602,65 @@ public class OnlineClassService {
         }
         if (room.isConnectable() && LessonEntryPolicy.weekExpired(room, now())) {
             finishSession(room, now());
+            return;
+        }
+        if (!room.isConnectable() || !mediaProvider.isConfigured()) return;
+
+        try {
+            List<String> present = mediaProvider.listParticipantIdentities(room.getRoomName());
+            if (hasHumanParticipants(present)) {
+                room.observeOccupied();
+                room.setMediaClosePending(false);
+                return;
+            }
+            room.observeEmpty(now());
+            if (now().isBefore(room.getEmptySince().plus(EMPTY_MEDIA_GRACE))) return;
+
+            // Recheck just before destructive media teardown. A transient API
+            // failure is unknown presence, never proof that participants left.
+            if (hasHumanParticipants(mediaProvider.listParticipantIdentities(room.getRoomName()))) {
+                room.observeOccupied();
+                room.setMediaClosePending(false);
+                return;
+            }
+        } catch (MediaProviderException e) {
+            metrics.providerFailure("presence");
+            log.warn("Empty-room presence could not be verified: classId={}", room.getId());
+            return;
+        }
+        suspendEmptyMedia(room);
+    }
+
+    private static boolean hasHumanParticipants(List<String> identities) {
+        return identities.stream().anyMatch(identity -> ParticipantIdentity.userId(identity).isPresent());
+    }
+
+    private void stopTranscriptionDispatch(OnlineClass room) {
+        String dispatchId = room.getTranscriptionDispatchId();
+        if (dispatchId != null && !dispatchId.isBlank()) {
+            transcriptionProvider.stopTranscription(room.getRoomName(), dispatchId);
+        }
+        room.setTranscriptionDispatchId(null);
+        room.setTranscriptionState(ClassFeatureState.INACTIVE);
+    }
+
+    private void suspendEmptyMedia(OnlineClass room) {
+        room.setMediaClosePending(true);
+        try {
+            stopTranscriptionDispatch(room);
+        } catch (MediaProviderException e) {
+            log.warn("Empty-room transcription stop will be retried: classId={}", room.getId());
+        }
+        try {
+            mediaProvider.closeRoom(room.getRoomName());
+            // A confirmed room deletion also terminates an unreachable agent.
+            room.setTranscriptionDispatchId(null);
+            room.setTranscriptionState(ClassFeatureState.INACTIVE);
+            room.setRecordingState(ClassFeatureState.INACTIVE);
+            room.setMediaClosePending(false);
+            closeConnectionsFor(room, now());
+        } catch (MediaProviderException e) {
+            log.warn("Empty-room media cleanup will be retried: classId={}", room.getId());
         }
     }
 

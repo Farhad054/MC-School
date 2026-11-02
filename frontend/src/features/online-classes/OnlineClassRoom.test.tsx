@@ -4,10 +4,11 @@ import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError } from '../../api/client';
 import { lessonPreparationApi } from '../../api/lessonPreparation';
-import { onlineClassesApi, type OnlineClassConnection } from '../../api/onlineClasses';
+import { onlineClassesApi, type OnlineClass, type OnlineClassConnection } from '../../api/onlineClasses';
 import { I18nProvider } from '../../i18n/I18nContext';
 import type { NotebookCameraVideoSource } from '../notebook-camera/NotebookCameraViewer';
 import type { CameraModule } from '../notebook-camera/cameraModules';
+import { useClassSession } from './useClassSession';
 
 let screenShares: unknown[] = [];
 const notebookFixture = vi.hoisted(() => ({ camerasByOwner: new Map(), viewerProps: new Map(), panelProps: [] as Record<string, any>[] }));
@@ -103,7 +104,7 @@ vi.mock('../../api/lessonPreparation', () => ({
 }));
 vi.mock('../../api/onlineClasses', async () => {
   const actual = await vi.importActual<typeof import('../../api/onlineClasses')>('../../api/onlineClasses');
-  return { ...actual, onlineClassesApi: { listParticipants: vi.fn(), documentBytes: vi.fn(), documentVersion: vi.fn(), startTranscription: vi.fn() } };
+  return { ...actual, onlineClassesApi: { listParticipants: vi.fn(), documentBytes: vi.fn(), documentVersion: vi.fn(), startTranscription: vi.fn(), get: vi.fn(), connect: vi.fn() } };
 });
 
 import { OnlineClassRoom } from './OnlineClassRoom';
@@ -256,7 +257,7 @@ describe('transcription starts when the teacher enters the media room', () => {
     expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
   });
 
-  it('starts once after the teacher connects and keeps the same dispatch across refresh and reconnect', async () => {
+  it('starts after the teacher connects and verifies again on reconnect without repeating on status refresh', async () => {
     livekitFixture.connectionState = 'connecting';
     const onStateChanged = vi.fn();
     const view = mount(true, { transcriptionAvailable: true, onStateChanged });
@@ -274,7 +275,9 @@ describe('transcription starts when the teacher enters the media room', () => {
     view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'ACTIVE', onStateChanged }));
     livekitFixture.connectionState = 'connected';
     view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'ACTIVE', onStateChanged }));
-    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(2));
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'ACTIVE', onStateChanged }));
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(2);
   });
 
   it('never dispatches transcription from a connected or reconnecting student', async () => {
@@ -293,20 +296,52 @@ describe('transcription starts when the teacher enters the media room', () => {
     expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
   });
 
-  it.each(['STARTING', 'ACTIVE'] as const)('does not create a new dispatch when a %s lesson is mounted again', async (state) => {
+  it.each(['STARTING', 'ACTIVE'] as const)('verifies cached %s dispatch status once for each new media entry', async (state) => {
     const first = mount(true, { transcriptionAvailable: true, transcriptionState: state });
     await screen.findByTestId('board-board-1');
+    await waitFor(() => expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce());
+    first.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: state }));
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
     first.unmount();
     mount(true, { transcriptionAvailable: true, transcriptionState: state });
     await screen.findByTestId('board-board-1');
-    expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
+    await waitFor(() => expect(onlineClassesApi.startTranscription).toHaveBeenCalledTimes(2));
   });
 
   it('does not automatically undo a manual stop during an already active entry', async () => {
     const view = mount(true, { transcriptionAvailable: true, transcriptionState: 'ACTIVE' });
     await screen.findByTestId('board-board-1');
+    await waitFor(() => expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce());
+    view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'INACTIVE' }));
+    expect(onlineClassesApi.startTranscription).toHaveBeenCalledOnce();
+  });
+
+  it('does not verify or restart a dispatch while the teacher is stopping it', async () => {
+    const view = mount(true, { transcriptionAvailable: true, transcriptionState: 'STOPPING' });
+    await screen.findByTestId('board-board-1');
     view.rerender(classroom(true, { transcriptionAvailable: true, transcriptionState: 'INACTIVE' }));
     expect(onlineClassesApi.startTranscription).not.toHaveBeenCalled();
+  });
+
+  it('starts transcription when a fresh re-entry token resets stale ACTIVE feature flags', async () => {
+    vi.mocked(onlineClassesApi.get).mockResolvedValue({
+      id: 'c1', eventId: 'e1', status: 'LIVE', mediaState: 'IDLE', viewerIsHost: true,
+      recordingState: 'ACTIVE', transcriptionState: 'ACTIVE', transcriptionAvailable: true,
+    } as OnlineClass);
+    vi.mocked(onlineClassesApi.connect).mockResolvedValue(connection(true));
+    function Reentry() {
+      const session = useClassSession('c1');
+      if (!session.onlineClass) return null;
+      if (!session.connection) return <button onClick={() => void session.requestConnection()}>Re-enter lesson</button>;
+      return classroom(true, { connection: session.connection,
+        transcriptionAvailable: true, transcriptionState: session.onlineClass?.transcriptionState ?? 'INACTIVE',
+        onStateChanged: session.reload });
+    }
+    render(<Reentry />);
+    await waitFor(() => expect(onlineClassesApi.get).toHaveBeenCalledOnce());
+    await userEvent.click(screen.getByRole('button', { name: 'Re-enter lesson' }));
+    await waitFor(() => expect(onlineClassesApi.startTranscription).toHaveBeenCalledExactlyOnceWith('c1'));
+    expect(onlineClassesApi.connect).toHaveBeenCalledExactlyOnceWith('c1');
   });
 
   it('retries a transient presence conflict and uses the latest status callback', async () => {

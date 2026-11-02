@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Weekly Monday 00:00 Berlin cleanup; empty rooms remain open for reconnects. */
+/** Releases empty media; keeps lesson re-entry until the weekly deadline. */
 @Component
 public class OnlineClassIdleScheduler {
     private static final Logger log = LoggerFactory.getLogger(OnlineClassIdleScheduler.class);

@@ -2,7 +2,7 @@ name: Automatic Soniox lesson transcripts
 
 on:
   push:
-    branches: [fix/soniox-start-on-teacher-entry]
+    branches: [fix/livekit-on-demand-rooms]
   pull_request:
     paths:
       - 'backend/src/main/java/com/mcschool/flashcard/liveclasses/**'
@@ -11,9 +11,15 @@ on:
       - 'backend/src/test/java/com/mcschool/flashcard/liveclasses/**'
       - 'services/transcription-agent/**'
       - 'frontend/src/api/types.ts'
+      - 'frontend/src/api/onlineClasses.ts'
       - 'frontend/src/pages/teacher/LessonDetailPage*'
       - 'frontend/src/pages/teacher/StudentLessonHistoryDetailPage*'
       - 'frontend/src/features/online-classes/OnlineClassRoom*'
+      - 'frontend/src/features/online-classes/lessonEntry*'
+      - 'frontend/src/features/online-classes/LessonEntryAction*'
+      - 'frontend/src/features/online-classes/StartOnlineClassButton*'
+      - 'frontend/src/features/online-classes/useClassSession*'
+      - 'frontend/src/pages/student/StudentLessonsCalendarPage*'
       - '.github/workflows/soniox-auto-transcripts.yml'
   workflow_dispatch:
 
@@ -36,7 +42,16 @@ jobs:
         run: npm ci
       - name: Test transcript startup, visibility and source isolation
         working-directory: frontend
-        run: npm test -- src/pages/teacher/LessonDetailPage.test.tsx src/pages/teacher/StudentLessonHistoryDetailPage.test.tsx src/features/online-classes/OnlineClassRoom.test.tsx
+        run: >-
+          npm test --
+          src/pages/teacher/LessonDetailPage.test.tsx
+          src/pages/teacher/StudentLessonHistoryDetailPage.test.tsx
+          src/features/online-classes/OnlineClassRoom.test.tsx
+          src/features/online-classes/lessonEntry.test.ts
+          src/features/online-classes/LessonEntryAction.test.tsx
+          src/features/online-classes/StartOnlineClassButton.test.tsx
+          src/features/online-classes/useClassSession.test.ts
+          src/pages/student/StudentLessonsCalendarPage.test.tsx
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -54,7 +69,7 @@ jobs:
           cache: maven
       - name: Run transcript and classroom integration tests (Docker)
         working-directory: backend
-        run: ./mvnw -B -ntp -Dtest=OnlineClassTranscriptIntegrationTest,OnlineClassServiceIntegrationTest test
+        run: ./mvnw -B -ntp -Dtest=OnlineClassTranscriptIntegrationTest,OnlineClassServiceIntegrationTest,LiveKitAgentTranscriptionProviderTest,OnlineClassObservabilityIntegrationTest test
   soniox-agent:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,6 +1,6 @@
 import type { OnlineClass } from '../../api/onlineClasses';
 
-export type LessonEntryState = NonNullable<OnlineClass['entryState']>;
+export type LessonEntryState = NonNullable<OnlineClass['entryState']> | 'IDLE';
 
 export function berlinLessonDate(value: string | number): string {
   const date = new Date(value);
@@ -39,16 +39,20 @@ export function lessonEntry(room: OnlineClass | undefined | null, scheduledStart
       state = 'WAITING_FOR_TEACHER';
     } else if (!room.joinWindowOpen) {
       state = today === date ? 'CLOSED' : 'DAY_CLOSED';
+    } else if (room.mediaState === 'IDLE') {
+      state = 'IDLE';
     } else {
       state = today === date ? 'OPEN' : 'RECONNECT';
     }
   }
-  return { state, date, canJoin: state === 'OPEN' || state === 'RECONNECT' };
+  return { state, date, canJoin: state === 'OPEN' || state === 'RECONNECT'
+    || (state === 'IDLE' && room?.viewerIsHost === true) };
 }
 
 export function entryText(state: LessonEntryState, language: string): string {
   const labels: Record<LessonEntryState, [string, string]> = {
     WAITING_FOR_TEACHER: ['Ожидаем учителя: учитель ещё не открыл урок.', 'Wir warten auf die Lehrkraft. Der Unterricht ist noch nicht geöffnet.'],
+    IDLE: ['Комната в ожидании входа учителя', 'Der Raum wartet auf den Beitritt der Lehrkraft'],
     OPEN: ['Урок открыт', 'Unterricht geöffnet'],
     RECONNECT: ['Урок продолжается: можно вернуться', 'Der Unterricht läuft weiter: Wiederbeitritt möglich'],
     DAY_CLOSED: ['Вход доступен только в день урока по Берлину.', 'Beitritt nur am Unterrichtstag (Berliner Zeit).'],

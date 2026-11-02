@@ -3,6 +3,8 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from agent.main import receive_finals, run_classroom, stream_audio
 
 
@@ -97,7 +99,11 @@ def test_interim_tokens_and_endpoint_markers_are_not_saved_or_duplicated():
     asyncio.run(scenario())
 
 
-def test_shutdown_drains_all_existing_and_late_participants_before_closing_http():
+@pytest.mark.parametrize("lesson_age_ms", [None, 120_000])
+def test_shutdown_drains_all_existing_and_late_participants_before_closing_http(monkeypatch, lesson_age_ms):
+    wall_ms = 1_700_000_000_000
+    monkeypatch.setattr("agent.main.time.time", lambda: wall_ms / 1000)
+
     async def scenario():
         class Room:
             name = "lesson-room"
@@ -159,8 +165,11 @@ def test_shutdown_drains_all_existing_and_late_participants_before_closing_http(
             room.join("teacher")  # Existing track emitted during connect.
             room.join("student-1")
 
+        metadata = {"classId": "class-1"}
+        if lesson_age_ms is not None:
+            metadata["lessonStartedAtMs"] = wall_ms - lesson_age_ms
         ctx = SimpleNamespace(room=room, connect=connect, add_shutdown_callback=callbacks.append,
-                              job=SimpleNamespace(metadata='{"classId":"class-1"}'))
+                              job=SimpleNamespace(id="job-current", metadata=json.dumps(metadata)))
         config = SimpleNamespace(default_languages=["de"], backend_base_url="https://backend/api/v1",
                                  internal_token="internal", soniox_base_url="wss://eu/soniox",
                                  soniox_api_key="soniox")
@@ -180,6 +189,9 @@ def test_shutdown_drains_all_existing_and_late_participants_before_closing_http(
         while len(http.sockets) < 4:
             await asyncio.sleep(0)
         await http.sockets[-1].audio_sent.wait()
+        # A wall-clock correction after the job started must not move finals
+        # by an hour. The job uses its original wall offset + monotonic time.
+        monkeypatch.setattr("agent.main.time.time", lambda: wall_ms / 1000 + 3600)
         assert not http.closed
         await asyncio.wait_for(callbacks[0](), 1)
         assert http.closed and all(audio.closed for audio in audios)
@@ -187,6 +199,10 @@ def test_shutdown_drains_all_existing_and_late_participants_before_closing_http(
             "teacher", "student-1", "student-2"}
         assert all(url.endswith("/class-1/transcript-segments") for url, _ in http.saved)
         assert all(payload["text"] == "last words" for _, payload in http.saved)
+        assert all(payload["providerSegmentId"].startswith("job-current:")
+                   for _, payload in http.saved)
+        assert all((lesson_age_ms or 0) + 100 <= payload["startMs"]
+                   < (lesson_age_ms or 0) + 1000 for _, payload in http.saved)
         assert len(http.saved) == 4
         await callbacks[0]()  # Shutdown callback is safe when repeated.
     asyncio.run(scenario())

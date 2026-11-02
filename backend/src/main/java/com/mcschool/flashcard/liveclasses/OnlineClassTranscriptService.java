@@ -78,11 +78,6 @@ public class OnlineClassTranscriptService {
         if (onlineClass.getStatus() != OnlineClassStatus.LIVE) {
             throw new ConflictException("Only a live class can be transcribed");
         }
-        if (onlineClass.getTranscriptionState() == ClassFeatureState.ACTIVE
-                || onlineClass.getTranscriptionState() == ClassFeatureState.STARTING) {
-            return;
-        }
-
         // A connection token and the attendance row are created before media
         // connects. Only LiveKit's current participant list proves the teacher
         // has entered this classroom. Student-only rooms must not start STT.
@@ -98,6 +93,20 @@ public class OnlineClassTranscriptService {
         if (!hostPresent) {
             throw new ConflictException("Join the classroom before starting transcription");
         }
+        onlineClass.observeOccupied();
+
+        if (onlineClass.getTranscriptionState() == ClassFeatureState.ACTIVE
+                || onlineClass.getTranscriptionState() == ClassFeatureState.STARTING) {
+            try {
+                if (transcriptionProvider.isTranscriptionRunning(onlineClass.getRoomName(),
+                        onlineClass.getTranscriptionDispatchId())) return;
+            } catch (MediaProviderException e) {
+                // Unknown dispatch state must never create a duplicate agent.
+                throw new ConflictException("Transcription state could not be verified; please try again");
+            }
+            onlineClass.setTranscriptionDispatchId(null);
+            onlineClass.setTranscriptionState(ClassFeatureState.INACTIVE);
+        }
 
         onlineClass.setTranscriptionState(ClassFeatureState.STARTING);
         try {
@@ -107,7 +116,7 @@ public class OnlineClassTranscriptService {
                     ? List.of("ru", "de")
                     : languageHints;
             String sessionId = transcriptionProvider.startTranscription(
-                    onlineClass.getRoomName(), classId.toString(), hints);
+                    onlineClass.getRoomName(), classId.toString(), hints, onlineClass.getActualStartAt());
             onlineClass.setTranscriptionDispatchId(sessionId);
             onlineClass.setTranscriptionState(ClassFeatureState.ACTIVE);
             log.info("Transcription started: classId={} sessionId={}", classId, sessionId);

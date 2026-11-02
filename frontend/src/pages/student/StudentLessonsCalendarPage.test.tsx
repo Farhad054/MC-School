@@ -64,6 +64,23 @@ describe('student online lesson discovery', () => {
     expect(screen.queryByRole('link', { name: /Mindcrafti Online/ })).not.toBeInTheDocument();
   });
 
+  it('shows an empty room waiting for its teacher and offers entry after the teacher returns', async () => {
+    const current = room({ mediaState: 'IDLE', scheduledStartAt: '2026-10-24T16:00:00Z',
+      scheduledEndAt: '2026-10-24T17:00:00Z', entryState: 'OPEN', viewerHasJoined: false });
+    vi.mocked(api.studentLessons.list).mockResolvedValue([{
+      ...scheduledLessons[0], eventId: current.eventId, startsAt: current.scheduledStartAt, endsAt: current.scheduledEndAt,
+    }]);
+    list.mockResolvedValue([current]);
+    mount(); await settle();
+    expect(screen.getByText('Комната в ожидании входа учителя')).toBeInTheDocument();
+    expect(screen.queryByText(/Урок продолжается/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Mindcrafti Online.*подключиться/ })).not.toBeInTheDocument();
+    list.mockResolvedValue([{ ...current, mediaState: 'ACTIVE' }]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(screen.getAllByRole('link', { name: /Mindcrafti Online.*подключиться/ })
+      .every(link => link.getAttribute('href') === '/online-classes/late-room')).toBe(true);
+  });
+
   it('shows waiting and the entry date for a lesson the teacher has not opened', async () => {
     vi.mocked(api.studentLessons.list).mockResolvedValue([{
       ...scheduledLessons[0], eventId: 'today', startsAt: '2026-10-24T16:00:00Z', endsAt: '2026-10-24T17:00:00Z',
