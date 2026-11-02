@@ -354,7 +354,9 @@ describe('useClassSession', () => {
     expect(result.current.errorMessage).toBeNull();
   });
 
-  it('releases the token and notifies the backend on leave', async () => {
+  it('releases the token on leave and re-enters the same durable lesson', async () => {
+    api.get.mockResolvedValue({ ...sampleClass, viewerIsHost: true });
+    api.connect.mockResolvedValue({ ...sampleConnection, host: true });
     const { result } = renderHook(() => useClassSession('class-1'));
     await waitFor(() => expect(result.current.phase).toBe('ready'));
     await act(async () => {
@@ -368,6 +370,11 @@ describe('useClassSession', () => {
     expect(result.current.connection).toBeNull();
     expect(result.current.phase).toBe('ready');
     expect(api.leave).toHaveBeenCalledWith('class-1');
+    expect(result.current.onlineClass).toMatchObject({ id: 'class-1', eventId: 'event-1', status: 'LIVE', actualEndAt: null });
+    await act(async () => { await result.current.requestConnection(); });
+    expect(result.current.phase).toBe('connected');
+    expect(api.connect).toHaveBeenNthCalledWith(2, 'class-1');
+    expect(api.leave).toHaveBeenCalledOnce();
   });
 
   it('survives a failed leave call', async () => {

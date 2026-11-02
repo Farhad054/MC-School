@@ -7,6 +7,18 @@ import { UpcomingOnlineClassesPage } from './UpcomingOnlineClassesPage';
 vi.mock('../../api/onlineClasses', () => ({ onlineClassesApi: { listUpcoming: vi.fn() } }));
 afterEach(cleanup);
 describe('teacher room entry', () => {
+  it('resumes the existing teacher room after its scheduled week without requiring a new lesson', async () => {
+    localStorage.setItem('language', 'RU');
+    vi.mocked(onlineClassesApi.listUpcoming).mockResolvedValue([{
+      id: 'original-class', eventId: 'original-event', title: 'Математика', viewerIsHost: true,
+      joinWindowOpen: true, viewerHasJoined: true, entryState: 'RECONNECT', mediaState: 'IDLE',
+      serverNow: '2026-11-02T16:00:00Z', status: 'LIVE', scheduledStartAt: '2026-10-23T10:00:00Z',
+    } as OnlineClass]);
+    render(<MemoryRouter><I18nProvider><UpcomingOnlineClassesPage /></I18nProvider></MemoryRouter>);
+    expect(await screen.findByRole('link', { name: /Mindcrafti Online/ })).toHaveAttribute('href', '/online-classes/original-class');
+    expect(screen.queryByText(/Урок завершён|день урока/)).not.toBeInTheDocument();
+  });
+
   it.each([true, false])('keeps the existing room and never suggests restarting an expired occurrence (open=%s)', async open => {
     localStorage.setItem('language', 'RU');
     vi.mocked(onlineClassesApi.listUpcoming).mockResolvedValue([{

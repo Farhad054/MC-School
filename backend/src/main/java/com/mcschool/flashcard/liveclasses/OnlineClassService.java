@@ -91,6 +91,7 @@ public class OnlineClassService {
     @Transactional
     public OnlineClassResponse materializeFromCalendar(AuthenticatedUser caller, String eventId) {
         requireEnabled();
+        if (caller.role() != Role.TEACHER) throw new ResourceNotFoundException("Lesson not found");
         GroupLessonResponse lesson = lessonService.listGroupLessons(caller).stream()
                 .filter(candidate -> candidate.eventId().equals(eventId))
                 .findFirst()
@@ -99,29 +100,34 @@ public class OnlineClassService {
         if (lesson.startsAt() == null || lesson.endsAt() == null) {
             throw new ConflictException("This lesson has no scheduled time");
         }
-        OnlineClass scheduled = classRepository
-                .findByTeacherIdAndEventIdAndScheduledStartAt(caller.id(), eventId, lesson.startsAt())
+        // Google supplies a distinct event ID for every recurring occurrence;
+        // recurringEventId is only its binding key. A moved occurrence retains
+        // its event ID, durable room, artifacts and explicit terminal decision.
+        OnlineClass latest = classRepository
+                .findFirstByTeacherIdAndEventIdOrderByCreatedAtDesc(caller.id(), eventId)
                 .orElse(null);
-        if (scheduled == null) return toResponse(create(caller, lesson), caller);
-
-        // Reuse the current target, including its terminal state. Clicking Start
-        // after End must never manufacture another room for the same lesson.
-        OnlineClass current = classRepository
-                .findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(caller.id(), eventId).stream()
-                .filter(item -> hasCurrentTarget(item, lesson)
-                        && LessonEntryPolicy.lessonDate(item.getScheduledStartAt())
-                            .equals(LessonEntryPolicy.lessonDate(lesson.startsAt())))
-                .findFirst().orElse(null);
-        if (current != null) return toResponse(current, caller);
-        if (scheduled.isTerminal()) {
-            throw new ConflictException("This lesson has ended; create a new lesson to start another class");
+        if (latest == null) return toResponse(create(caller, lesson), caller);
+        OnlineClass current;
+        while (true) {
+            current = accessService.requireHostForUpdate(caller, latest.getId());
+            latest = classRepository.findFirstByTeacherIdAndEventIdOrderByCreatedAtDesc(caller.id(), eventId)
+                    .orElse(current);
+            if (latest.getId().equals(current.getId())) break;
         }
-        // A corrected pupil/group binding may replace an open room, but cannot
-        // shift an old lesson to today or extend admission past Berlin midnight.
-        if (!LessonEntryPolicy.isLessonDay(lesson.startsAt(), now())) {
-            throw new ConflictException("Entry is only available on the lesson day in Europe/Berlin");
+        if (current.isTerminal()) return toResponse(current, caller);
+        if (hasCurrentTarget(current, lesson)) {
+            Instant scheduledStart = availableOccurrenceStart(caller.id(), lesson, current.getId());
+            Instant scheduledEnd = DateOnlyLessonSchedule.onlineClassEnd(lesson);
+            if (!scheduledEnd.isAfter(scheduledStart)) scheduledEnd = scheduledStart.plusNanos(1000);
+            if (!current.getScheduledStartAt().equals(scheduledStart)
+                    || !current.getScheduledEndAt().equals(scheduledEnd)) {
+                current.reschedule(scheduledStart, scheduledEnd);
+            }
+            return toResponse(current, caller);
         }
-        retireSession(caller, scheduled);
+        // Changing the pupil is a new authorized binding, rather than a
+        // reconnect. Retire its old room without widening student date access.
+        retireSession(caller, current);
         return toResponse(createRetry(caller, lesson), caller);
     }
 
@@ -167,8 +173,9 @@ public class OnlineClassService {
 
     private OnlineClass createRetry(AuthenticatedUser caller, GroupLessonResponse lesson) {
         User teacher = accessService.requireActiveUser(caller.id());
-        Instant retryStart = now();
-        Instant retryEnd = retryStart.plus(java.time.Duration.between(lesson.startsAt(), lesson.endsAt()));
+        Instant retryStart = availableOccurrenceStart(caller.id(), lesson, null);
+        Instant retryEnd = DateOnlyLessonSchedule.onlineClassEnd(lesson);
+        if (!retryEnd.isAfter(retryStart)) retryEnd = retryStart.plusNanos(1000);
         OnlineClass created;
         if (lesson.groupId() != null) {
             StudentGroup group = groupRepository.findByIdAndTeacherId(lesson.groupId(), caller.id())
@@ -183,6 +190,27 @@ public class OnlineClassService {
             throw new ConflictException("This lesson is not linked to a student or group yet");
         }
         return classRepository.save(created);
+    }
+
+    private Instant availableOccurrenceStart(UUID teacherId, GroupLessonResponse lesson, UUID excludeId) {
+        // The occurrence index includes scheduled_start_at. Select a distinct
+        // microsecond for a corrected binding while retaining the calendar day,
+        // so early/late teacher entry never moves a student's admission window.
+        java.util.Set<Instant> occupiedStarts = classRepository
+                .findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(teacherId, lesson.eventId())
+                .stream().filter(item -> !item.getId().equals(excludeId))
+                .map(OnlineClass::getScheduledStartAt).collect(java.util.stream.Collectors.toSet());
+        Instant base = lesson.startsAt().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        Instant retryStart = base;
+        long offset = 1;
+        while (occupiedStarts.contains(retryStart)) {
+            retryStart = base.plus(offset, java.time.temporal.ChronoUnit.MICROS);
+            if (!LessonEntryPolicy.lessonDate(retryStart).equals(LessonEntryPolicy.lessonDate(base))) {
+                retryStart = base.minus(offset, java.time.temporal.ChronoUnit.MICROS);
+            }
+            offset++;
+        }
+        return retryStart;
     }
 
     /**
@@ -462,7 +490,7 @@ public class OnlineClassService {
         }
         // A returning attendee keeps access after midnight; admission alone
         // never grants a first connection on a different calendar day.
-        if (!LessonEntryPolicy.canEnter(onlineClass, participant, now())) {
+        if (!LessonEntryPolicy.canEnter(onlineClass, participant, now(), host)) {
             throw new ConflictException("This class is not open for joining: lesson day or reconnect window is closed");
         }
 
@@ -498,7 +526,8 @@ public class OnlineClassService {
                         && participant.isScreenShareEnabled());
 
         String identity = ParticipantIdentity.of(caller.id(), deviceId);
-        java.time.Duration ttl = LessonEntryPolicy.tokenTtl(onlineClass, participant, now(), properties.tokenTtl());
+        java.time.Duration ttl = LessonEntryPolicy.tokenTtl(
+                onlineClass, participant, now(), properties.tokenTtl(), host);
         if (ttl.isNegative() || ttl.isZero()) throw new ConflictException("This class is not open for joining");
         ParticipantConnection connection = mediaProvider.createConnection(
                 onlineClass.getRoomName(), identity, user.getFullName(), grant, ttl);
@@ -545,12 +574,8 @@ public class OnlineClassService {
         if (onlineClass.isTerminal()) {
             throw new ConflictException("This lesson has ended; create a new lesson to start another class");
         }
-        if (LessonEntryPolicy.weekExpired(onlineClass, now())) {
-            throw new ConflictException("This room has reached the weekly Monday deadline");
-        }
-        if (!onlineClass.isConnectable() && !isWithinJoinWindow(onlineClass)) {
-            throw new ConflictException("Entry is only available on the lesson day in Europe/Berlin");
-        }
+        // Every caller has already passed requireHostForMutation. Calendar
+        // admission limits apply to students, never to this owning teacher.
     }
 
     private OnlineClass requireHostForMutation(AuthenticatedUser caller, UUID classId) {
@@ -598,10 +623,6 @@ public class OnlineClassService {
         if (room == null) return;
         if (room.isTerminal()) {
             if (room.isMediaClosePending() && mediaProvider.isConfigured()) closeProviderRoom(room);
-            return;
-        }
-        if (room.isConnectable() && LessonEntryPolicy.weekExpired(room, now())) {
-            finishSession(room, now());
             return;
         }
         if (!room.isConnectable() || !mediaProvider.isConfigured()) return;
@@ -681,11 +702,12 @@ public class OnlineClassService {
         OnlineClassParticipant participant = participantRepository
                 .findByOnlineClassIdAndUserId(onlineClass.getId(), caller.id()).orElse(null);
         Instant at = now();
+        boolean host = accessService.isHost(caller, onlineClass);
         return OnlineClassResponse.from(onlineClass,
-                accessService.isHost(caller, onlineClass),
-                LessonEntryPolicy.canEnter(onlineClass, participant, at),
+                host,
+                LessonEntryPolicy.canEnter(onlineClass, participant, at, host),
                 recordingProvider.isConfigured(), transcriptionProvider.isConfigured(),
-                LessonEntryPolicy.state(onlineClass, participant, at),
+                LessonEntryPolicy.state(onlineClass, participant, at, host),
                 LessonEntryPolicy.returning(onlineClass, participant), at);
     }
 

@@ -2,15 +2,19 @@ package com.mcschool.flashcard.liveclasses;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import com.mcschool.flashcard.users.User;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class LessonEntryPolicyTest {
     private static final Instant DAY = Instant.parse("2026-10-24T10:00:00Z");
     private OnlineClass room(Instant start) {
-        OnlineClass room = OnlineClass.forStudent(mock(User.class), "event", "binding", "Maths",
+        User teacher = mock(User.class);
+        when(teacher.getId()).thenReturn(UUID.randomUUID());
+        OnlineClass room = OnlineClass.forStudent(teacher, "event", "binding", "Maths",
                 start, start.plusSeconds(3600), mock(User.class));
         room.start(start); return room;
     }
@@ -55,13 +59,14 @@ class LessonEntryPolicyTest {
         assertThat(LessonEntryPolicy.canEnter(room, null, DAY)).isFalse();
         room.cancel(); assertThat(LessonEntryPolicy.canEnter(room, null, DAY)).isFalse();
     }
-    @Test void emptyRoomsStayOpenUntilNextMondayEvenAfterTenMinutes() {
+    @Test void theStudentReconnectWindowExpiresWithoutEndingTheLesson() {
         OnlineClass room = room(DAY); room.observeEmpty(DAY.minusSeconds(7200));
         OnlineClassParticipant participant = returning(room);
         assertThat(LessonEntryPolicy.canEnter(room, participant, LessonEntryPolicy.weekEnd(DAY).minusNanos(1))).isTrue();
         assertThat(LessonEntryPolicy.weekExpired(room, LessonEntryPolicy.weekEnd(DAY).minusNanos(1))).isFalse();
         assertThat(LessonEntryPolicy.canEnter(room, participant, LessonEntryPolicy.weekEnd(DAY))).isFalse();
-        assertThat(LessonEntryPolicy.state(room, participant, LessonEntryPolicy.weekEnd(DAY))).isEqualTo("ENDED");
+        assertThat(LessonEntryPolicy.state(room, participant, LessonEntryPolicy.weekEnd(DAY))).isEqualTo("DAY_CLOSED");
+        assertThat(room.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
     }
     @Test void removedAndRejectedAttendeesCannotUseReconnect() {
         OnlineClass room = room(DAY); OnlineClassParticipant p = returning(room); p.remove();
@@ -87,7 +92,49 @@ class LessonEntryPolicyTest {
         assertThat(LessonEntryPolicy.weekEnd(Instant.parse("2026-03-29T12:00:00Z")))
                 .isEqualTo(Instant.parse("2026-03-29T22:00:00Z"));
         OnlineClass room = room(DAY);
-        OnlineClassParticipant teacher = OnlineClassParticipant.host(room, mock(User.class));
+        OnlineClassParticipant teacher = OnlineClassParticipant.host(room, room.getTeacher());
         assertThat(LessonEntryPolicy.canEnter(room, teacher, LessonEntryPolicy.dayEnd(DAY).plusSeconds(1))).isTrue();
+    }
+
+    @Test void theOwningTeacherCanEnterBeforeTheLessonDateAndWeeksAfterIt() {
+        OnlineClass room = room(DAY);
+        OnlineClassParticipant host = OnlineClassParticipant.host(room, room.getTeacher());
+        for (Instant at : new Instant[] {DAY.minusSeconds(86400), DAY.plusSeconds(30 * 86400)}) {
+            assertThat(LessonEntryPolicy.canEnter(room, host, at)).isTrue();
+            assertThat(LessonEntryPolicy.state(room, host, at)).isEqualTo("RECONNECT");
+            assertThat(LessonEntryPolicy.tokenTtl(room, host, at, Duration.ofMinutes(10)))
+                    .isEqualTo(Duration.ofMinutes(10));
+        }
+    }
+
+    @Test void teacherTokensKeepTheirConfiguredLifetimeAcrossMidnightAndMonday() {
+        OnlineClass room = room(DAY);
+        OnlineClassParticipant host = OnlineClassParticipant.host(room, room.getTeacher());
+        for (Instant at : new Instant[] {LessonEntryPolicy.dayEnd(DAY).minusSeconds(1),
+                LessonEntryPolicy.weekEnd(DAY).minusSeconds(1), LessonEntryPolicy.weekEnd(DAY)}) {
+            assertThat(LessonEntryPolicy.tokenTtl(room, host, at, Duration.ofMinutes(10)))
+                    .isEqualTo(Duration.ofMinutes(10));
+        }
+    }
+
+    @Test void aHostRoleFromAnotherRoomDoesNotGrantTheTeacherExemption() {
+        OnlineClass room = room(DAY), anotherRoom = room(DAY);
+        OnlineClassParticipant anotherHost = OnlineClassParticipant.host(anotherRoom, anotherRoom.getTeacher());
+        OnlineClassParticipant mislabelled = OnlineClassParticipant.host(room, anotherRoom.getTeacher());
+        assertThat(LessonEntryPolicy.canEnter(room, anotherHost, DAY.plusSeconds(30 * 86400))).isFalse();
+        assertThat(LessonEntryPolicy.canEnter(room, mislabelled, DAY.minusSeconds(86400))).isFalse();
+    }
+
+    @Test void explicitEndAndCancellationRemainFinalForTheTeacher() {
+        OnlineClass room = room(DAY);
+        OnlineClassParticipant host = OnlineClassParticipant.host(room, room.getTeacher());
+        room.end(DAY.plusSeconds(3600));
+        assertThat(LessonEntryPolicy.canEnter(room, host, DAY.plusSeconds(30 * 86400))).isFalse();
+        assertThat(LessonEntryPolicy.state(room, host, DAY)).isEqualTo("ENDED");
+        OnlineClass cancelled = OnlineClass.forStudent(room.getTeacher(), "cancelled", "cancelled", "Maths",
+                DAY, DAY.plusSeconds(3600), mock(User.class));
+        cancelled.cancel();
+        assertThat(LessonEntryPolicy.canEnter(cancelled,
+                OnlineClassParticipant.host(cancelled, cancelled.getTeacher()), DAY)).isFalse();
     }
 }

@@ -17,3 +17,12 @@ it.each([true, false])('shows an idle classroom and retains its existing host en
   if (viewerIsHost) expect(join).toHaveAttribute('href', '/online-classes/existing-class');
   else expect(join).not.toBeInTheDocument();
 });
+
+it.each(['2026-10-23T12:00:00Z', '2026-11-02T12:00:00Z'])('keeps the teacher entry link before the lesson date and after its calendar week (%s)', now => {
+  const room = { id: 'existing-class', status: 'LIVE', mediaState: 'IDLE', joinWindowOpen: true,
+    viewerIsHost: true, viewerHasJoined: true } as OnlineClass;
+  render(<MemoryRouter><LessonEntryAction room={room} startsAt="2026-10-24T12:00:00Z"
+    language="RU" now={Date.parse(now)} /></MemoryRouter>);
+  expect(screen.getByRole('link', { name: /Mindcrafti Online/ })).toHaveAttribute('href', '/online-classes/existing-class');
+  expect(screen.queryByText(/день урока|Урок завершён/)).not.toBeInTheDocument();
+});
