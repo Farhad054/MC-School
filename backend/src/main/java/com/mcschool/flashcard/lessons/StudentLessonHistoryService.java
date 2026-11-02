@@ -96,7 +96,8 @@ public class StudentLessonHistoryService {
                 preparation != null && preparation.hasAnswers(),
                 preparation == null ? null : preparation.getAnswersFilename(),
                 preparation != null && preparation.hasTranscript(),
-                preparation == null ? null : preparation.getTranscriptFilename()
+                preparation == null ? null : preparation.getTranscriptFilename(),
+                preparation == null ? null : preparation.getSonioxTranscriptText()
         );
     }
 

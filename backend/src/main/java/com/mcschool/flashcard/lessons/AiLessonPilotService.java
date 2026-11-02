@@ -161,7 +161,7 @@ public class AiLessonPilotService {
                         draft.homeworkDraft(),
                         draft.difficulties(),
                         draft.lessonPlan(),
-                        current.transcriptText()));
+                        current.manualTranscriptText()));
     }
 
     public LessonPreparationResponse analyzeTranscript(AuthenticatedUser teacher, String eventId) {
@@ -209,7 +209,7 @@ public class AiLessonPilotService {
                         draft.homeworkDraft(),
                         difficulties,
                         current.lessonPlan(),
-                        current.transcriptText()));
+                        current.manualTranscriptText()));
     }
 
     private LessonContext context(AuthenticatedUser teacher, String eventId) {

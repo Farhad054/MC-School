@@ -21,5 +21,6 @@ public record StudentLessonHistoryDetail(
         boolean hasAnswers,
         String answersFilename,
         boolean hasTranscript,
-        String transcriptFilename
+        String transcriptFilename,
+        String sonioxTranscriptText
 ) {}

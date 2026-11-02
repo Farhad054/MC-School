@@ -261,6 +261,8 @@ public class LessonPreparationService {
                 preparation.getAnswersFilename(),
                 preparation.hasAnswers() ? null : ANSWERS_UPLOAD_HINT,
                 preparation.getSiteOpenedAt(),
-                preparation.getCoveredMaterial());
+                preparation.getCoveredMaterial(),
+                preparation.getTranscriptText(),
+                preparation.getSonioxTranscriptText());
     }
 }

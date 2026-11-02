@@ -38,6 +38,14 @@ type NoteGroup = {
 
 const NICK_AI_PILOT_TEACHER_ID = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
 
+function manualTranscript(preparation: LessonPreparation): string {
+  // An explicit null means there is no manual transcript. Only older API
+  // responses without this field use the legacy combined display value.
+  return preparation.manualTranscriptText === undefined
+    ? preparation.transcriptText ?? ''
+    : preparation.manualTranscriptText ?? '';
+}
+
 export function LessonDetailPage() {
   const { eventId = '' } = useParams();
   const { language, t } = useI18n();
@@ -102,7 +110,7 @@ export function LessonDetailPage() {
         setHomeworkNotes(prep.homeworkNotes ?? '');
         setDifficulties(prep.difficulties ?? '');
         setLessonPlan(prep.lessonPlan ?? '');
-        setTranscriptText(prep.transcriptText ?? '');
+        setTranscriptText(manualTranscript(prep));
 
         if (prep.hasWorkbook) {
           try { if (!cancelled) setWorkbookUrl(await lessonPreparationApi.workbookUrl(eventId)); } catch { /* page still works */ }
@@ -184,7 +192,7 @@ export function LessonDetailPage() {
     setHomeworkNotes(updated.homeworkNotes ?? '');
     setDifficulties(updated.difficulties ?? '');
     setLessonPlan(updated.lessonPlan ?? '');
-    setTranscriptText(updated.transcriptText ?? '');
+    setTranscriptText(manualTranscript(updated));
   }
 
   async function runAiPilot(action: 'prepare' | 'analyze') {
@@ -463,6 +471,14 @@ export function LessonDetailPage() {
           onUpload={(file) => void uploadPdf('transcript', file)}
           onEditInChatGpt={() => void editPdfInChatGpt('transcript', transcriptUrl, preparation?.transcriptFilename)}
         />
+        {preparation?.sonioxTranscriptText && (
+          <section className="panel" style={{ padding: 20, margin: 0 }} aria-labelledby="soniox-transcript-title">
+            <h2 id="soniox-transcript-title" style={{ margin: 0 }}>Автоматическая транскрипция Soniox</h2>
+            <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 400, overflowY: 'auto', fontFamily: 'inherit', lineHeight: 1.6 }}>
+              {preparation.sonioxTranscriptText}
+            </pre>
+          </section>
+        )}
         <section className="panel" style={{padding:20,margin:0,border:'1px solid #ffdfca'}}>
           <div style={{display:'flex',gap:12,alignItems:'flex-start',justifyContent:'space-between'}}>
             <div style={{display:'flex',gap:12,alignItems:'center'}}>
@@ -594,13 +610,10 @@ export function LessonDetailPage() {
           </div>
         </section>
 
-        {transcriptText && !preparation?.hasTranscript && (
+        {transcriptText && (
           <section className="panel" style={{ padding: 20, margin: 0 }}>
-            <h2 style={{ margin: 0 }}>Старая текстовая транскрипция</h2>
-            <div className="muted" style={{ marginTop: 4, fontSize: 13 }}>
-              Это старый формат. Новые транскрипции сохраняются как PDF-документы.
-            </div>
-            <textarea className="input" rows={8} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} style={{ marginTop: 12, width: '100%', resize: 'vertical' }} />
+            <h2 style={{ margin: 0 }}>Текст транскрипции преподавателя</h2>
+            <textarea aria-label="Текст транскрипции преподавателя" className="input" rows={8} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} style={{ marginTop: 12, width: '100%', resize: 'vertical' }} />
           </section>
         )}
 

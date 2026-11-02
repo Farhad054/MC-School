@@ -13,6 +13,8 @@ import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
 import com.mcschool.flashcard.lessons.LessonPreparationRepository;
+import com.mcschool.flashcard.lessons.LessonPreparationService;
+import com.mcschool.flashcard.lessons.dto.UpdateLessonPreparationRequest;
 import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentRequest;
 import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentResponse;
 import com.mcschool.flashcard.liveclasses.provider.ClassTranscriptionProvider;
@@ -58,6 +60,9 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private LessonPreparationRepository preparations;
+
+    @Autowired
+    private LessonPreparationService preparationService;
 
     @Autowired
     private UserRepository userRepository;
@@ -226,6 +231,47 @@ class OnlineClassTranscriptIntegrationTest extends AbstractIntegrationTest {
                 .orElseThrow();
         assertThat(prep.getTranscriptTextForDisplay()).isEqualTo("Notes written by teacher");
         assertThat(prep.getSonioxTranscriptText()).contains("Automatic speech");
+    }
+
+    @Test
+    void savingLessonNotesDoesNotFreezeTheAutomaticTranscript() {
+        transcriptService.ingest(onlineClass.getId(), segment("seg-1", 0, 800, "First phrase"));
+        var initial = preparationService.getOrCreate(teacherPrincipal, "event-1");
+        assertThat(initial.transcriptText()).contains("First phrase");
+        assertThat(initial.manualTranscriptText()).isNull();
+        assertThat(initial.sonioxTranscriptText()).contains("First phrase");
+
+        preparationService.update(teacherPrincipal, "event-1",
+                new UpdateLessonPreparationRequest("Homework notes", null, null, ""));
+        transcriptService.ingest(onlineClass.getId(), segment("seg-2", 900, 1800, "Second phrase"));
+
+        var updated = preparationService.getOrCreate(teacherPrincipal, "event-1");
+        assertThat(updated.homeworkNotes()).isEqualTo("Homework notes");
+        assertThat(updated.manualTranscriptText()).isNull();
+        assertThat(updated.transcriptText()).contains("First phrase", "Second phrase");
+        assertThat(updated.sonioxTranscriptText()).contains("First phrase", "Second phrase");
+    }
+
+    @Test
+    void anOldRoomCannotReplaceTheTranscriptOfACorrectedLesson() {
+        transcriptService.ingest(onlineClass.getId(), segment("old-first", 0, 800, "Old pupil speech"));
+        User replacement = userRepository.save(User.invitedStudent("Replacement", "replacement@test.local",
+                teacher, "s2", END));
+        OnlineClass retry = OnlineClass.forStudent(teacher, "event-1", "binding-2", "Corrected maths",
+                START.plusSeconds(1), END.plusSeconds(1), replacement);
+        retry.start(START.plusSeconds(1));
+        retry = classRepository.saveAndFlush(retry);
+        transcriptService.ingest(retry.getId(), new TranscriptSegmentRequest("new-first",
+                ParticipantIdentity.of(replacement.getId(), "tab-1"), "Replacement", "de",
+                0, 800, "New pupil speech", 0.93));
+
+        transcriptService.ingest(onlineClass.getId(), segment("old-late", 900, 1800, "Late old speech"));
+        var current = preparationService.getOrCreate(teacherPrincipal, "event-1");
+        assertThat(current.sonioxTranscriptText()).contains("Replacement: New pupil speech")
+                .doesNotContain("Old pupil speech", "Late old speech");
+        assertThat(transcriptService.segments(teacherPrincipal, onlineClass.getId()))
+                .extracting(TranscriptSegmentResponse::text)
+                .containsExactly("Old pupil speech", "Late old speech");
     }
 
     // --- Internal token ------------------------------------------------------

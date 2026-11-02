@@ -21,13 +21,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class OnlineClassTranscriptArchiveService {
     private final LessonPreparationRepository preparations;
     private final OnlineClassTranscriptSegmentRepository segments;
+    private final OnlineClassRepository classes;
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
     public OnlineClassTranscriptArchiveService(LessonPreparationRepository preparations,
-            OnlineClassTranscriptSegmentRepository segments, JdbcTemplate jdbc, Clock clock) {
+            OnlineClassTranscriptSegmentRepository segments, OnlineClassRepository classes,
+            JdbcTemplate jdbc, Clock clock) {
         this.preparations = preparations;
         this.segments = segments;
+        this.classes = classes;
         this.jdbc = jdbc;
         this.clock = clock;
     }
@@ -36,12 +39,14 @@ public class OnlineClassTranscriptArchiveService {
     public void sync(OnlineClass room) {
         if (room.getEventId() == null || room.getEventId().isBlank()) return;
 
-        // Worker callbacks can arrive from several participants at once. This
-        // transaction-scoped lock serializes publication for the same class so
-        // a late write cannot replace a newer complete transcript.
-        long key = room.getId().getMostSignificantBits()
-                ^ room.getId().getLeastSignificantBits();
-        jdbc.query("SELECT pg_advisory_xact_lock(?)", (RowCallbackHandler) row -> {}, key);
+        // Several tracks and retired/replacement rooms can write the same
+        // preparation. Serialize on its teacher/event key, not on the room ID.
+        String key = room.getTeacher().getId() + ":" + room.getEventId();
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                (RowCallbackHandler) row -> {}, key);
+        OnlineClass current = classes.findFirstByTeacherIdAndEventIdOrderByCreatedAtDesc(
+                room.getTeacher().getId(), room.getEventId()).orElse(room);
+        if (!current.getId().equals(room.getId())) return;
 
         List<OnlineClassTranscriptSegment> finals =
                 segments.findAllByOnlineClassIdOrderByStartMsAscIdAsc(room.getId());

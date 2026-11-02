@@ -16,5 +16,7 @@ public record LessonPreparationResponse(
         String answersFilename,
         String answersUploadHint,
         Instant siteOpenedAt,
-        String coveredMaterial
+        String coveredMaterial,
+        String manualTranscriptText,
+        String sonioxTranscriptText
 ) {}
