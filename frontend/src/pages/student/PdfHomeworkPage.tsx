@@ -6,17 +6,12 @@ import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 import { renderHomeworkInkStroke } from '../../lib/homeworkInk';
 import { attachTabletInkInput, type TabletInkPoint } from '../../lib/tabletInkInput';
-import '../../styles/floating-islands.css';
+import { BoardToolbar } from '../../features/online-classes/BoardToolbar';
+import { DEFAULT_TOOL_SETTINGS, type ToolSettings } from '../../features/online-classes/boardTools';
+import type { Tool as BoardTool } from '../../features/online-classes/WhiteboardCanvas';
+import '../../pdf-homework.css';
 
-type Tool = 'pen' | 'eraser';
-type PenColor = '#111111' | '#2563eb' | '#dc2626' | '#16a34a';
-type ViewportState = {
-  scale: number;
-  offsetLeft: number;
-  offsetTop: number;
-  width: number;
-  height: number;
-};
+type Tool = 'pan' | 'pen' | 'eraser';
 type StrokeGeometry = {
   left: number;
   top: number;
@@ -27,8 +22,8 @@ type StrokeGeometry = {
 };
 type StrokePoint = { x: number; y: number; pressure?: number };
 type DrawingStroke = {
-  tool: Tool;
-  color: PenColor;
+  tool: Exclude<Tool, 'pan'>;
+  color: string;
   size: number;
   points: StrokePoint[];
   pressureSensitive?: boolean;
@@ -39,14 +34,9 @@ type PageDrawing = {
   strokes: DrawingStroke[];
 };
 
-const PEN_COLORS: Array<{ value: PenColor; labelRu: string; labelDe: string }> = [
-  { value: '#2563eb', labelRu: 'Синий', labelDe: 'Blau' },
-  { value: '#111111', labelRu: 'Чёрный', labelDe: 'Schwarz' },
-  { value: '#dc2626', labelRu: 'Красный', labelDe: 'Rot' },
-  { value: '#16a34a', labelRu: 'Зелёный', labelDe: 'Grün' },
-];
-
-const PEN_SIZES = [3, 5, 8, 12];
+type PageControls = { undo: () => void; redo: () => void; clear: () => void };
+type PageHistory = { canUndo: boolean; canRedo: boolean };
+const HOMEWORK_TOOLS: BoardTool[] = ['pan', 'pen', 'erase'];
 
 export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = {}) {
   const { homeworkId = '' } = useParams();
@@ -56,70 +46,28 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
   const [downloading, setDownloading] = useState(false);
   const pageElements = useRef<Record<number, HTMLElement | null>>({});
   const drawingsRef = useRef<Record<number, PageDrawing>>({});
+  const pageControls = useRef<Record<number, PageControls | null>>({});
+  const [pageHistory, setPageHistory] = useState<Record<number, PageHistory>>({});
   const [tool, setTool] = useState<Tool>('pen');
   // Fingers scroll the document by default; a stylus still writes. Older
   // Android pens reported as fingers can opt into the existing drawing mode.
   const [touchDrawingEnabled, setTouchDrawingEnabled] = useState(false);
-  const [penColor, setPenColor] = useState<PenColor>('#2563eb');
-  const [penSize, setPenSize] = useState(5);
+  const [toolSettings, setToolSettings] = useState<Record<BoardTool, ToolSettings>>(() => ({
+    ...DEFAULT_TOOL_SETTINGS,
+    pen: { ...DEFAULT_TOOL_SETTINGS.pen, color: '#2563eb', width: 0.005 },
+  }));
   const [desktopZoom, setDesktopZoom] = useState(100);
-  const [desktopControls, setDesktopControls] = useState(false);
-  const [viewport, setViewport] = useState<ViewportState>({
-    scale: 1,
-    offsetLeft: 0,
-    offsetTop: 0,
-    width: typeof window === 'undefined' ? 1024 : window.innerWidth,
-    height: typeof window === 'undefined' ? 768 : window.innerHeight,
-  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    const media = window.matchMedia('(pointer: fine)');
-    const update = () => setDesktopControls(media.matches);
-    update();
-    media.addEventListener?.('change', update);
-    return () => media.removeEventListener?.('change', update);
-  }, []);
-
-  useEffect(() => {
-    const visual = window.visualViewport;
-    let frame = 0;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        if (visual) {
-          setViewport({
-            scale: visual.scale || 1,
-            offsetLeft: visual.offsetLeft || 0,
-            offsetTop: visual.offsetTop || 0,
-            width: visual.width || window.innerWidth,
-            height: visual.height || window.innerHeight,
-          });
-        } else {
-          setViewport({ scale: 1, offsetLeft: 0, offsetTop: 0, width: window.innerWidth, height: window.innerHeight });
-        }
-      });
-    };
-
-    update();
-    visual?.addEventListener('resize', update);
-    visual?.addEventListener('scroll', update);
-    window.addEventListener('resize', update);
-    return () => {
-      cancelAnimationFrame(frame);
-      visual?.removeEventListener('resize', update);
-      visual?.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
-    };
-  }, []);
 
   useEffect(() => {
     setHomework(null);
     setPageIndex(0);
     drawingsRef.current = {};
     pageElements.current = {};
+    pageControls.current = {};
+    setPageHistory({});
   }, [homeworkId]);
 
   useEffect(() => {
@@ -242,11 +190,13 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
     );
   }
 
-  const documentWidth = desktopControls ? `${desktopZoom}%` : '100%';
-  const toolbarScale = desktopControls ? 1 : 1 / Math.max(viewport.scale, 0.5);
+  const documentWidth = `${desktopZoom}%`;
+  const boardTool: BoardTool = tool === 'eraser' ? 'erase' : tool;
+  const activeSettings = toolSettings[boardTool];
+  const activeHistory = pageHistory[pageIndex];
 
   return (
-    <div className="pdf-homework-page" style={{ paddingLeft: desktopControls ? 0 : 72 }}>
+    <div className="pdf-homework-page">
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ minWidth: 0 }}>
           <Link to={`/student/homeworks/${homeworkId}`} className="muted">← {t('common.back')}</Link>
@@ -271,37 +221,42 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
         </div>
       )}
 
-      {desktopControls && (
-        <div className="panel" style={{ position: 'sticky', top: 8, zIndex: 5, marginBottom: 12 }}>
-          <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            {!homework.submitted && (
-              <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button type="button" className={tool === 'pen' ? 'is-active' : undefined} onClick={() => setTool('pen')}>
-                  {language === 'DE' ? 'Stift' : 'Ручка'}
-                </button>
-                <button type="button" className={tool === 'eraser' ? 'is-active' : undefined} onClick={() => setTool('eraser')}>
-                  {language === 'DE' ? 'Radierer' : 'Ластик'}
-                </button>
-                <button
-                  type="button"
-                  className={touchDrawingEnabled ? 'is-active' : undefined}
-                  onClick={() => setTouchDrawingEnabled(!touchDrawingEnabled)}
-                  title={language === 'DE' ? 'Für Android-Stifte, die als Touch erkannt werden' : 'Для Android-стилусов, которые определяются как касание'}
-                >
-                  {language === 'DE' ? 'Android/Finger' : 'Android/палец'}
-                </button>
-                <ColorPicker language={language} value={penColor} onChange={(color) => { setPenColor(color); setTool('pen'); }} />
-                <SizePicker language={language} value={penSize} onChange={(size) => { setPenSize(size); setTool('pen'); }} />
-              </div>
-            )}
-            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-              <button className="btn btn--secondary" type="button" disabled={pageIndex === 0} onClick={() => scrollToPage(pageIndex - 1)} title={language === 'DE' ? 'Vorherige Seite' : 'Предыдущая страница'}>←</button>
-              <strong>{pageIndex + 1} / {pageCount}</strong>
-              <button type="button" disabled={pageIndex >= pageCount - 1} onClick={() => scrollToPage(pageIndex + 1)} title={language === 'DE' ? 'Nächste Seite' : 'Следующая страница'}>→</button>
-            </div>
+      <div className="pdf-homework-toolbar">
+        {!homework.submitted && <BoardToolbar
+          ariaLabel={language === 'DE' ? 'Werkzeuge' : 'Инструменты'}
+          clearLabel={language === 'DE' ? 'Seite leeren' : 'Очистить страницу'}
+          colorPopoverClassName="pdf-homework-color-popover"
+          availableTools={HOMEWORK_TOOLS} eraserModes={['partial']}
+          tool={boardTool}
+          onToolChange={(next) => { if (next === 'pan' || next === 'pen' || next === 'erase') setTool(next === 'erase' ? 'eraser' : next); }}
+          settings={toolSettings}
+          onSettingsChange={(selected, patch) => setToolSettings(previous => ({ ...previous, [selected]: { ...previous[selected], ...patch } }))}
+          eraserMode="partial" onEraserModeChange={() => {}}
+          inputMode={touchDrawingEnabled ? 'finger' : 'stylus'}
+          onInputModeChange={(mode) => setTouchDrawingEnabled(mode === 'finger')}
+          canUndo={activeHistory?.canUndo ?? false} canRedo={activeHistory?.canRedo ?? false}
+          onUndo={() => pageControls.current[pageIndex]?.undo()}
+          onRedo={() => pageControls.current[pageIndex]?.redo()}
+          onClearMine={() => pageControls.current[pageIndex]?.clear()}
+        />}
+        <div className="pdf-homework-navigation">
+          <div className="pdf-homework-toolbar-island" role="group" aria-label={language === 'DE' ? 'Seitennavigation' : 'Навигация по страницам'}>
+            <button type="button" disabled={pageIndex === 0} onClick={() => scrollToPage(pageIndex - 1)}
+              aria-label={language === 'DE' ? 'Vorherige Seite' : 'Предыдущая страница'} title={language === 'DE' ? 'Vorherige Seite' : 'Предыдущая страница'}>↑</button>
+            <output aria-live="polite" aria-label={language === 'DE' ? 'Aktuelle Seite' : 'Текущая страница'}>{pageIndex + 1} / {pageCount}</output>
+            <button type="button" disabled={pageIndex >= pageCount - 1} onClick={() => scrollToPage(pageIndex + 1)}
+              aria-label={language === 'DE' ? 'Nächste Seite' : 'Следующая страница'} title={language === 'DE' ? 'Nächste Seite' : 'Следующая страница'}>↓</button>
+          </div>
+          <div className="pdf-homework-toolbar-island" role="group" aria-label={language === 'DE' ? 'Dokumentzoom' : 'Масштаб документа'}>
+            <button type="button" onClick={() => setDesktopZoom(value => Math.max(60, value - 20))} disabled={desktopZoom <= 60}
+              aria-label={language === 'DE' ? 'Verkleinern' : 'Уменьшить'}>−</button>
+            <button type="button" className="pdf-homework-zoom-value" onClick={() => setDesktopZoom(100)}
+              aria-label={language === 'DE' ? 'Originalgröße' : 'Исходный масштаб'}>{desktopZoom}%</button>
+            <button type="button" onClick={() => setDesktopZoom(value => Math.min(200, value + 20))} disabled={desktopZoom >= 200}
+              aria-label={language === 'DE' ? 'Vergrößern' : 'Увеличить'}>+</button>
           </div>
         </div>
-      )}
+      </div>
 
       <div className="pdf-homework-pages" aria-label={language === 'DE' ? 'PDF-Seiten' : 'Страницы PDF'}>
         {Array.from({ length: pageCount }, (_, index) => (
@@ -312,8 +267,7 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
             onActivate={() => setPageIndex(index)}>
             {(pageUrl) => homework.submitted ? (
               <div className="pdf-homework-sheet-scroll">
-                {desktopControls && <DesktopZoomControls zoom={desktopZoom} onChange={setDesktopZoom} />}
-                <div style={{ width: documentWidth, maxWidth: desktopControls ? 1500 : 1000, margin: '0 auto', background: '#fff' }}>
+                <div style={{ width: documentWidth, margin: '0 auto', background: '#fff' }}>
                   <img src={pageUrl} alt={`${language === 'DE' ? 'Abgegebene PDF-Seite' : 'Сданная страница PDF'} ${index + 1}`} style={{ display: 'block', width: '100%', height: 'auto' }} />
                 </div>
               </div>
@@ -322,23 +276,14 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
                 pageUrl={pageUrl}
                 initialDrawing={drawingsRef.current[index]}
                 tool={tool}
-                setTool={setTool}
                 touchDrawingEnabled={touchDrawingEnabled}
-                setTouchDrawingEnabled={setTouchDrawingEnabled}
-                penColor={penColor}
-                setPenColor={setPenColor}
-                penSize={penSize}
-                setPenSize={setPenSize}
+                penColor={activeSettings.color}
+                penSize={activeSettings.width * 1000}
                 language={language}
-                desktopControls={desktopControls}
-                desktopZoom={desktopZoom}
-                viewport={viewport}
-                toolbarScale={toolbarScale}
-                active={pageIndex === index}
+                zoom={desktopZoom}
                 pageIndex={index}
-                pageCount={pageCount}
-                onPageChange={scrollToPage}
-                onDesktopZoomChange={setDesktopZoom}
+                onControls={(controls) => { pageControls.current[index] = controls; }}
+                onHistoryChange={(history) => setPageHistory(previous => ({ ...previous, [index]: history }))}
                 onChange={(drawing) => { drawingsRef.current[index] = drawing; }}
               />
             )}
@@ -428,60 +373,6 @@ function WorksheetPage({ homeworkId, pageIndex, pageCount, active, language, loa
   );
 }
 
-function ColorPicker({ language, value, onChange }: { language: 'DE' | 'RU'; value: PenColor; onChange: (value: PenColor) => void }) {
-  return (
-    <div className="row" style={{ gap: 6, alignItems: 'center' }} aria-label={language === 'DE' ? 'Stiftfarbe' : 'Цвет ручки'}>
-      {PEN_COLORS.map((color) => (
-        <button
-          key={color.value}
-          type="button"
-          onClick={() => onChange(color.value)}
-          title={language === 'DE' ? color.labelDe : color.labelRu}
-          aria-label={language === 'DE' ? color.labelDe : color.labelRu}
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: '50%',
-            background: color.value,
-            border: value === color.value ? '3px solid #fff' : '2px solid rgba(0,0,0,.18)',
-            boxShadow: value === color.value ? '0 0 0 2px #111827' : 'none',
-            cursor: 'pointer',
-            padding: 0,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function SizePicker({ language, value, onChange }: { language: 'DE' | 'RU'; value: number; onChange: (value: number) => void }) {
-  return (
-    <div className="row" style={{ gap: 5, alignItems: 'center' }} aria-label={language === 'DE' ? 'Stiftbreite' : 'Размер кисти'}>
-      {PEN_SIZES.map((size) => (
-        <button
-          key={size}
-          type="button"
-          className={`btn ${value === size ? '' : 'btn--secondary'}`}
-          onClick={() => onChange(size)}
-          title={`${language === 'DE' ? 'Breite' : 'Толщина'}: ${size}`}
-          style={{ minWidth: 38, padding: '6px 8px' }}
-        >
-          <span style={{ display: 'inline-block', width: 20, height: Math.max(2, size / 2), borderRadius: 999, background: 'currentColor', verticalAlign: 'middle' }} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function DesktopZoomControls({ zoom, onChange }: { zoom: number; onChange: (value: number) => void }) {
-  return (
-    <div aria-label="Масштаб документа" style={{ position: 'absolute', right: 12, top: 12, zIndex: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <button className="btn btn--secondary" type="button" onClick={() => onChange(Math.min(200, zoom + 20))} disabled={zoom >= 200}>+</button>
-      <button className="btn btn--secondary" type="button" onClick={() => onChange(Math.max(60, zoom - 20))} disabled={zoom <= 60}>−</button>
-    </div>
-  );
-}
-
 function redrawStrokes(ctx: CanvasRenderingContext2D, width: number, height: number, strokes: DrawingStroke[]) {
   ctx.clearRect(0, 0, width, height);
   for (const stroke of strokes) renderHomeworkInkStroke(ctx, stroke);
@@ -509,27 +400,18 @@ async function pageDrawingToDataUrl(drawing: PageDrawing): Promise<string> {
   });
 }
 
-function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingEnabled, setTouchDrawingEnabled, penColor, setPenColor, penSize, setPenSize, language, desktopControls, desktopZoom, viewport, toolbarScale, active, pageIndex, pageCount, onPageChange, onDesktopZoomChange, onChange }: {
+function WorksheetCanvas({ pageUrl, initialDrawing, tool, touchDrawingEnabled, penColor, penSize, language, zoom, pageIndex, onControls, onHistoryChange, onChange }: {
   pageUrl: string;
   initialDrawing?: PageDrawing;
   tool: Tool;
-  setTool: (tool: Tool) => void;
   touchDrawingEnabled: boolean;
-  setTouchDrawingEnabled: (enabled: boolean) => void;
-  penColor: PenColor;
-  setPenColor: (color: PenColor) => void;
+  penColor: string;
   penSize: number;
-  setPenSize: (size: number) => void;
   language: 'DE' | 'RU';
-  desktopControls: boolean;
-  desktopZoom: number;
-  viewport: ViewportState;
-  toolbarScale: number;
-  active: boolean;
+  zoom: number;
   pageIndex: number;
-  pageCount: number;
-  onPageChange: (value: number) => void;
-  onDesktopZoomChange: (value: number) => void;
+  onControls: (controls: PageControls | null) => void;
+  onHistoryChange: (history: PageHistory) => void;
   onChange: (drawing: PageDrawing) => void;
 }) {
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -546,10 +428,19 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   })) ?? []);
   const activeStrokeRef = useRef<DrawingStroke | null>(null);
   const [ready, setReady] = useState(false);
-  const [undoCount, setUndoCount] = useState(strokesRef.current.length);
+  const redoRef = useRef<DrawingStroke[]>([]);
+  const panRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const universalInputRef = useRef(false);
   const latestInkSettingsRef = useRef({ tool, penColor, penSize, touchDrawingEnabled, ready });
   latestInkSettingsRef.current = { tool, penColor, penSize, touchDrawingEnabled, ready };
+
+  useEffect(() => {
+    onControls({ undo, redo, clear });
+    return () => onControls(null);
+    // Actions use refs so the toolbar can control an offscreen page without
+    // recreating its canvas or its input listeners.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Installed once per PDF page. Settings change via refs, without reattaching
   // listeners or postponing the next Pencil/Android stylus stroke.
@@ -562,6 +453,10 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
         const settings = latestInkSettingsRef.current;
         if (!canvas || !settings.ready) return;
         if (activeStrokeRef.current) resetActiveStroke(true);
+        if (settings.tool === 'pan') {
+          panRef.current = { clientX: point.clientX, clientY: point.clientY };
+          return;
+        }
         const geometry = currentGeometry(canvas);
         if (geometry.width <= 0 || geometry.height <= 0) return;
         const first = pointFromClient(point, geometry);
@@ -577,6 +472,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
         else repaintActiveStroke();
       },
       onMove(point) {
+        if (panRef.current) { movePan(point); return; }
         const geometry = strokeGeometryRef.current;
         const stroke = activeStrokeRef.current;
         if (!geometry || !stroke) return;
@@ -588,6 +484,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
         else schedulePenPreview();
       },
       onEnd(point, meta, cancelled) {
+        if (panRef.current) { panRef.current = null; return; }
         const geometry = strokeGeometryRef.current;
         const stroke = activeStrokeRef.current;
         if (!geometry || !stroke) return;
@@ -603,7 +500,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
         resetActiveStroke(!cancelled || meta.device !== 'finger');
       },
     }, {
-      allowFinger: () => latestInkSettingsRef.current.touchDrawingEnabled,
+      allowFinger: () => latestInkSettingsRef.current.touchDrawingEnabled && latestInkSettingsRef.current.tool !== 'pan',
       nativeFingerNavigation: true,
     });
     universalInputRef.current = true;
@@ -620,6 +517,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   // abandoned pointer so the next contact can always start a new stroke.
   useEffect(() => {
     const recoverInterruptedInput = () => {
+      panRef.current = null;
       if (drawingPointerIdRef.current !== null) resetActiveStroke(true);
       activeTouchPointersRef.current.clear();
     };
@@ -647,6 +545,20 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     });
   }
 
+  function publishHistory() {
+    onHistoryChange({ canUndo: strokesRef.current.length > 0, canRedo: redoRef.current.length > 0 });
+  }
+
+  function movePan(point: Pick<TabletInkPoint, 'clientX' | 'clientY'>) {
+    const previous = panRef.current;
+    if (!previous) return;
+    const horizontal = previous.clientX - point.clientX;
+    const vertical = previous.clientY - point.clientY;
+    previewCanvasRef.current?.closest('.pdf-homework-sheet-scroll')?.scrollBy(horizontal, 0);
+    window.scrollBy(0, vertical);
+    panRef.current = { clientX: point.clientX, clientY: point.clientY };
+  }
+
   function setupCanvas() {
     const image = imageRef.current;
     const canvas = canvasRef.current;
@@ -658,7 +570,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     redrawStrokes(ctx, canvas.width, canvas.height, strokesRef.current);
-    setUndoCount(strokesRef.current.length);
+    publishHistory();
     setReady(true);
   }
 
@@ -755,7 +667,8 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     }
     if (commit && stroke) {
       strokesRef.current = [...strokesRef.current, stroke];
-      setUndoCount(strokesRef.current.length);
+      redoRef.current = [];
+      publishHistory();
       emitDrawing();
     }
     activeStrokeRef.current = null;
@@ -771,6 +684,14 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   }
 
   function start(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (tool === 'pan') {
+      if (event.pointerType === 'touch' || !ready || event.button !== 0) return;
+      event.preventDefault();
+      panRef.current = { clientX: event.clientX, clientY: event.clientY };
+      drawingPointerIdRef.current = event.pointerId;
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointerleave fallback */ }
+      return;
+    }
     if (event.pointerType === 'touch') {
       // Ignore palm/finger input while a real stylus is already writing.
       if (drawingPointerTypeRef.current === 'pen') return;
@@ -844,6 +765,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
 
   function move(event: React.PointerEvent<HTMLCanvasElement>) {
     if (drawingPointerIdRef.current !== event.pointerId) return;
+    if (panRef.current) { event.preventDefault(); movePan(event); return; }
     if (!activeStrokeRef.current) return;
     event.preventDefault();
     event.stopPropagation();
@@ -854,6 +776,12 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   function finish(event: React.PointerEvent<HTMLCanvasElement>) {
     if (event.pointerType === 'touch') activeTouchPointersRef.current.delete(event.pointerId);
     if (drawingPointerIdRef.current !== event.pointerId) return;
+    if (panRef.current) {
+      panRef.current = null;
+      drawingPointerIdRef.current = null;
+      try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* no-op */ }
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     if (event.type === 'pointerup') appendPointerSamples(event);
@@ -866,6 +794,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   function lostCapture(event: React.PointerEvent<HTMLCanvasElement>) {
     if (event.pointerType === 'touch') activeTouchPointersRef.current.delete(event.pointerId);
     if (drawingPointerIdRef.current !== event.pointerId) return;
+    panRef.current = null;
     // This was previously unhandled, leaving the canvas permanently locked
     // to an inactive pointerId until the whole page was reloaded.
     resetActiveStroke(drawingPointerTypeRef.current !== 'touch');
@@ -877,14 +806,28 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     if (drawingPointerIdRef.current !== event.pointerId) return;
     const target = event.currentTarget;
     if (!target.hasPointerCapture?.(event.pointerId)) {
+      panRef.current = null;
       resetActiveStroke(true);
     }
   }
 
   function undo() {
     if (strokesRef.current.length === 0) return;
+    if (activeStrokeRef.current) resetActiveStroke(true);
+    redoRef.current.push(strokesRef.current[strokesRef.current.length - 1]);
     strokesRef.current = strokesRef.current.slice(0, -1);
-    setUndoCount(strokesRef.current.length);
+    publishHistory();
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (canvas && ctx) redrawStrokes(ctx, canvas.width, canvas.height, strokesRef.current);
+    emitDrawing();
+  }
+
+  function redo() {
+    const stroke = redoRef.current.pop();
+    if (!stroke) return;
+    strokesRef.current = [...strokesRef.current, stroke];
+    publishHistory();
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (canvas && ctx) redrawStrokes(ctx, canvas.width, canvas.height, strokesRef.current);
@@ -892,9 +835,10 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   }
 
   function clear() {
-    if (strokesRef.current.length === 0) return;
+    resetActiveStroke(false);
     strokesRef.current = [];
-    setUndoCount(0);
+    redoRef.current = [];
+    publishHistory();
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (canvas && ctx) {
@@ -904,100 +848,14 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
     emitDrawing();
   }
 
-  const documentWidth = desktopControls ? `${desktopZoom}%` : '100%';
-  const railLeft = viewport.offsetLeft + 8;
-  const railTop = viewport.offsetTop + viewport.height / 2;
+  const documentWidth = `${zoom}%`;
 
   return (
-    <div>
-      {!desktopControls && active && (
-        <div
-          className="homework-island-rail"
-          aria-label={language === 'DE' ? 'Werkzeuge' : 'Инструменты'}
-          style={{
-            left: railLeft,
-            top: railTop,
-            transform: `translateY(-50%) scale(${toolbarScale})`,
-            transformOrigin: 'left center',
-          }}
-        >
-          <div className="homework-island-rail-group">
-          <button type="button" className={`btn ${tool === 'pen' ? '' : 'btn--secondary'}`} onClick={() => setTool('pen')} title={language === 'DE' ? 'Stift' : 'Ручка'}>✎</button>
-          <button type="button" className={`btn ${tool === 'eraser' ? '' : 'btn--secondary'}`} onClick={() => setTool('eraser')} title={language === 'DE' ? 'Radierer' : 'Ластик'}>⌫</button>
-          <button
-            type="button"
-            className={`btn ${touchDrawingEnabled ? '' : 'btn--secondary'}`}
-            onClick={() => setTouchDrawingEnabled(!touchDrawingEnabled)}
-            title={language === 'DE' ? 'Android/Finger schreiben' : 'Android: писать стилусом/пальцем'}
-            aria-pressed={touchDrawingEnabled}
-          >
-            ☝
-          </button>
-          </div>
-          <div className="homework-island-rail-group homework-island-colors">
-          {PEN_COLORS.map((color) => (
-            <button
-              key={color.value}
-              type="button"
-              onClick={() => { setPenColor(color.value); setTool('pen'); }}
-              title={language === 'DE' ? color.labelDe : color.labelRu}
-              style={{
-                width: 34,
-                height: 34,
-                alignSelf: 'center',
-                borderRadius: '50%',
-                background: color.value,
-                border: penColor === color.value ? '3px solid #fff' : '2px solid rgba(0,0,0,.18)',
-                boxShadow: penColor === color.value ? '0 0 0 2px #111827' : 'none',
-                padding: 0,
-              }}
-            />
-          ))}
-          </div>
-          <div className="homework-island-rail-group homework-island-size">
-          {PEN_SIZES.map((size) => (
-            <button
-              key={size}
-              type="button"
-              className={penSize === size ? 'is-active' : undefined}
-              onClick={() => { setPenSize(size); setTool('pen'); }}
-              title={`${language === 'DE' ? 'Breite' : 'Толщина'}: ${size}`}
-              style={{ padding: '6px 7px' }}
-            >
-              <span style={{ display: 'block', width: 20, height: Math.max(2, size / 2), borderRadius: 999, background: 'currentColor', margin: '0 auto' }} />
-            </button>
-          ))}
-          </div>
-          <div className="homework-island-rail-group homework-island-pager">
-          <button type="button" disabled={pageIndex === 0} onClick={() => onPageChange(pageIndex - 1)} title={language === 'DE' ? 'Vorherige Seite' : 'Предыдущая страница'}>↑</button>
-          <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{pageIndex + 1}/{pageCount}</div>
-          <button className="btn btn--secondary" type="button" disabled={pageIndex >= pageCount - 1} onClick={() => onPageChange(pageIndex + 1)} title={language === 'DE' ? 'Nächste Seite' : 'Следующая страница'}>↓</button>
-          </div>
-          <div className="homework-island-rail-group">
-          <button type="button" onClick={undo} disabled={undoCount === 0} title={language === 'DE' ? 'Rückgängig' : 'Шаг назад'}>↶</button>
-          <button type="button" onClick={clear} disabled={undoCount === 0} title={language === 'DE' ? 'Seite löschen' : 'Очистить страницу'}>×</button>
-          </div>
-        </div>
-      )}
-
-      {desktopControls && (
-        <div className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn--secondary" type="button" onClick={undo} disabled={undoCount === 0}>
-            {language === 'DE' ? 'Rückgängig' : '↶ Шаг назад'}
-          </button>
-          <button className="btn btn--ghost" type="button" onClick={clear} disabled={undoCount === 0}>
-            {language === 'DE' ? 'Seite löschen' : 'Очистить страницу'}
-          </button>
-        </div>
-      )}
-
-      <div className="pdf-homework-sheet-scroll">
-        {desktopControls && <DesktopZoomControls zoom={desktopZoom} onChange={onDesktopZoomChange} />}
+    <div className="pdf-homework-sheet-scroll">
         <div
           style={{
             position: 'relative',
             width: documentWidth,
-            maxWidth: desktopControls ? 1500 : 1000,
             margin: '0 auto',
             boxShadow: '0 2px 14px rgba(0,0,0,.12)',
             background: '#fff',
@@ -1032,13 +890,12 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
               height: '100%',
               // A legacy Android pen may arrive as one finger. In that opt-in
               // mode reserve single contacts for ink while keeping pinch zoom.
-              touchAction: touchDrawingEnabled ? 'pinch-zoom' : 'pan-x pan-y pinch-zoom',
-              cursor: tool === 'eraser' ? 'cell' : 'crosshair',
+              touchAction: touchDrawingEnabled && tool !== 'pan' ? 'pinch-zoom' : 'pan-x pan-y pinch-zoom',
+              cursor: tool === 'pan' ? 'grab' : tool === 'eraser' ? 'cell' : 'crosshair',
               opacity: ready ? 1 : 0,
             }}
           />
         </div>
-      </div>
     </div>
   );
 }
