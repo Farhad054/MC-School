@@ -144,4 +144,34 @@ test.describe('Android finger scrolling', () => {
     await expect(page.getByRole('region', { name: 'Seite 2', exact: true })).toBeAttached();
     await input.detach();
   });
+
+  test('optional finger-writing mode draws without scrolling the sheet', async ({ page }) => {
+    await openHomework(page, { viewport: { width: 412, height: 800 } });
+    const first = page.getByRole('region', { name: 'Seite 1', exact: true });
+    const canvas = page.getByTestId('homework-ink-0');
+    await canvas.scrollIntoViewIfNeeded();
+    await expect(canvas).toHaveCSS('opacity', '1');
+    await page.getByTitle('Android/Finger schreiben', { exact: true }).click();
+    await expect(canvas).toHaveCSS('touch-action', 'pinch-zoom');
+    const box = await canvas.boundingBox();
+    const x = box.x + box.width * 0.3;
+    const y = Math.min(Math.max(box.y + box.height * 0.4, 200), 550);
+    const before = await page.evaluate(() => window.scrollY);
+    const input = await page.context().newCDPSession(page);
+    await input.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+    for (let step = 1; step <= 6; step++) {
+      await input.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{
+        x: x + step * 10, y: y + step * 5, id: 1,
+      }] });
+      await page.waitForTimeout(20);
+    }
+    await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect(page.getByTitle('Rückgängig', { exact: true })).toBeEnabled();
+    const hasInk = await first.locator('canvas').first()
+      .evaluate(node => node.getContext('2d').getImageData(0, 0, node.width, node.height).data
+        .some((value, index) => index % 4 === 3 && value > 0));
+    expect(hasInk).toBe(true);
+    expect(Math.abs(await page.evaluate(() => window.scrollY) - before)).toBeLessThan(10);
+    await input.detach();
+  });
 });

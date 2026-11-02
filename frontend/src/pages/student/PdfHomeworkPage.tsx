@@ -1030,7 +1030,9 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
               inset: 0,
               width: '100%',
               height: '100%',
-              touchAction: 'pan-x pan-y pinch-zoom',
+              // A legacy Android pen may arrive as one finger. In that opt-in
+              // mode reserve single contacts for ink while keeping pinch zoom.
+              touchAction: touchDrawingEnabled ? 'pinch-zoom' : 'pan-x pan-y pinch-zoom',
               cursor: tool === 'eraser' ? 'cell' : 'crosshair',
               opacity: ready ? 1 : 0,
             }}

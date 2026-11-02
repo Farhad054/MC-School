@@ -137,6 +137,12 @@ describe('PDF homework as one vertical document', () => {
     expect(screen.getAllByLabelText('Инструменты')).toHaveLength(1);
     expect(screen.getByTitle('Android: писать стилусом/пальцем')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('homework-ink-0').style.touchAction).toContain('pan-y');
+    fireEvent.click(screen.getByTitle('Android: писать стилусом/пальцем'));
+    expect(screen.getByTitle('Android: писать стилусом/пальцем')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('homework-ink-0').style.touchAction).toBe('pinch-zoom');
+    expect(screen.getByTestId('homework-ink-1').style.touchAction).toBe('pinch-zoom');
+    fireEvent.click(screen.getByTitle('Android: писать стилусом/пальцем'));
+    expect(screen.getByTestId('homework-ink-0').style.touchAction).toContain('pan-y');
     fireEvent.pointerDown(screen.getByRole('region', { name: 'Страница 2' }));
     expect(screen.getAllByLabelText('Инструменты')).toHaveLength(1);
     expect(screen.getByTitle('Предыдущая страница')).toBeEnabled();
