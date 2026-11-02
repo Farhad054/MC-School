@@ -4,3 +4,6 @@
 ALTER TABLE lesson_preparations
   ADD COLUMN IF NOT EXISTS soniox_transcript_text TEXT,
   ADD COLUMN IF NOT EXISTS soniox_transcript_updated_at TIMESTAMPTZ;
+
+ALTER TABLE online_classes
+  ADD COLUMN IF NOT EXISTS transcription_dispatch_id VARCHAR(255);
