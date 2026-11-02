@@ -47,6 +47,15 @@ Meet / Soniox flow is unchanged and no online-class endpoint is reachable.
 Camera and microphone require a secure context: HTTPS everywhere except
 `localhost`.
 
+The owning teacher can open and re-enter an unfinished lesson on any date,
+including before its scheduled day. LiveKit creates media when the teacher
+actually connects. Leaving or losing connection keeps the same lesson, board,
+documents, and saved transcript; later transcript segments append to it. After
+60 seconds without human participants, empty media is released while the lesson
+remains available. Calendar day and week boundaries never finish a lesson.
+Use **End for everyone** to finish it permanently. Students retain their
+existing lesson-day, reconnect-window, membership, and admission checks.
+
 ## What is implemented
 
 **Backend**

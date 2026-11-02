@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Releases empty media; keeps lesson re-entry until the weekly deadline. */
+/** Releases empty media while retaining the lesson until its teacher explicitly ends it. */
 @Component
 public class OnlineClassIdleScheduler {
     private static final Logger log = LoggerFactory.getLogger(OnlineClassIdleScheduler.class);

@@ -23,6 +23,9 @@ export function StartOnlineClassButton({ eventId }: { eventId: string }) {
   const [unavailable, setUnavailable] = useState(false);
   const [failed, setFailed] = useState(false);
   const [failureKind, setFailureKind] = useState<'generic' | 'credentials' | 'unreachable'>('generic');
+  const endedMessage = language === 'DE'
+    ? 'Der Unterricht ist beendet. Erstellen Sie einen neuen Unterricht für eine weitere Sitzung.'
+    : 'Урок завершён. Для нового занятия создайте новый урок.';
 
   if (unavailable) {
     return (
@@ -44,8 +47,7 @@ export function StartOnlineClassButton({ eventId }: { eventId: string }) {
       classId = onlineClass.id;
       if (onlineClass.status === 'ENDED' || onlineClass.status === 'CANCELLED') {
         setEnded(true);
-        setPolicyMessage(language === 'DE' ? 'Der Unterricht ist beendet. Erstellen Sie einen neuen Unterricht für eine weitere Sitzung.'
-          : 'Урок завершён. Для нового занятия создайте новый урок.');
+        setPolicyMessage(endedMessage);
         return;
       }
       await onlineClassesApi.start(onlineClass.id);
@@ -53,9 +55,14 @@ export function StartOnlineClassButton({ eventId }: { eventId: string }) {
     } catch (error) {
       // A disabled or misconfigured feature is reported precisely rather than
       // as a generic failure, and never exposes which setting is missing.
-      if (error instanceof ApiRequestError && error.status === 409 && /lesson day|has ended|ten minutes|reconnect window/i.test(error.message)) {
-        setPolicyMessage(language === 'DE' ? 'Beitritt nur am Unterrichtstag (Berlin), nach dem Öffnen. Ein beendeter Unterricht bleibt geschlossen.'
-          : 'Вход возможен только в день урока по Берлину после открытия учителем. Завершённый урок остаётся закрытым.');
+      if (error instanceof ApiRequestError && error.status === 409 && /has ended|cancelled/i.test(error.message)) {
+        setEnded(true);
+        setPolicyMessage(endedMessage);
+      } else if (error instanceof ApiRequestError && error.status === 409 && /lesson day|ten minutes|reconnect window/i.test(error.message)) {
+        // An older server may still reject unrestricted owner entry. Keep this
+        // retryable without repeating a calendar rule that no longer applies.
+        setPolicyMessage(language === 'DE' ? 'Der Unterricht konnte nicht geöffnet werden. Bitte laden Sie die Seite neu und versuchen Sie es erneut.'
+          : 'Не удалось открыть урок. Обновите страницу и повторите вход.');
       } else if (error instanceof ApiRequestError && error.status === 404) {
         setUnavailable(true);
       } else {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { Homework } from '../../api/types';
@@ -54,12 +54,12 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
   const [homework, setHomework] = useState<Homework | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
-  const [pageUrls, setPageUrls] = useState<Record<number, string>>({});
+  const pageElements = useRef<Record<number, HTMLElement | null>>({});
   const drawingsRef = useRef<Record<number, PageDrawing>>({});
   const [tool, setTool] = useState<Tool>('pen');
-  const [touchDrawingEnabled, setTouchDrawingEnabled] = useState(() =>
-    typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
-  );
+  // Fingers scroll the document by default; a stylus still writes. Older
+  // Android pens reported as fingers can opt into the existing drawing mode.
+  const [touchDrawingEnabled, setTouchDrawingEnabled] = useState(false);
   const [penColor, setPenColor] = useState<PenColor>('#2563eb');
   const [penSize, setPenSize] = useState(5);
   const [desktopZoom, setDesktopZoom] = useState(100);
@@ -116,24 +116,58 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
   }, []);
 
   useEffect(() => {
-    api.study.homeworks()
-      .then((items) => setHomework(items.find((item) => item.id === homeworkId) ?? null))
-      .catch((e) => setError(toErrorMessage(e, t)));
-  }, [homeworkId, t]);
+    setHomework(null);
+    setPageIndex(0);
+    drawingsRef.current = {};
+    pageElements.current = {};
+  }, [homeworkId]);
 
   useEffect(() => {
-    if (!homework?.hasWorksheet || pageUrls[pageIndex]) return;
     let cancelled = false;
-    api.study.worksheetPageDataUrl(homeworkId, pageIndex)
-      .then((dataUrl) => {
-        if (!cancelled) setPageUrls((current) => ({ ...current, [pageIndex]: dataUrl.trim() }));
-      })
-      .catch((e) => setError(toErrorMessage(e, t)));
+    api.study.homeworks()
+      .then((items) => { if (!cancelled) setHomework(items.find((item) => item.id === homeworkId) ?? null); })
+      .catch((e) => { if (!cancelled) setError(toErrorMessage(e, t)); });
     return () => { cancelled = true; };
-  }, [homework, homeworkId, pageIndex, pageUrls, t]);
+  }, [homeworkId, t]);
 
-  const pageCount = homework?.worksheetPageCount ?? 0;
-  const pageUrl = pageUrls[pageIndex];
+  const pageCount = homework?.hasWorksheet ? Math.max(1, homework.worksheetPageCount ?? 1) : 0;
+  useEffect(() => {
+    if (!pageCount) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const anchor = window.innerHeight * 0.35;
+        let nearest = 0;
+        let distance = Infinity;
+        for (const [index, element] of Object.entries(pageElements.current)) {
+          if (!element) continue;
+          const rect = element.getBoundingClientRect();
+          const nextDistance = rect.top <= anchor && rect.bottom >= anchor
+            ? 0 : Math.min(Math.abs(rect.top - anchor), Math.abs(rect.bottom - anchor));
+          if (nextDistance < distance) {
+            distance = nextDistance;
+            nearest = Number(index);
+          }
+        }
+        setPageIndex(nearest);
+      });
+    };
+    update();
+    window.addEventListener('scroll', update, { capture: true, passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [homeworkId, pageCount]);
+
+  function scrollToPage(index: number) {
+    const next = Math.max(0, Math.min(pageCount - 1, index));
+    setPageIndex(next);
+    pageElements.current[next]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   const submittedText = useMemo(() => {
     if (!homework?.submittedAt) return null;
     return new Intl.DateTimeFormat(language === 'DE' ? 'de-DE' : 'ru-RU', {
@@ -158,7 +192,6 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
         });
       }
       await api.study.submitPdfHomework(homeworkId, overlays);
-      setPageUrls({});
       const updated = (await api.study.homeworks()).find((item) => item.id === homeworkId) ?? null;
       setHomework(updated);
       onSubmitted?.();
@@ -262,48 +295,56 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
               </div>
             )}
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-              <button className="btn btn--secondary" type="button" disabled={pageIndex === 0} onClick={() => setPageIndex((p) => p - 1)}>←</button>
+              <button className="btn btn--secondary" type="button" disabled={pageIndex === 0} onClick={() => scrollToPage(pageIndex - 1)} title={language === 'DE' ? 'Vorherige Seite' : 'Предыдущая страница'}>←</button>
               <strong>{pageIndex + 1} / {pageCount}</strong>
-              <button type="button" disabled={pageIndex >= pageCount - 1} onClick={() => setPageIndex((p) => p + 1)}>→</button>
+              <button type="button" disabled={pageIndex >= pageCount - 1} onClick={() => scrollToPage(pageIndex + 1)} title={language === 'DE' ? 'Nächste Seite' : 'Следующая страница'}>→</button>
             </div>
           </div>
         </div>
       )}
 
-      {!pageUrl ? (
-        <div className="panel">{t('common.loading')}</div>
-      ) : homework.submitted ? (
-        <div style={{ position: 'relative', overflow: desktopControls ? 'auto' : 'visible', width: '100%' }}>
-          {desktopControls && <DesktopZoomControls zoom={desktopZoom} onChange={setDesktopZoom} />}
-          <div style={{ width: documentWidth, maxWidth: desktopControls ? 1500 : 1000, margin: '0 auto', background: '#fff' }}>
-            <img src={pageUrl} alt="Submitted homework PDF page" style={{ display: 'block', width: '100%', height: 'auto' }} />
-          </div>
-        </div>
-      ) : (
-        <WorksheetCanvas
-          key={pageIndex}
-          pageUrl={pageUrl}
-          initialDrawing={drawingsRef.current[pageIndex]}
-          tool={tool}
-          setTool={setTool}
-          touchDrawingEnabled={touchDrawingEnabled}
-          setTouchDrawingEnabled={setTouchDrawingEnabled}
-          penColor={penColor}
-          setPenColor={setPenColor}
-          penSize={penSize}
-          setPenSize={setPenSize}
-          language={language}
-          desktopControls={desktopControls}
-          desktopZoom={desktopZoom}
-          viewport={viewport}
-          toolbarScale={toolbarScale}
-          pageIndex={pageIndex}
-          pageCount={pageCount}
-          setPageIndex={setPageIndex}
-          onDesktopZoomChange={setDesktopZoom}
-          onChange={(drawing) => { drawingsRef.current[pageIndex] = drawing; }}
-        />
-      )}
+      <div className="pdf-homework-pages" aria-label={language === 'DE' ? 'PDF-Seiten' : 'Страницы PDF'}>
+        {Array.from({ length: pageCount }, (_, index) => (
+          <WorksheetPage key={`${homeworkId}:${index}:${homework.submitted ? 'submitted' : 'draft'}`}
+            homeworkId={homeworkId} pageIndex={index} pageCount={pageCount}
+            active={pageIndex === index} language={language} loadingText={t('common.loading')}
+            elementRef={(element) => { pageElements.current[index] = element; }}
+            onActivate={() => setPageIndex(index)}>
+            {(pageUrl) => homework.submitted ? (
+              <div className="pdf-homework-sheet-scroll">
+                {desktopControls && <DesktopZoomControls zoom={desktopZoom} onChange={setDesktopZoom} />}
+                <div style={{ width: documentWidth, maxWidth: desktopControls ? 1500 : 1000, margin: '0 auto', background: '#fff' }}>
+                  <img src={pageUrl} alt={`${language === 'DE' ? 'Abgegebene PDF-Seite' : 'Сданная страница PDF'} ${index + 1}`} style={{ display: 'block', width: '100%', height: 'auto' }} />
+                </div>
+              </div>
+            ) : (
+              <WorksheetCanvas
+                pageUrl={pageUrl}
+                initialDrawing={drawingsRef.current[index]}
+                tool={tool}
+                setTool={setTool}
+                touchDrawingEnabled={touchDrawingEnabled}
+                setTouchDrawingEnabled={setTouchDrawingEnabled}
+                penColor={penColor}
+                setPenColor={setPenColor}
+                penSize={penSize}
+                setPenSize={setPenSize}
+                language={language}
+                desktopControls={desktopControls}
+                desktopZoom={desktopZoom}
+                viewport={viewport}
+                toolbarScale={toolbarScale}
+                active={pageIndex === index}
+                pageIndex={index}
+                pageCount={pageCount}
+                onPageChange={scrollToPage}
+                onDesktopZoomChange={setDesktopZoom}
+                onChange={(drawing) => { drawingsRef.current[index] = drawing; }}
+              />
+            )}
+          </WorksheetPage>
+        ))}
+      </div>
 
       {!homework.submitted && (
         <div className="panel" style={{ marginTop: 12 }}>
@@ -312,12 +353,78 @@ export function PdfHomeworkPage({ onSubmitted }: { onSubmitted?: () => void } = 
           </button>
           <p className="muted" style={{ marginBottom: 0, fontSize: 13 }}>
             {language === 'DE'
-              ? 'Apple Pencil oder Android-Stift schreibt. Auf Android kann Einfinger-Schreiben aktiviert werden; mit zwei Fingern zoomst und verschiebst du die Seite.'
-              : 'Apple Pencil и Android-стилус пишут прямо по листу. На Android можно включить режим «1 палец/стилус пишет», а двумя пальцами двигать и масштабировать страницу.'}
+              ? 'Alle Seiten stehen untereinander. Mit dem Finger scrollst du, mit dem Stift schreibst du. Für ältere Android-Stifte kannst du Einfinger-Schreiben aktivieren.'
+              : 'Все страницы идут друг за другом. Пальцем листай документ, стилусом пиши. Для старых Android-стилусов можно включить рисование пальцем.'}
           </p>
         </div>
       )}
     </div>
+  );
+}
+
+function WorksheetPage({ homeworkId, pageIndex, pageCount, active, language, loadingText, elementRef, onActivate, children }: {
+  homeworkId: string;
+  pageIndex: number;
+  pageCount: number;
+  active: boolean;
+  language: 'DE' | 'RU';
+  loadingText: string;
+  elementRef: (element: HTMLElement | null) => void;
+  onActivate: () => void;
+  children: (pageUrl: string) => ReactNode;
+}) {
+  const { t } = useI18n();
+  const element = useRef<HTMLElement | null>(null);
+  const [requested, setRequested] = useState(active);
+  const [pageUrl, setPageUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => { if (active) setRequested(true); }, [active]);
+  useEffect(() => {
+    const target = element.current;
+    if (!target || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setRequested(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '500px 0px' });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!requested) return;
+    let cancelled = false;
+    setError(null);
+    api.study.worksheetPageDataUrl(homeworkId, pageIndex)
+      .then((value) => {
+        const url = value.trim();
+        if (!url) throw new Error('PDF page is empty');
+        if (!cancelled) setPageUrl(url);
+      })
+      .catch((failure) => { if (!cancelled) setError(toErrorMessage(failure, t)); });
+    return () => { cancelled = true; };
+  }, [homeworkId, pageIndex, requested, attempt, t]);
+
+  const label = `${language === 'DE' ? 'Seite' : 'Страница'} ${pageIndex + 1}`;
+  return (
+    <section className="pdf-homework-sheet" aria-label={label} data-page-index={pageIndex}
+      ref={(target) => { element.current = target; elementRef(target); }}
+      onPointerDownCapture={onActivate} onTouchStartCapture={onActivate} onFocusCapture={onActivate}>
+      <div className="pdf-homework-sheet-label">{label} / {pageCount}</div>
+      {pageUrl ? children(pageUrl) : (
+        <div className="pdf-homework-sheet-placeholder" aria-busy={!error}>
+          {error ? <div className="banner banner--error" role="alert">
+            <p>{error}</p>
+            <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+              {language === 'DE' ? 'Seite erneut laden' : 'Загрузить страницу ещё раз'}
+            </button>
+          </div> : <span>{loadingText}</span>}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -402,7 +509,7 @@ async function pageDrawingToDataUrl(drawing: PageDrawing): Promise<string> {
   });
 }
 
-function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingEnabled, setTouchDrawingEnabled, penColor, setPenColor, penSize, setPenSize, language, desktopControls, desktopZoom, viewport, toolbarScale, pageIndex, pageCount, setPageIndex, onDesktopZoomChange, onChange }: {
+function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingEnabled, setTouchDrawingEnabled, penColor, setPenColor, penSize, setPenSize, language, desktopControls, desktopZoom, viewport, toolbarScale, active, pageIndex, pageCount, onPageChange, onDesktopZoomChange, onChange }: {
   pageUrl: string;
   initialDrawing?: PageDrawing;
   tool: Tool;
@@ -418,9 +525,10 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
   desktopZoom: number;
   viewport: ViewportState;
   toolbarScale: number;
+  active: boolean;
   pageIndex: number;
   pageCount: number;
-  setPageIndex: (updater: (page: number) => number) => void;
+  onPageChange: (value: number) => void;
   onDesktopZoomChange: (value: number) => void;
   onChange: (drawing: PageDrawing) => void;
 }) {
@@ -802,7 +910,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
 
   return (
     <div>
-      {!desktopControls && (
+      {!desktopControls && active && (
         <div
           className="homework-island-rail"
           aria-label={language === 'DE' ? 'Werkzeuge' : 'Инструменты'}
@@ -861,9 +969,9 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
           ))}
           </div>
           <div className="homework-island-rail-group homework-island-pager">
-          <button type="button" disabled={pageIndex === 0} onClick={() => setPageIndex((p) => p - 1)} title={language === 'DE' ? 'Vorherige Seite' : 'Предыдущая страница'}>↑</button>
+          <button type="button" disabled={pageIndex === 0} onClick={() => onPageChange(pageIndex - 1)} title={language === 'DE' ? 'Vorherige Seite' : 'Предыдущая страница'}>↑</button>
           <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{pageIndex + 1}/{pageCount}</div>
-          <button className="btn btn--secondary" type="button" disabled={pageIndex >= pageCount - 1} onClick={() => setPageIndex((p) => p + 1)} title={language === 'DE' ? 'Nächste Seite' : 'Следующая страница'}>↓</button>
+          <button className="btn btn--secondary" type="button" disabled={pageIndex >= pageCount - 1} onClick={() => onPageChange(pageIndex + 1)} title={language === 'DE' ? 'Nächste Seite' : 'Следующая страница'}>↓</button>
           </div>
           <div className="homework-island-rail-group">
           <button type="button" onClick={undo} disabled={undoCount === 0} title={language === 'DE' ? 'Rückgängig' : 'Шаг назад'}>↶</button>
@@ -883,7 +991,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
         </div>
       )}
 
-      <div style={{ position: 'relative', overflow: desktopControls ? 'auto' : 'visible', width: '100%', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'none' }}>
+      <div className="pdf-homework-sheet-scroll">
         {desktopControls && <DesktopZoomControls zoom={desktopZoom} onChange={onDesktopZoomChange} />}
         <div
           style={{
@@ -898,7 +1006,7 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
           <img
             ref={imageRef}
             src={pageUrl}
-            alt="Homework PDF page"
+            alt={`${language === 'DE' ? 'PDF-Seite' : 'Страница PDF'} ${pageIndex + 1}`}
             onLoad={setupCanvas}
             style={{ display: 'block', width: '100%', height: 'auto', userSelect: 'none', WebkitUserSelect: 'none' }}
             draggable={false}
@@ -909,6 +1017,8 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
           />
           <canvas
             ref={previewCanvasRef}
+            data-testid={`homework-ink-${pageIndex}`}
+            aria-label={`${language === 'DE' ? 'Schreibfläche Seite' : 'Поле для записей, страница'} ${pageIndex + 1}`}
             onPointerDown={(event) => { if (!universalInputRef.current) start(event); }}
             onPointerMove={(event) => { if (!universalInputRef.current) move(event); }}
             onPointerUp={(event) => { if (!universalInputRef.current) finish(event); }}
@@ -920,7 +1030,9 @@ function WorksheetCanvas({ pageUrl, initialDrawing, tool, setTool, touchDrawingE
               inset: 0,
               width: '100%',
               height: '100%',
-              touchAction: 'pinch-zoom',
+              // A legacy Android pen may arrive as one finger. In that opt-in
+              // mode reserve single contacts for ink while keeping pinch zoom.
+              touchAction: touchDrawingEnabled ? 'pinch-zoom' : 'pan-x pan-y pinch-zoom',
               cursor: tool === 'eraser' ? 'cell' : 'crosshair',
               opacity: ready ? 1 : 0,
             }}

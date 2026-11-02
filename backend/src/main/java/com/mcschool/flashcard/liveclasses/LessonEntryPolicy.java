@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
-/** Calendar-day admission is independent of lesson duration and actual opening time. */
+/** Student calendar admission is independent of the owning teacher's unrestricted re-entry. */
 public final class LessonEntryPolicy {
     public static final ZoneId ZONE = ZoneId.of("Europe/Berlin");
 
@@ -44,21 +44,41 @@ public final class LessonEntryPolicy {
         // Admission alone is not a previous entry. markJoined is only reached
         // after a successful, authorized connection-token request.
         return participant != null && participant.isAdmitted() &&
-                (participant.isHost() || (participant.getFirstJoinedAt() != null
+                (isOwningHost(room, participant) || (participant.getFirstJoinedAt() != null
                     && isLessonDay(room.getScheduledStartAt(), participant.getFirstJoinedAt())));
     }
 
     public static boolean canEnter(OnlineClass room, OnlineClassParticipant participant, Instant now) {
-        if (!room.isConnectable() || weekExpired(room, now)) return false;
+        return canEnter(room, participant, now, isOwningHost(room, participant));
+    }
+
+    /** verifiedHost comes only from the access service, including before a host row exists. */
+    public static boolean canEnter(OnlineClass room, OnlineClassParticipant participant,
+                                   Instant now, boolean verifiedHost) {
+        if (!room.isConnectable() || room.isTerminal()) return false;
         if (participant != null && (participant.getAdmissionState() == AdmissionState.REMOVED
                 || participant.getAdmissionState() == AdmissionState.REJECTED)) return false;
+        if (verifiedHost) return true;
+        if (weekExpired(room, now)) return false;
         return isLessonDay(room.getScheduledStartAt(), now)
                 || (!now.isBefore(dayEnd(room.getScheduledStartAt())) && returning(room, participant));
     }
 
     public static String state(OnlineClass room, OnlineClassParticipant participant, Instant now) {
+        return state(room, participant, now, isOwningHost(room, participant));
+    }
+
+    public static String state(OnlineClass room, OnlineClassParticipant participant,
+                               Instant now, boolean verifiedHost) {
         if (room.isTerminal()) return "ENDED";
-        if (weekExpired(room, now)) return "ENDED";
+        if (verifiedHost) {
+            if (!room.isConnectable()) return "WAITING_FOR_TEACHER";
+            if (!canEnter(room, participant, now, true)) return "CLOSED";
+            return isLessonDay(room.getScheduledStartAt(), now) ? "OPEN" : "RECONNECT";
+        }
+        // The student's calendar window may expire while the durable lesson
+        // remains open for its teacher. Only an explicit terminal state is End.
+        if (weekExpired(room, now)) return "DAY_CLOSED";
         if (canEnter(room, participant, now)) {
             return isLessonDay(room.getScheduledStartAt(), now) ? "OPEN" : "RECONNECT";
         }
@@ -69,6 +89,12 @@ public final class LessonEntryPolicy {
 
     public static Duration tokenTtl(OnlineClass room, OnlineClassParticipant participant,
                                     Instant now, Duration configured) {
+        return tokenTtl(room, participant, now, configured, isOwningHost(room, participant));
+    }
+
+    public static Duration tokenTtl(OnlineClass room, OnlineClassParticipant participant,
+                                    Instant now, Duration configured, boolean verifiedHost) {
+        if (verifiedHost) return configured;
         Duration ttl = configured.compareTo(Duration.between(now, weekEnd(room.getScheduledStartAt()))) < 0
                 ? configured : Duration.between(now, weekEnd(room.getScheduledStartAt()));
         if (!returning(room, participant)) {
@@ -76,5 +102,13 @@ public final class LessonEntryPolicy {
             if (remaining.compareTo(ttl) < 0) ttl = remaining;
         }
         return ttl;
+    }
+
+    private static boolean isOwningHost(OnlineClass room, OnlineClassParticipant participant) {
+        return participant != null && participant.isHost()
+                && participant.getOnlineClass() != null
+                && room.getId().equals(participant.getOnlineClass().getId())
+                && participant.getUser() != null && participant.getUser().getId() != null
+                && room.getTeacher().getId().equals(participant.getUser().getId());
     }
 }

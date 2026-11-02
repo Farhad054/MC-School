@@ -447,12 +447,35 @@ describe('OnlineClassRoom', () => {
 
   it('handles an unexpected LiveKit disconnect without clicking Leave', async () => {
     const onLeave = vi.fn();
+    const onEndForAll = vi.fn();
     const onConnectionLost = vi.fn();
-    mount(true, { onLeave, onConnectionLost });
+    mount(true, { onLeave, onEndForAll, onConnectionLost });
     await screen.findByTestId('board-board-1');
     await userEvent.click(screen.getByRole('button', { name: 'Simulate LiveKit disconnect' }));
     expect(onConnectionLost).toHaveBeenCalledWith('1', false);
     expect(onLeave).not.toHaveBeenCalled();
+    expect(onEndForAll).not.toHaveBeenCalled();
+  });
+
+  it('keeps Leave separate from the explicitly confirmed End for everyone action', async () => {
+    localStorage.setItem('language', 'RU');
+    const onLeave = vi.fn(), onEndForAll = vi.fn();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    try {
+      mount(true, { onLeave, onEndForAll });
+      const end = await screen.findByRole('button', { name: 'Завершить урок для всех' });
+      await userEvent.click(end);
+      expect(onEndForAll).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: 'Выйти' }));
+      expect(onLeave).toHaveBeenCalledOnce();
+      expect(onEndForAll).not.toHaveBeenCalled();
+      await userEvent.click(end);
+      expect(onEndForAll).toHaveBeenCalledOnce();
+      expect(onLeave).toHaveBeenCalledOnce();
+      expect(confirm).toHaveBeenCalledTimes(2);
+    } finally {
+      confirm.mockRestore();
+    }
   });
 
   it('distinguishes initial LiveKit handshake failure from a drop after connection', async () => {

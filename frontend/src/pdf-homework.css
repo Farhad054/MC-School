@@ -1,4 +1,43 @@
-/* PDF homework editor: keep tablet/mobile behavior, use the available desktop width. */
+/* Pages stay in document flow so a finger, wheel or trackpad scrolls the PDF. */
+.pdf-homework-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.pdf-homework-sheet {
+  min-width: 0;
+  scroll-margin-top: 104px;
+}
+
+.pdf-homework-sheet-label {
+  margin: 0 0 8px;
+  color: #61728a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pdf-homework-sheet-placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 60vh;
+  aspect-ratio: 210 / 297;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #e0e6ef;
+}
+
+.pdf-homework-sheet-scroll {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* PDF homework editor: use the available desktop width. */
 @media (min-width: 900px) and (pointer: fine) {
   .app[data-variant='student'] .content:has(.pdf-homework-page) {
     max-width: none;

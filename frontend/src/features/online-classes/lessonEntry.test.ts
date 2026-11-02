@@ -32,9 +32,9 @@ describe('lesson entry calendar policy', () => {
     expect(lessonEntry(returning, start, at('2026-10-25T12:00:00Z')).state).toBe('RECONNECT');
     expect(lessonEntry({ ...returning, joinWindowOpen: false }, start, at('2026-10-25T12:00:00Z')).canJoin).toBe(false);
   });
-  it('ends an open room at Monday midnight, even without a teacher ending it', () => {
+  it('closes student entry at Monday midnight without declaring the durable lesson ended', () => {
     expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T22:59:59Z')).canJoin).toBe(true);
-    expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T23:00:00Z')).state).toBe('ENDED');
+    expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T23:00:00Z')).state).toBe('DAY_CLOSED');
   });
   it.each(['ENDED', 'CANCELLED'] as const)('never reconnects a %s room', status => {
     expect(lessonEntry(room({ status, viewerHasJoined: true }), start, at(start)).state).toBe('ENDED');
@@ -48,18 +48,38 @@ describe('lesson entry calendar policy', () => {
     expect(entryText('IDLE', 'RU')).toBe('Комната в ожидании входа учителя');
     expect(entryText('IDLE', 'DE')).toBe('Der Raum wartet auf den Beitritt der Lehrkraft');
   });
-  it('keeps closed day, closed admission and weekly expiry ahead of idle-room re-entry', () => {
-    const idle = room({ mediaState: 'IDLE', viewerIsHost: true, viewerHasJoined: true });
+  it('keeps student day, admission and weekly restrictions ahead of idle-room re-entry', () => {
+    const idle = room({ mediaState: 'IDLE', viewerIsHost: false, viewerHasJoined: true });
     expect(lessonEntry(idle, start, at('2026-10-23T12:00:00Z')).state).toBe('DAY_CLOSED');
     expect(lessonEntry({ ...idle, entryState: 'CLOSED' }, start, at(start)).state).toBe('CLOSED');
     expect(lessonEntry({ ...idle, joinWindowOpen: false }, start, at(start)).canJoin).toBe(false);
-    expect(lessonEntry(idle, start, at('2026-10-25T23:00:00Z')).state).toBe('ENDED');
+    expect(lessonEntry(idle, start, at('2026-10-25T23:00:00Z')).state).toBe('DAY_CLOSED');
     expect(lessonEntry({ ...idle, status: 'ENDED' }, start, at(start)).state).toBe('ENDED');
   });
   it('keeps older server responses without mediaState compatible', () => {
     expect(lessonEntry(room(), start, at(start))).toMatchObject({ state: 'OPEN', canJoin: true });
     expect(lessonEntry(room({ viewerHasJoined: true }), start, at('2026-10-25T12:00:00Z')))
       .toMatchObject({ state: 'RECONNECT', canJoin: true });
+  });
+  it.each(['2026-10-23T12:00:00Z', '2026-11-02T12:00:00Z'])('lets the teacher enter the same idle lesson before its date or after its week (%s)', now => {
+    const teacherRoom = room({ mediaState: 'IDLE', viewerIsHost: true, viewerHasJoined: true });
+    expect(lessonEntry(teacherRoom, start, at(now))).toMatchObject({ state: 'IDLE', canJoin: true });
+    expect(lessonEntry({ ...teacherRoom, mediaState: 'ACTIVE' }, start, at(now)))
+      .toMatchObject({ state: 'RECONNECT', canJoin: true });
+    expect(lessonEntry({ ...teacherRoom, viewerIsHost: false }, start, at(now)))
+      .toMatchObject({ state: 'DAY_CLOSED', canJoin: false });
+  });
+  it('lets a teacher open a future lesson for the first time when the server permits entry', () => {
+    expect(lessonEntry(room({ viewerIsHost: true, viewerHasJoined: false }), start,
+      at('2026-10-23T12:00:00Z'))).toMatchObject({ state: 'OPEN', canJoin: true });
+  });
+  it.each([
+    { joinWindowOpen: false }, { entryState: 'CLOSED' }, { entryState: 'DAY_CLOSED' },
+    { status: 'ENDED' }, { status: 'CANCELLED' }, { entryState: 'ENDED' },
+  ] as Partial<OnlineClass>[])('does not override a server denial or explicit terminal state for the teacher (%j)', denied => {
+    const teacherRoom = room({ viewerIsHost: true, mediaState: 'IDLE', ...denied });
+    expect(lessonEntry(teacherRoom, start, at('2026-11-02T12:00:00Z')).canJoin).toBe(false);
+    expect(lessonEntry(teacherRoom, start, at('2026-11-02T12:00:00Z')).state).not.toBe('DAY_CLOSED');
   });
   it.each([
     ['2026-03-29T12:00:00Z', '2026-03-28T23:00:00Z', '2026-03-29T22:00:00Z'],
