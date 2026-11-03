@@ -82,6 +82,7 @@ vi.mock('./RecordingControls', () => ({
 vi.mock('./TranscriptionControls', () => ({ TranscriptionControls: () => null }));
 vi.mock('./ParticipantListPanel', () => ({ ParticipantListPanel: () => null }));
 vi.mock('./WaitingRoomPanel', () => ({ WaitingRoomPanel: () => null }));
+vi.mock('./AnswersPanelResizer', () => ({ AnswersPanelResizer: () => <div data-testid="answers-panel-resizer" /> }));
 vi.mock('./useBoardDocument', () => ({ useBoardDocument: () => null }));
 vi.mock('./useClassEvents', () => ({ useClassEvents: () => ({ publish: vi.fn() }) }));
 vi.mock('./useHostUserId', () => ({ useHostUserId: () => 'me' }));
@@ -97,13 +98,15 @@ vi.mock('./WhiteboardPanel', () => ({
       <section data-testid={`board-${props.targetId}${props.targetType === 'NOTEBOOK_CAMERA' ? '-camera' : ''}`} data-active={String(props.active)}>
         {props.fileAction}
         {props.hostActions}
+        {props.lessonDocumentsStatus && <span role={props.lessonDocumentsError ? 'alert' : 'status'}>{props.lessonDocumentsStatus}</span>}
       </section>
     );
   },
 }));
 
 vi.mock('../../api/lessonPreparation', () => ({
-  lessonPreparationApi: { get: vi.fn(), answersBytes: vi.fn(), uploadAnswers: vi.fn(), appendWorkbook: vi.fn(), personalWorkbooks: vi.fn(), uploadPersonalWorkbook: vi.fn() },
+  lessonPreparationApi: { get: vi.fn(), answersBytes: vi.fn(), uploadAnswers: vi.fn(), appendWorkbook: vi.fn(), personalWorkbooks: vi.fn(), uploadPersonalWorkbook: vi.fn(),
+    personalAnswersMetadata: vi.fn(), personalAnswersBytes: vi.fn(), uploadPersonalAnswers: vi.fn() },
   completedLessonApi: { list: vi.fn(), save: vi.fn() },
 }));
 vi.mock('../../api/onlineClasses', async () => {
@@ -117,6 +120,7 @@ beforeEach(() => {
   livekitFixture.connectionState = 'connected';
   vi.mocked(onlineClassesApi.startTranscription).mockReset().mockResolvedValue(undefined);
   vi.mocked(lessonPreparationApi.personalWorkbooks).mockReset().mockResolvedValue({ enabled: false, students: [] });
+  vi.mocked(lessonPreparationApi.personalAnswersMetadata).mockReset().mockImplementation(async (_eventId, studentId) => ({ studentId, hasAnswers: false, answersFilename: null, version: 0 }));
 });
 
 const connection = (host: boolean): OnlineClassConnection => ({
@@ -322,6 +326,85 @@ describe('PDF upload contract', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Моя доска' }));
     expect(screen.getByTestId('board-personal-me')).toHaveAttribute('data-active', 'true');
     expect(screen.getByTestId('board-personal-workbook-me')).toHaveAttribute('data-active', 'false');
+  });
+});
+
+describe('lesson PDF save notifications', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    boardProps.length = 0;
+    screenShares = [];
+    notebookFixture.camerasByOwner.clear();
+    vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([
+      { userId: 'alice', displayName: 'Анна', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
+    ]);
+    vi.mocked(lessonPreparationApi.get).mockResolvedValue({ hasAnswers: false } as never);
+    vi.mocked(onlineClassesApi.listAnnotationDocuments).mockResolvedValue([]);
+    vi.mocked(onlineClassesApi.documentBytes).mockResolvedValue(null);
+    vi.mocked(exportBoardPdf).mockResolvedValue(new Blob(['%PDF-1.7']));
+    vi.mocked(completedLessonApi.save).mockImplementation(async (_eventId, classId, boardId) => ({
+      id: boardId, classId, boardId, filename: 'board.pdf', savedAt: '',
+    }));
+    vi.mocked(completedLessonApi.list).mockResolvedValue(['board-1', 'personal-alice'].map(boardId => ({
+      id: boardId, classId: 'c1', boardId, filename: 'board.pdf', savedAt: '',
+    })));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  const saveBoards = () => boardProps.filter(props => props.targetId === 'board-1').at(-1)!.onSaveLessonDocuments() as Promise<void>;
+
+  it('shows one confirmation across the room and mounted boards, then clears it after five seconds', async () => {
+    mount(true);
+    await screen.findByRole('option', { name: /Анна/ });
+    vi.useFakeTimers();
+    await act(async () => { await saveBoards(); });
+    expect(screen.getAllByText(/PDF сохранены в разделе/)).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Закрыть уведомление о сохранении' })).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4999); });
+    expect(screen.getByText(/PDF сохранены в разделе/)).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.queryByText(/PDF сохранены в разделе/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Закрыть уведомление о сохранении' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a new save visible past the old timeout and starts dismissal only after verification', async () => {
+    mount(true);
+    await screen.findByRole('option', { name: /Анна/ });
+    vi.useFakeTimers();
+    await act(async () => { await saveBoards(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    let verify!: (docs: Awaited<ReturnType<typeof completedLessonApi.list>>) => void;
+    vi.mocked(completedLessonApi.list).mockImplementationOnce(() => new Promise(resolve => { verify = resolve; }));
+    let saving!: Promise<void>;
+    await act(async () => { saving = saveBoards(); });
+    expect(screen.getByText('Проверяем сохранённые PDF на сервере…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Закрыть уведомление о сохранении' })).not.toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(screen.getByText('Проверяем сохранённые PDF на сервере…')).toBeInTheDocument();
+    await act(async () => {
+      verify(['board-1', 'personal-alice'].map(boardId => ({ id: boardId, classId: 'c1', boardId, filename: 'board.pdf', savedAt: '' })));
+      await saving;
+    });
+    expect(screen.getAllByText(/PDF сохранены в разделе/)).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(screen.queryByText(/PDF сохранены в разделе/)).not.toBeInTheDocument();
+  });
+
+  it('keeps a failed verification visible until the teacher dismisses it', async () => {
+    vi.mocked(completedLessonApi.list).mockRejectedValueOnce(new Error('Проверка недоступна'));
+    mount(true);
+    await screen.findByRole('option', { name: /Анна/ });
+    vi.useFakeTimers();
+    await act(async () => { await saveBoards(); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Проверка недоступна');
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Проверка недоступна');
+    fireEvent.click(screen.getByRole('button', { name: 'Закрыть уведомление о сохранении' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 
@@ -595,6 +678,64 @@ describe('OnlineClassRoom', () => {
     expect(lessonPreparationApi.get).not.toHaveBeenCalled();
     expect(lessonPreparationApi.answersBytes).not.toHaveBeenCalled();
     expect(lessonPreparationApi.uploadAnswers).not.toHaveBeenCalled();
+    expect(lessonPreparationApi.personalAnswersMetadata).not.toHaveBeenCalled();
+    expect(lessonPreparationApi.personalAnswersBytes).not.toHaveBeenCalled();
+  });
+
+  it('keeps the answers panel open and selects the pupil’s private solutions on both personal surfaces', async () => {
+    const previous = globalThis.ResizeObserver;
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} });
+    try {
+    vi.mocked(lessonPreparationApi.personalWorkbooks).mockResolvedValue({ enabled: true, students: [
+      { studentId: 'u1', studentName: 'Alice', hasWorkbook: true, filename: 'alice.pdf', version: 1 },
+      { studentId: 'u2', studentName: 'Bob', hasWorkbook: true, filename: 'bob.pdf', version: 1 },
+    ] });
+    vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([
+      { userId: 'u1', displayName: 'Alice', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
+      { userId: 'u2', displayName: 'Bob', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
+    ]);
+    mount(true);
+    const board = await screen.findByTestId('board-board-1');
+    const button = await within(board).findByRole('button', { name: 'Ответы' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(screen.getByText('Решения для учителя')).toBeInTheDocument();
+    await screen.findByRole('option', { name: 'Персональный лист: Alice' });
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    await waitFor(() => expect(lessonPreparationApi.personalAnswersMetadata).toHaveBeenCalledWith('e1', 'u1'));
+    expect(await screen.findByText('Решения: Alice')).toBeInTheDocument();
+    expect(screen.getByTestId('answers-panel-resizer')).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-workbook-u1');
+    expect(screen.getByText('Решения: Alice')).toBeInTheDocument();
+    expect(lessonPreparationApi.personalAnswersMetadata).toHaveBeenCalledTimes(1);
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u2');
+    expect(await screen.findByText('Решения: Bob')).toBeInTheDocument();
+    expect(screen.getByText(/Для этого ученика решения ещё не загружены/)).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    expect(await screen.findByText('Решения для учителя')).toBeInTheDocument();
+    expect(lessonPreparationApi.get).toHaveBeenCalledWith('e1');
+    } finally {
+      if (previous) vi.stubGlobal('ResizeObserver', previous); else vi.unstubAllGlobals();
+    }
+  });
+
+  it('retains common answers on personal boards for teachers outside the pilot', async () => {
+    const previous = globalThis.ResizeObserver;
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} });
+    try {
+    mount(true);
+    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    const board = await screen.findByTestId('board-personal-u1');
+    const button = await within(board).findByRole('button', { name: 'Ответы' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(screen.getByText('Решения для учителя')).toBeInTheDocument();
+    expect(lessonPreparationApi.personalAnswersMetadata).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('answers-panel-resizer')).not.toBeInTheDocument();
+    } finally {
+      if (previous) vi.stubGlobal('ResizeObserver', previous); else vi.unstubAllGlobals();
+    }
   });
 
   it('keeps one teacher answers entry on the board and a lesson title without a logo', async () => {

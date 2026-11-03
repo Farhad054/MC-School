@@ -30,6 +30,7 @@ import { BoardToolbarIcon } from './BoardToolbar';
 import '../../styles/whiteboard-original-v3.css';
 import { AnswersButton } from './AnswersButton';
 import { AnswersPanel } from './AnswersPanel';
+import { AnswersPanelResizer } from './AnswersPanelResizer';
 import { CameraColumn } from './CameraColumn';
 import { CaptionsPanel } from './CaptionsPanel';
 import { RecordingControls } from './RecordingControls';
@@ -381,13 +382,23 @@ function RoomBody({
     if (!hostUserId || senderIdentity?.split('|')[0] !== hostUserId) return;
     window.dispatchEvent(new Event('mc-workbook-updated'));
   });
-  const answers = useAnswersPanel(eventId, connection.host);
+  const answerStudentId = personalWorkbookData?.enabled ? personalBoardOwner(activeBoard) ?? undefined : undefined;
+  const answerStudentName = answerStudentId ? personalWorkbookData?.students.find(student => student.studentId === answerStudentId)?.studentName : undefined;
+  const answers = useAnswersPanel(eventId, connection.host, answerStudentId, currentUserId,
+    connection.host && Boolean(personalBoardOwner(activeBoard)) && !personalWorkbookData);
   const boardDocument = useBoardDocument(classId);
   const students = useStudentRoster(classId, connection.host);
   const { camerasByOwner } = useLessonNotebookCameras({ eventId, classId, enabled: connection.host });
   const [archiving, setArchiving] = useState(false);
   const [archiveNotice, setArchiveNotice] = useState<string | null>(null);
   const [archiveError, setArchiveError] = useState(false);
+  useEffect(() => {
+    // Keep progress and errors visible. A completed save only needs a brief
+    // confirmation; starting another save cancels the previous dismissal.
+    if (!archiveNotice || archiving || archiveError) return;
+    const timer = window.setTimeout(() => setArchiveNotice(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [archiveNotice, archiving, archiveError]);
   const archiveBoards = async (): Promise<void> => {
     if (archiving) return;
     if (!eventId) {
@@ -456,7 +467,7 @@ function RoomBody({
         setArchiveError(true);
         setArchiveNotice(`Подтверждено ${confirmed.length} из ${boards.length} PDF. Ошибки: ${failures.join('; ')}. Можно повторить без удаления других файлов.`);
       } else {
-        setArchiveNotice(`Готово: все ${confirmed.length} PDF сохранены и проверены. Они доступны в разделе «Пройденный урок».`);
+        setArchiveNotice(`PDF сохранены в разделе «Пройденный урок»: ${confirmed.length}.`);
       }
     } catch (error) {
       setArchiveError(true);
@@ -527,7 +538,11 @@ function RoomBody({
         </div>
         <div className="online-class-room__lesson-actions">
         {materialError && <span role="alert" style={{ color: '#dc2626' }}>{materialError}</span>}
-        {archiveNotice && <span role={archiveError ? 'alert' : 'status'} style={{fontSize:12,color:archiveError?'#dc2626':undefined}}>{archiveNotice}</span>}
+        {archiveNotice && <div className="online-class-room__archive-notice">
+          <span role={archiveError ? 'alert' : 'status'} style={{color:archiveError?'#dc2626':undefined}}>{archiveNotice}</span>
+          {!archiving && <button type="button" onClick={() => setArchiveNotice(null)}
+            aria-label={language === 'DE' ? 'Speicherhinweis schließen' : 'Закрыть уведомление о сохранении'}>×</button>}
+        </div>}
         <RecordingControls
           classId={classId}
           isHost={connection.host}
@@ -566,8 +581,11 @@ function RoomBody({
       <div className={`online-class-room__stage${videosOpen ? " online-class-room__stage--videos-open" : ""}${showStudentWorkspaces ? ' online-class-room__stage--student-workspaces' : ''}`}>
           {/* Teacher-only answer PDF has its own column. It must not cover the shared
               canvas: the sibling board reflows to the remaining available width. */}
-          {connection.host && answers.open && (
+          {connection.host && answers.open && (<>
             <AnswersPanel
+              key={answers.scope}
+              personal={answers.personal}
+              studentName={answerStudentName}
               pdf={answers.pdf}
               view={answers.view}
               getView={answers.getView}
@@ -578,7 +596,8 @@ function RoomBody({
               uploading={answers.uploading}
               uploadError={answers.uploadError}
             />
-          )}
+            {personalWorkbookData?.enabled && <AnswersPanelResizer storageKey={currentUserId} />}
+          </>)}
         <div className="online-class-room__main">
           {/* The board stays mounted while a screen is shown, so switching back
               returns to the same page, zoom, tool and marks. */}
@@ -600,8 +619,6 @@ function RoomBody({
                     observedPage={studentPages[boardId]}
                     onSaveLessonDocuments={connection.host ? archiveBoards : undefined}
                     savingLessonDocuments={archiving}
-                    lessonDocumentsStatus={archiveNotice}
-                    lessonDocumentsError={archiveError}
                     // Answers belong to whichever board the teacher is looking at.
                     hostActions={
                       connection.host && visible ? (
@@ -647,8 +664,6 @@ function RoomBody({
                 fileAction={active && !compact ? fileAction : undefined}
                 onSaveLessonDocuments={!compact ? archiveBoards : undefined}
                 savingLessonDocuments={archiving}
-                lessonDocumentsStatus={archiveNotice}
-                lessonDocumentsError={archiveError}
                 hostActions={active && !compact ? <AnswersButton compact status={answers.status} open={answers.open} onToggle={answers.toggle} /> : undefined}
               />
             </Suspense>}
