@@ -83,6 +83,8 @@ final class McpSiteFunctionRegistry {
                 "get update uploadWorkbook appendWorkbook workbook uploadAnswers uploadTranscript transcript answers archiveToDrive assignHomeworkSeries");
         add(functions, "completed_documents", CompletedLessonDocumentController.class, Scope.TEACHER,
                 "list save uploadManual download");
+        add(functions, "personal_workbooks", PersonalLessonWorkbookController.class, Scope.TEACHER,
+                "list upload workbook");
         add(functions, "lesson_history", StudentLessonHistoryController.class, Scope.TEACHER,
                 "list detail completedDocuments completedDocument document");
         // The private pilot checks the actual owner's identity; an admin may not delegate into that privilege.
