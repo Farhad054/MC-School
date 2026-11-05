@@ -26,7 +26,7 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Private-account pilot for per-student lesson PDFs. All identities are server checked. */
+/** Teacher-owned per-student lesson PDFs. All identities and memberships are server checked. */
 @Service
 public class PersonalLessonWorkbookService {
     public static final UUID PILOT_TEACHER_ID = UUID.fromString("14e3c7c1-1fc8-41bd-858a-6c20efdd957a");
@@ -58,9 +58,14 @@ public class PersonalLessonWorkbookService {
     /** This response is available only through teacher-scoped preparation APIs. */
     public record PersonalWorkbookResponse(UUID studentId, String studentName, boolean hasWorkbook,
                                             String filename, long version, boolean hasAnswers,
-                                            String answersFilename, long answersVersion) {
+                                            String answersFilename, long answersVersion,
+                                            long workbookSizeBytes, long answersSizeBytes) {
+        public PersonalWorkbookResponse(UUID studentId, String studentName, boolean hasWorkbook, String filename,
+                                        long version, boolean hasAnswers, String answersFilename, long answersVersion) {
+            this(studentId, studentName, hasWorkbook, filename, version, hasAnswers, answersFilename, answersVersion, 0L, 0L);
+        }
         public PersonalWorkbookResponse(UUID studentId, String studentName, boolean hasWorkbook, String filename, long version) {
-            this(studentId, studentName, hasWorkbook, filename, version, false, null, 0L);
+            this(studentId, studentName, hasWorkbook, filename, version, false, null, 0L, 0L, 0L);
         }
     }
     public record PersonalWorkbooksResponse(boolean enabled, List<PersonalWorkbookResponse> students) {}
@@ -70,7 +75,7 @@ public class PersonalLessonWorkbookService {
     }
 
     public boolean enabledForTeacher(UUID teacherId) {
-        return PILOT_TEACHER_ID.equals(teacherId) && users.existsByIdAndRoleAndStatusAndArchivedFalse(
+        return teacherId != null && users.existsByIdAndRoleAndStatusAndArchivedFalse(
                 teacherId, Role.TEACHER, UserStatus.ACTIVE);
     }
 
@@ -92,7 +97,9 @@ public class PersonalLessonWorkbookService {
                             metadata == null ? null : metadata.getFilename(),
                             metadata == null ? 0L : metadata.getVersion() + 1L,
                             answerMetadata != null, answerMetadata == null ? null : answerMetadata.getFilename(),
-                            answerMetadata == null ? 0L : answerMetadata.getVersion() + 1L);
+                            answerMetadata == null ? 0L : answerMetadata.getVersion() + 1L,
+                            metadata == null ? 0L : metadata.getWorkbookSizeBytes(),
+                            answerMetadata == null ? 0L : answerMetadata.getAnswersSizeBytes());
                 }).toList());
     }
 
@@ -212,6 +219,8 @@ public class PersonalLessonWorkbookService {
         return new PersonalWorkbookResponse(student.getId(), student.getFullName(), workbook != null,
                 workbook == null ? null : workbook.getFilename(), workbook == null ? 0L : workbook.documentVersion(),
                 answers.isPresent(), answers.map(PersonalLessonAnswersRepository.Metadata::getFilename).orElse(null),
-                answers.map(row -> row.getVersion() + 1L).orElse(0L));
+                answers.map(row -> row.getVersion() + 1L).orElse(0L),
+                workbook == null || workbook.getWorkbookPdf() == null ? 0L : workbook.getWorkbookPdf().length,
+                answers.map(PersonalLessonAnswersRepository.Metadata::getAnswersSizeBytes).orElse(0L));
     }
 }

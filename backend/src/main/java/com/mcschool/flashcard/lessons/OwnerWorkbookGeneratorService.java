@@ -17,25 +17,23 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 /**
- * Read-only ChatGPT workbook-layout pilot. It does not create lessons or publish PDFs.
- * Teacher prompts and normal PDF endpoints are deliberately left unchanged.
+ * Read-only administrator source catalog. Teachers use the server renderer instead.
+ * This endpoint does not create lessons or publish PDFs.
  */
 @Service
 public class OwnerWorkbookGeneratorService {
-    private static final String VERSION = "2026-10-19-v3-clean-diagrams";
+    private static final String VERSION = "2026-11-05-production";
     private static final String RESOURCE_PREFIX = "owner-workbook-generator/";
     private static final String REPO_PATH = "backend/src/main/resources/owner-workbook-generator/";
-    private static final UUID NICK_TEACHER_ID = UUID.fromString("14e3c7c1-1fc8-41bd-858a-6c20efdd957a");
     private static final List<String> TEXT_FILES = List.of(
             "README.md", "CHANGELOG.md", "generate.mjs", "diagrams.mjs", "diagrams.test.mjs",
             "styles.css", "lesson.sample.json", "examples/graphs-geometry-demo.json", "examples/clean-tasks-demo.json",
-            "render_pdf.py", "verify_pdf.py", "package.json");
+            "render_pdf.py", "verify_pdf.py", "algebra_qa.py", "math.mjs", "schema.mjs", "package.json");
     private static final Set<String> ALLOWED_FILES = Set.copyOf(TEXT_FILES);
 
-    /** ADMIN and Nick's specifically enrolled teacher account only; no API-key access. */
+    /** Source retrieval requires an OAuth administrator; no teacher or API-key access. */
     static boolean allowed(Role role, UUID userId, boolean apiKey) {
-        return !apiKey && role != null && (role == Role.ADMIN
-                || (role == Role.TEACHER && NICK_TEACHER_ID.equals(userId)));
+        return !apiKey && role == Role.ADMIN;
     }
 
     public boolean allowed(User user, boolean apiKey) {
@@ -48,15 +46,15 @@ public class OwnerWorkbookGeneratorService {
         if (file.isEmpty()) {
             Map<String, Object> info = new LinkedHashMap<>();
             info.put("version", VERSION);
-            info.put("mode", "CHATGPT_OWNER_PILOT");
+            info.put("mode", "SERVER_WORKBOOK_GENERATION");
             info.put("files", new ArrayList<>(TEXT_FILES));
             info.put("sourceBranch", "integration/railway-and-ux");
             info.put("sourceDirectory", REPO_PATH);
-            info.put("generation", "Use generator + diagrams.mjs inside ChatGPT to create two PDFs; no site UI or server-side execution.");
+            info.put("generation", "Teachers should use the server-side workbook generation tool. The source-code retrieval endpoint remains owner/admin only.");
             info.put("diagrams", "SVG graphs and 2D/3D geometry. Default triangle labels: ABC, abc, αβγ; numeric data below in Gegeben/Gesucht; PDF review required.");
             info.put("publication", "Never publish or assign homework without the user's explicit approval.");
             info.put("branding", "Fetch the current get_brand_guide before generating. Reuse the original M logo.");
-            info.put("teacherPrompts", "Unchanged; this tool is not available to other teachers.");
+            info.put("teacherPrompts", "Every generation reads the current school prompt; source retrieval is administrator-only.");
             return info;
         }
         if (!ALLOWED_FILES.contains(file))

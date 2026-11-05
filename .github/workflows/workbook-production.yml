@@ -1,0 +1,101 @@
+name: Workbook production renderer
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/main/resources/owner-workbook-generator/**'
+      - 'backend/Dockerfile'
+      - 'backend/pom.xml'
+      - 'backend/src/main/java/**'
+      - 'backend/src/test/java/**'
+      - 'ci/workbook-container-smoke.py'
+      - '.github/workflows/workbook-production.yml'
+  push:
+    branches: [integration/railway-and-ux]
+    paths:
+      - 'backend/src/main/resources/owner-workbook-generator/**'
+      - 'backend/Dockerfile'
+      - 'backend/pom.xml'
+      - 'backend/src/main/java/**'
+      - 'backend/src/test/java/**'
+      - 'ci/workbook-container-smoke.py'
+      - '.github/workflows/workbook-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  packaged-offline-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production backend image
+        run: docker build -t workbook-test backend
+      - name: Render packaged JAR fixtures as the offline non-root app user
+        run: docker run --rm --network none --entrypoint python3 -v "$PWD/ci/workbook-container-smoke.py:/tmp/workbook-smoke.py:ro" workbook-test /tmp/workbook-smoke.py
+
+  backend-permissions-and-publication:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Verify ownership, draft publication, file resolution and idempotency
+        working-directory: backend
+        run: mvn -B -ntp '-Dtest=OwnerWorkbook*,Workbook*,LessonPdfDraft*,McpDirectPdf*,McpPersonalLessonWorkbookToolsTest,PersonalLessonWorkbook*,PersonalLessonAnswers*,ChatGptPdfResolverTest,McpSiteFunctions*' test
+
+  render-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend/src/main/resources/owner-workbook-generator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/src/main/resources/owner-workbook-generator/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/src/main/resources/owner-workbook-generator/requirements.txt
+      - name: Install native PDF libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libcairo2 shared-mime-info fonts-dejavu-core fonts-liberation
+      - name: Install locked dependencies
+        run: |
+          npm ci --ignore-scripts
+          python -m pip install -r requirements.txt
+      - name: Check mathematics, graphs, layout and QA rejection paths
+        env:
+          PYTHON_BIN: python
+        run: |
+          npm test
+          python -m unittest algebra_qa_test pdf_qa_test
+      - name: Render current and legacy fixtures with mandatory QA
+        env:
+          PYTHON_BIN: python
+        run: |
+          for lesson in lesson.sample.json examples/graphs-geometry-demo.json examples/clean-tasks-demo.json examples/latex-math-demo.json examples/production-layout-demo.json; do
+            fixture="$(basename "$lesson" .json)"
+            node generate.mjs --lesson="$lesson" --out="out/ci/$fixture" --basename=Mindcrafti_CI
+          done
+      - name: Retain review PDFs and QA reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbook-production-fixtures
+          path: backend/src/main/resources/owner-workbook-generator/out/ci/
+          if-no-files-found: ignore
+          retention-days: 7

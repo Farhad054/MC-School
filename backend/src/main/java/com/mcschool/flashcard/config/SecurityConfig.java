@@ -70,6 +70,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/skill-progress").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/push/config").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/story-template/download").permitAll()
+                        // Staff-issued capability only; handler verifies HMAC, expiry and current lesson ownership.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/workbook-drafts/download").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/google-calendar/oauth/callback").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/google-meet/events").permitAll()
                         // LiveKit webhook. Exempt from JWT because the provider

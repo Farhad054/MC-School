@@ -38,4 +38,16 @@ class OwnerWorkbookPdfRenderServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> OwnerWorkbookPdfRenderService.validateDocument(lesson));
     }
+
+    @Test
+    void nestedLayoutsCountExercisesAndRejectAnswerLeaks() {
+        var lesson = new java.util.LinkedHashMap<String,Object>(document(60));
+        lesson.put("workbookPages", List.of(Map.of("blocks",List.of(Map.of("type","split",
+                "left",List.of(Map.of("type","taskCard","title","Solve")),
+                "right",List.of(Map.of("type","coordinateGrid")))))));
+        assertEquals(1,OwnerWorkbookPdfRenderService.validateDocument(lesson));
+        lesson.put("workbookPages", List.of(Map.of("blocks",List.of(Map.of("type","grid",
+                "children",List.of(Map.of("type","taskCard","children",List.of(Map.of("type","solutions")))))))));
+        assertThrows(IllegalArgumentException.class,()->OwnerWorkbookPdfRenderService.validateDocument(lesson));
+    }
 }

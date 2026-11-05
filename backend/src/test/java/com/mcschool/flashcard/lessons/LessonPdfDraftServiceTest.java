@@ -7,6 +7,18 @@ import java.util.List;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
+import com.mcschool.flashcard.auth.AuthenticatedUser;
+import com.mcschool.flashcard.users.Role;
+import com.mcschool.flashcard.settings.SchoolBrandGuideService;
+import com.mcschool.flashcard.lessons.dto.LessonPreparationResponse;
+import java.util.Map;
+import java.util.UUID;
+import java.sql.ResultSet;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import tools.jackson.databind.ObjectMapper;
 
 class LessonPdfDraftServiceTest {
     private static BufferedImage fakeArtwork() {
@@ -41,5 +53,64 @@ class LessonPdfDraftServiceTest {
     void rejectsNonPdf() {
         assertThrows(IllegalArgumentException.class,
             () -> LessonPdfDraftService.verifyPdf(new byte[]{1,2,3},fakeArtwork(),"Arbeitsblatt"));
+    }
+
+    @Test
+    void rendererDraftDoesNotModifyLessonAndPublicationRequiresExplicitConfirmation() throws Exception {
+        JdbcTemplate jdbc=mock(JdbcTemplate.class);
+        LessonPreparationService preparation=mock(LessonPreparationService.class);
+        var service=new LessonPdfDraftService(jdbc,new ObjectMapper(),mock(SchoolBrandGuideService.class),preparation);
+        var teacher=new AuthenticatedUser(UUID.randomUUID(),"teacher@test.local",Role.TEACHER);
+        BufferedImage logo=fakeArtwork();
+        byte[] workbook=LessonPdfDraftService.render("Math","Sofia",List.of(
+                new LessonPdfDraftService.Task("Berechne 2 + 3.","5",3)),logo,false,"");
+        byte[] answers=LessonPdfDraftService.render("Math","Sofia",List.of(
+                new LessonPdfDraftService.Task("Berechne 2 + 3.","5",3)),logo,true,"");
+        Map<String,Object> result=service.createFromRenderer(teacher,"exact-event",workbook,answers,"plan","",1,logo);
+        assertEquals("DRAFT",result.get("status"));
+        assertEquals("exact-event",result.get("eventId"));
+        verifyNoInteractions(preparation);
+        clearInvocations(jdbc);
+        assertThrows(IllegalArgumentException.class,()->service.publish(teacher,UUID.randomUUID(),false));
+        verifyNoInteractions(jdbc,preparation);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void publicationAttachesExactApprovedPairAndReadsBackNamesEventAndSizes() throws Exception {
+        UUID id=UUID.randomUUID(), teacherId=UUID.randomUUID();
+        var teacher=new AuthenticatedUser(teacherId,"teacher@test.local",Role.TEACHER);
+        BufferedImage logo=fakeArtwork();
+        byte[] workbook=LessonPdfDraftService.render("Math","Sofia",List.of(new LessonPdfDraftService.Task("2+3?","5",3)),logo,false,"");
+        byte[] answers=LessonPdfDraftService.render("Math","Sofia",List.of(new LessonPdfDraftService.Task("2+3?","5",3)),logo,true,"");
+        JdbcTemplate jdbc=mock(JdbcTemplate.class);
+        ResultSet rs=mock(ResultSet.class);
+        when(rs.getObject("id")).thenReturn(id);
+        when(rs.getObject("teacher_id")).thenReturn(teacherId);
+        when(rs.getString("event_id")).thenReturn("exact-event");
+        when(rs.getString("workbook_filename")).thenReturn("approved-workbook.pdf");
+        when(rs.getString("answers_filename")).thenReturn("approved-answers.pdf");
+        when(rs.getBytes("workbook_pdf")).thenReturn(workbook);
+        when(rs.getBytes("answers_pdf")).thenReturn(answers);
+        when(rs.getString("status")).thenReturn("DRAFT");
+        when(jdbc.query(anyString(),any(RowMapper.class),eq(id))).thenAnswer(i->List.of(((RowMapper<?>)i.getArgument(1)).mapRow(rs,0)));
+        SchoolBrandGuideService brand=mock(SchoolBrandGuideService.class);
+        when(brand.pdfForStaff(teacher)).thenReturn(new SchoolBrandGuideService.BrandGuidePdf("guide.pdf",workbook));
+        LessonPreparationService preparation=mock(LessonPreparationService.class);
+        when(preparation.read(teacher,"exact-event")).thenReturn(new LessonPreparationResponse("exact-event",null,null,null,null,false,null,
+                true,"approved-workbook.pdf",true,"approved-answers.pdf",null,null,null,null,null,true,workbook.length,1,answers.length,1));
+        var service=new LessonPdfDraftService(jdbc,new ObjectMapper(),brand,preparation);
+        Map<String,Object> result=service.publish(teacher,id,true);
+        assertEquals(true,result.get("success"));
+        assertEquals("exact-event",result.get("eventId"));
+        verify(preparation).prepareMaterials(teacher,"exact-event",null,"approved-workbook.pdf",workbook,"approved-answers.pdf",answers);
+        verify(preparation).read(teacher,"exact-event");
+        verify(preparation,never()).update(any(),any(),any());
+        when(rs.getString("status")).thenReturn("PUBLISHED");
+        assertEquals(true,service.publish(teacher,id,true).get("alreadyPublished"));
+        verify(preparation,times(1)).prepareMaterials(any(),any(),any(),any(),any(),any(),any());
+        when(preparation.read(teacher,"exact-event")).thenReturn(new LessonPreparationResponse("wrong-event",null,null,null,null,false,null,
+                true,"other.pdf",true,"approved-answers.pdf",null,null,null,null,null,true,workbook.length,1,answers.length,1));
+        assertThrows(IllegalStateException.class,()->service.publish(teacher,id,true));
     }
 }

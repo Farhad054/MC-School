@@ -74,6 +74,15 @@ class PersonalLessonWorkbookServiceTest {
     }
 
     @Test
+    void ordinaryActiveTeacherHasOwnPersonalWorksheetWorkflow() {
+        UUID otherId = UUID.randomUUID();
+        when(users.existsByIdAndRoleAndStatusAndArchivedFalse(otherId,Role.TEACHER,UserStatus.ACTIVE)).thenReturn(true);
+        assertThat(service.enabled(new AuthenticatedUser(otherId,null,Role.TEACHER))).isTrue();
+        assertThat(service.enabled(new AuthenticatedUser(otherId,null,Role.STUDENT))).isFalse();
+        verifyNoInteractions(repository,lessons,preparations);
+    }
+
+    @Test
     void listUsesOnlyCurrentOwnActiveGroupStudentsAndMetadata() {
         StudentGroup group = StudentGroup.create(teacher, "Group");
         User inactive = User.managedStudent("Inactive", teacher);
@@ -87,12 +96,13 @@ class PersonalLessonWorkbookServiceTest {
         when(metadata.getStudentId()).thenReturn(student.getId());
         when(metadata.getFilename()).thenReturn("mine.pdf");
         when(metadata.getVersion()).thenReturn(3L);
+        when(metadata.getWorkbookSizeBytes()).thenReturn(1234L);
         when(repository.metadata(teacher.getId(), "event")).thenReturn(List.of(metadata));
 
         var result = service.list(caller, "event");
         assertThat(result.enabled()).isTrue();
         assertThat(result.students()).containsExactly(new PersonalLessonWorkbookService.PersonalWorkbookResponse(
-                student.getId(), "Student", true, "mine.pdf", 4L));
+                student.getId(), "Student", true, "mine.pdf", 4L, false, null, 0L, 1234L, 0L));
         verify(repository, never()).findByTeacherIdAndEventIdAndStudentId(any(), any(), any());
     }
 
@@ -114,6 +124,8 @@ class PersonalLessonWorkbookServiceTest {
         assertThat(response.studentId()).isEqualTo(student.getId());
         assertThat(response.filename()).isEqualTo("mine.pdf");
         assertThat(response.version()).isEqualTo(1L);
+        assertThat(response.workbookSizeBytes()).isEqualTo(bytes.length);
+        assertThat(response.answersSizeBytes()).isZero();
         var captured = org.mockito.ArgumentCaptor.forClass(PersonalLessonWorkbook.class);
         verify(repository).saveAndFlush(captured.capture());
         assertThat(captured.getValue().getTeacherId()).isEqualTo(teacher.getId());
@@ -163,12 +175,15 @@ class PersonalLessonWorkbookServiceTest {
         when(metadata.getStudentId()).thenReturn(student.getId());
         when(metadata.getFilename()).thenReturn("private-solutions.pdf");
         when(metadata.getVersion()).thenReturn(2L);
+        when(metadata.getAnswersSizeBytes()).thenReturn(5678L);
         when(answerRepository.metadata(teacher.getId(), "event")).thenReturn(List.of(metadata));
         var row = service.list(caller, "event").students().get(0);
         assertThat(row.hasWorkbook()).isFalse();
         assertThat(row.hasAnswers()).isTrue();
         assertThat(row.answersFilename()).isEqualTo("private-solutions.pdf");
         assertThat(row.answersVersion()).isEqualTo(3L);
+        assertThat(row.workbookSizeBytes()).isZero();
+        assertThat(row.answersSizeBytes()).isEqualTo(5678L);
         verify(answerRepository, never()).findByTeacherIdAndEventIdAndStudentId(any(), any(), any());
     }
 }

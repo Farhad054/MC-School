@@ -9,7 +9,9 @@
   "scripts": {
     "generate": "node generate.mjs",
     "html": "node generate.mjs --html-only",
-    "test:math": "node mathjax-smoke.mjs"
+    "test:math": "node mathjax-smoke.mjs",
+    "test:layout": "node --test layout.test.mjs",
+    "test": "node mathjax-smoke.mjs && node diagrams.test.mjs && node --test layout.test.mjs"
   },
   "dependencies": {
     "mathjax": "^4.1.3"

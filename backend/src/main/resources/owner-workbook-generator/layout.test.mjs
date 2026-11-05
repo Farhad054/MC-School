@@ -1,0 +1,75 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile,writeFile,mkdir,mkdtemp,rm,readdir} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {dirname,join} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {validateLesson,columns,length} from './schema.mjs';
+
+const root=dirname(fileURLToPath(import.meta.url));
+const rich={type:'richText',content:[{text:'Prüfe '},{math:'x+1=2'},{text:'.'}]};
+const basic=()=>({meta:{school:'MINDCRAFTI SCHOOL',subject:'MATHEMATIK',group:'Test',date:'05.11.2026',durationMinutes:60},workbookPages:[{title:'Test',blocks:[]}],teacherPages:[{title:'Antworten',blocks:[]}]});
+
+test('bounded layout schema rejects unsafe CSS and ambiguous math',()=>{
+  assert.equal(columns(['42%','58%']),'42fr 58fr');
+  assert.throws(()=>columns(['60%','60%']),/total/);
+  assert.throws(()=>length('1mm; background:url(https://example.com)'),/Invalid/);
+  const lesson=basic();
+  lesson.workbookPages[0].blocks=[{type:'grid',columns:999,children:[]}];
+  assert.throws(()=>validateLesson(lesson),/integer/);
+  lesson.workbookPages[0].blocks=[{type:'math',expression:{latex:'x',tokens:['x']}}];
+  assert.throws(()=>validateLesson(lesson),/exactly one/);
+});
+
+async function render(source) {
+  await mkdir(join(root,'out'),{recursive:true});
+  const dir=await mkdtemp(join(root,'out','layout-test-'));
+  try {
+    const lesson=typeof source==='string' ? source : join(dir,'lesson.json');
+    if(typeof source!=='string')await writeFile(lesson,JSON.stringify(source));
+    const run=spawnSync(process.execPath,[join(root,'generate.mjs'),`--lesson=${lesson}`,`--out=${dir}`,'--basename=Test','--html-only'],{encoding:'utf8',timeout:60000,env:process.env});
+    assert.equal(run.status,0,run.stderr || run.stdout || run.error?.message);
+    const files=await readdir(dir);
+    const workbook=await readFile(join(dir,files.find(f=>/_Arbeitsheft_\d+min\.html$/.test(f))),'utf8');
+    const teacher=await readFile(join(dir,files.find(f=>/_Lehrerloesungen_\d+min\.html$/.test(f))),'utf8');
+    const qa=JSON.parse(await readFile(join(dir,'Test_math-qa.json'),'utf8'));
+    assert.equal(qa.passed,true);
+    return {workbook,teacher};
+  } finally {
+    await rm(dir,{recursive:true,force:true});
+  }
+}
+
+test('nested layouts and rich text render through the production pipeline',async()=>{
+  const lesson=basic();
+  lesson.workbookPages[0].subtitle=rich;
+  lesson.workbookPages[0].blocks=[
+    {type:'studentHeader'},
+    {type:'split',columns:['42%','58%'],gap:'6mm',left:[{type:'taskCard',title:'Aufgabe',description:rich,children:[{type:'answerLines',lines:2,label:rich}]}],right:[{type:'coordinateGrid',xRange:[-5,5],yRange:[-5,5],gridStep:1,showAxisLabels:true}]},
+    {type:'grid',columns:2,children:[{type:'answerBox',height:'18mm',label:rich},{type:'column',children:[{type:'callout',text:rich},{type:'spacer',height:'2mm'},{type:'divider'}]}]},
+    {type:'row',children:[{type:'text',text:rich},{type:'stack',children:[{type:'richText',content:rich.content}]}]},
+    {type:'matching',left:[rich,'B'],right:['C',rich],matches:[[0,1]],showConnections:true},
+    {type:'conclusionBox',text:rich,lines:2},
+    {type:'facts',given:[rich],find:[rich],notes:[rich]},
+    {type:'example',label:rich,text:rich,expressions:[{latex:'x^2'}]}
+  ];
+  lesson.teacherPages[0].blocks=[{type:'solutions',title:rich,items:[{label:rich,text:rich,note:rich}]},{type:'matching',left:['A'],right:['B'],matches:[[0,0]],showConnections:true}];
+  const {workbook,teacher}=await render(lesson);
+  assert.match(workbook,/grid-template-columns:42fr 58fr;gap:6mm/);
+  assert.match(workbook,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  for(const cls of ['student-header','answer-lines','answer-box','matching','conclusion-box','layout-stack','inline-math'])assert.ok(new RegExp(`class="[^"]*\\b${cls}\\b`).test(workbook),cls);
+  assert.equal((workbook.match(/class="matching-item"/g)||[]).length,4);
+  assert.equal((workbook.match(/<line x1="0" y1="7" x2="100" y2="21"/g)||[]).length,0,'student matching never displays answer connections');
+  assert.match(teacher,/<line x1="0" y1="7" x2="100" y2="7"/);
+  assert.ok((workbook.match(/data-qa="math"/g)||[]).length>=10,'inline math in all supported text fields');
+  assert.match(teacher,/inline-math/);
+});
+
+test('legacy v3 lessons and corrected MathJax example still render',async()=>{
+  for(const filename of ['lesson.sample.json','examples/graphs-geometry-demo.json','examples/clean-tasks-demo.json','examples/latex-math-demo.json','examples/production-layout-demo.json']) {
+    const {workbook,teacher}=await render(join(root,filename));
+    assert.match(workbook,/class="sheet student"/);
+    assert.match(teacher,/class="sheet teacher"/);
+    assert.doesNotMatch(workbook,/data-mml-node="merror"/);
+  }
+});
