@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "school": "MINDCRAFTI SCHOOL",
+    "subject": "MATHEMATIK",
+    "group": "MATH SVG DEMO",
+    "date": "05.11.2026",
+    "weekday": "Donnerstag",
+    "durationMinutes": 60,
+    "studentsForTeacher": "Demo"
+  },
+  "workbookPages": [
+    {
+      "title": "Mathematische Formeln",
+      "subtitle": "MathJax SVG Demo",
+      "time": "00–60 MIN",
+      "blocks": [
+        {
+          "type": "exercise",
+          "number": "01",
+          "title": "Vereinfache.",
+          "rows": [
+            {"label":"a.","math":{"latex":"\\\\frac{x^2-9}{x-3}"},"work":true},
+            {"label":"b.","math":{"latex":"\\\\frac{x+2}{x-3}=2"},"work":true},
+            {"label":"c.","math":{"latex":"\\\\sqrt{x+4}=3"},"work":true}
+          ]
+        }
+      ]
+    }
+  ],
+  "teacherPages": [
+    {
+      "title": "Lösungen",
+      "subtitle": "MathJax SVG Demo",
+      "blocks": [
+        {
+          "type": "solutions",
+          "section": "DEMO",
+          "title": "Formeln",
+          "items": [
+            {"label":"1a","math":{"latex":"x+3\\quad(x\\ne3)"}},
+            {"label":"1b","math":{"latex":"x=8"}},
+            {"label":"1c","math":{"latex":"x=5"}}
+          ]
+        }
+      ]
+    }
+  ]
+}
