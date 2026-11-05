@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Mindcrafti A4 worksheet generator (no npm dependencies).
+ * Mindcrafti A4 worksheet generator.
  * Input: lesson.json. Output: an editable HTML master and 2 ready-to-print PDFs.
- * Fractions: true vector SVG, not screenshots; safe in Chromium/WeasyPrint.
- * Graphs and fraction diagrams: native vector SVG.
+ * Mathematical formulas: MathJax 4 TeX -> inline vector SVG.
+ * Graphs, geometry and fraction diagrams: native vector SVG.
  * PDF: WeasyPrint default, Chromium optional. See README.md for React/KaTeX integration.
  * Usage: node generate.mjs          (creates HTML + PDF)
  *        node generate.mjs --html-only
@@ -12,6 +12,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import MathJax from 'mathjax';
 import { renderDiagram } from './diagrams.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,44 @@ if (!lesson.meta || !Array.isArray(lesson.workbookPages) || !Array.isArray(lesso
 }
 
 const htmlEscape = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+
+const mathjax = await MathJax.init({
+  loader: { load: ['input/tex', 'output/svg'] },
+  svg: { fontCache: 'local' },
+});
+const latexCache = new Map();
+function collectLatex(value, out = new Set()) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectLatex(item, out);
+    return out;
+  }
+  if (!value || typeof value !== 'object') return out;
+  if (typeof value.latex === 'string' && value.latex.trim()) out.add(value.latex.trim());
+  for (const item of Object.values(value)) collectLatex(item, out);
+  return out;
+}
+async function primeLatexCache(data) {
+  const expressions = [...collectLatex(data)];
+  for (const tex of expressions) {
+    const node = await mathjax.tex2svgPromise(tex, {
+      display: false,
+      em: 16,
+      ex: 8,
+      containerWidth: 80 * 16,
+    });
+    const svgNode = mathjax.startup.adaptor.tags(node, 'svg')[0];
+    if (!svgNode) throw new Error('MathJax did not return SVG for: ' + tex);
+    latexCache.set(tex, mathjax.startup.adaptor.serializeXML(svgNode));
+  }
+}
+function latexSvg(tex) {
+  const key = String(tex ?? '').trim();
+  const svg = latexCache.get(key);
+  if (!svg) throw new Error('LaTeX expression was not pre-rendered: ' + key);
+  return '<span class="math-latex" role="img" aria-label="' + htmlEscape(key) + '">' + svg + '</span>';
+}
+await primeLatexCache(lesson);
+
 function fractionSvg(n, d) {
   // Vector fraction - zooms perfectly on an iPad and in print.
   const cols = Math.max(String(n).length, String(d).length);
@@ -52,9 +91,12 @@ function mathToken(token) {
   if (['+', '-', '=', '<', '>'].includes(t)) return `<span class="op">${htmlEscape(t)}</span>`;
   return `<span class="op">${htmlEscape(t)}</span>`;
 }
-function math(tokens) {
-  if (!Array.isArray(tokens)) throw new TypeError('An expression must be an array of tokens');
-  return `<span class="formula">${tokens.map(mathToken).join('')}</span>`;
+function math(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value) && typeof value.latex === 'string') {
+    return `<span class="formula formula-latex">${latexSvg(value.latex)}</span>`;
+  }
+  if (!Array.isArray(value)) throw new TypeError('An expression must be an array of tokens or {latex:"..."}');
+  return `<span class="formula">${value.map(mathToken).join('')}</span>`;
 }
 function callout(b, tall = false) {
   return `<div class="block callout ${tall ? 'tall' : ''}"><div class="eyebrow">${htmlEscape(b.label)}</div><p>${htmlEscape(b.text)}</p></div>`;
@@ -192,7 +234,7 @@ function checkChain(tokens,label){
 function checkAnswerMath(data){
   let checked=0;
   for(const p of data.teacherPages)for(const b of p.blocks)if(b.type==='solutions')for(const item of b.items) {
-    if(!item.math)continue;
+    if(!Array.isArray(item.math))continue;
     checkChain(item.math,item.label);
     checked++;
   }
