@@ -169,3 +169,11 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
 .facts-card ul { margin: 0; padding-left: 4.3mm; }
 .facts-card li { font-size: 12.5px; line-height: 1.45; margin: 0 0 1.1mm; }
 .facts-note { font-size: 10.8px; color: var(--gray-text); line-height: 1.35; margin-top: 1.8mm; }
+
+/* MathJax TeX -> inline SVG. Supports algebraic fractions, powers, roots and equations. */
+.math-latex { display:inline-flex; align-items:center; max-width:100%; vertical-align:middle; }
+.math-latex svg { height:1.35em; width:auto; max-width:100%; overflow:visible; }
+.formula-latex { min-height:1.45em; }
+.example-box .math-latex svg { height:1.5em; }
+.solution-row .math-latex svg { height:1.15em; }
+.mini-check .math-latex svg { height:1.2em; }
