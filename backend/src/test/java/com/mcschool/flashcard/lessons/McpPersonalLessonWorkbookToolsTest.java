@@ -67,7 +67,14 @@ class McpPersonalLessonWorkbookToolsTest {
         when(oauth.resolveAccessToken("student")).thenReturn(Optional.of(User.managedStudent("Student", owner)));
         when(access.requireActor(owner)).thenReturn(teacher);
         when(access.requireActor(admin)).thenReturn(principal(admin));
-        when(access.requireTeacher(any(), eq(owner.getId()))).thenReturn(teacher);
+        when(access.requireActor(otherTeacher)).thenReturn(principal(otherTeacher));
+        when(access.requireTeacher(any(), any())).thenAnswer(invocation -> {
+            AuthenticatedUser actor = invocation.getArgument(0);
+            UUID selected = invocation.getArgument(1);
+            if (actor.role() == com.mcschool.flashcard.users.Role.TEACHER && !actor.id().equals(selected))
+                throw new org.springframework.security.access.AccessDeniedException("Own lessons only");
+            return selected.equals(owner.getId()) ? teacher : principal(otherTeacher);
+        });
         when(personal.list(teacher, EVENT)).thenReturn(new PersonalLessonWorkbookService.PersonalWorkbooksResponse(
                 true, List.of(new PersonalLessonWorkbookService.PersonalWorkbookResponse(studentId, "Student", false, null, 0L))));
         controller = new MindcraftiMcpController("import-key", json, users, oauth,
@@ -84,11 +91,11 @@ class McpPersonalLessonWorkbookToolsTest {
     }
 
     @Test
-    void catalogExposesPilotToolsToOwnerAndAdministratorsButNotOtherTeachersOrImportKey() {
-        for (String token : List.of("owner", "admin")) {
+    void catalogExposesToolsToTeachersAndAdministratorsButNotImportKeyOrStudent() {
+        for (String token : List.of("owner", "admin", "other")) {
             assertThat(toolNames(token)).contains("list_personal_lesson_workbooks", "upload_personal_lesson_workbook", "upload_personal_lesson_answers");
         }
-        for (String token : List.of("other", "import-key", "student")) {
+        for (String token : List.of("import-key", "student")) {
             assertThat(toolNames(token)).doesNotContain("list_personal_lesson_workbooks", "upload_personal_lesson_workbook", "upload_personal_lesson_answers");
         }
     }
@@ -229,6 +236,22 @@ class McpPersonalLessonWorkbookToolsTest {
                 "file_id", "file-one", "mime_type", "application/pdf", "file_name", "attached.pdf");
     }
 
+    @Test
+    void ordinaryTeacherCanPrepareHostTransferForOwnPersonalWorksheet() {
+        AuthenticatedUser ordinary=principal(otherTeacher);
+        when(calendar.listGroupLessons(ordinary)).thenReturn(List.of(new GroupLessonResponse(EVENT,"binding",null,
+                null,studentId,"Student",List.of(),"Math",Instant.now(),Instant.now().plusSeconds(3600),null,null)));
+        when(personal.list(ordinary,EVENT)).thenReturn(new PersonalLessonWorkbookService.PersonalWorkbooksResponse(true,
+                List.of(new PersonalLessonWorkbookService.PersonalWorkbookResponse(studentId,"Student",false,null,0L))));
+        Map<String,Object> args=Map.of("operation","upload_personal_lesson_workbook","teacherId",otherTeacher.getId().toString(),
+                "eventId",EVENT,"studentId",studentId.toString(),"pdfFileId","file_ordinary123",
+                "idempotencyKey","ordinary-transfer-001","confirm",true);
+        assertThat(call("other","prepare_lesson_file_transfer",args).get("isError")).isEqualTo(false);
+        verify(personal).list(ordinary,EVENT);
+        verify(personal,never()).upload(any(),any(),any(),any(),any());
+        verifyNoInteractions(personalAnswers,shared,drive,receipts);
+    }
+
     private void stubTransferLesson() {
         when(calendar.listGroupLessons(teacher)).thenReturn(List.of(new GroupLessonResponse(EVENT, "binding", null,
                 null, studentId, "Student", List.of(), "Lesson", Instant.parse("2026-11-05T14:00:00Z"),
@@ -240,7 +263,7 @@ class McpPersonalLessonWorkbookToolsTest {
     void discoveryAndInitializationExplainTwoBoardsAndTheCommonOrBlankFallback() {
         for (String method : List.of("initialize", "server/discover")) {
             Map<String, Object> discovery = request("owner", method, Map.of());
-            assertThat((Map<String, Object>) discovery.get("serverInfo")).containsEntry("version", "1.30.2");
+            assertThat((Map<String, Object>) discovery.get("serverInfo")).containsEntry("version", "1.31.0");
             assertThat(String.valueOf(discovery.get("instructions"))).contains("Shared board and My board (Моя доска)",
                     "takes priority over the common workbook", "uses the common workbook or stays blank",
                     "Shared board continues to show the common workbook to everyone");
@@ -249,15 +272,13 @@ class McpPersonalLessonWorkbookToolsTest {
     }
 
     @Test
-    void forgedInvocationCannotBypassActorOrTargetPilotChecks() {
+    void forgedInvocationCannotBypassTeacherOwnershipOrOAuthChecks() {
         assertRejected(call("other", "list_personal_lesson_workbooks", target()), 403);
         assertRejected(call("import-key", "list_personal_lesson_workbooks", target()), 403);
         Map<String, Object> foreignTeacher = new HashMap<>(target());
         foreignTeacher.put("teacherId", otherTeacher.getId().toString());
-        assertRejected(call("admin", "list_personal_lesson_workbooks", foreignTeacher), 403);
         assertRejected(call("other", "upload_personal_lesson_answers", target()), 403);
         assertRejected(call("import-key", "upload_personal_lesson_answers", target()), 403);
-        assertRejected(call("admin", "upload_personal_lesson_answers", foreignTeacher), 403);
         verifyNoInteractions(personal, personalAnswers, receipts);
     }
 

@@ -26,7 +26,7 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Private-account pilot for per-student lesson PDFs. All identities are server checked. */
+/** Teacher-owned per-student lesson PDFs. All identities and memberships are server checked. */
 @Service
 public class PersonalLessonWorkbookService {
     public static final UUID PILOT_TEACHER_ID = UUID.fromString("14e3c7c1-1fc8-41bd-858a-6c20efdd957a");
@@ -75,7 +75,7 @@ public class PersonalLessonWorkbookService {
     }
 
     public boolean enabledForTeacher(UUID teacherId) {
-        return PILOT_TEACHER_ID.equals(teacherId) && users.existsByIdAndRoleAndStatusAndArchivedFalse(
+        return teacherId != null && users.existsByIdAndRoleAndStatusAndArchivedFalse(
                 teacherId, Role.TEACHER, UserStatus.ACTIVE);
     }
 

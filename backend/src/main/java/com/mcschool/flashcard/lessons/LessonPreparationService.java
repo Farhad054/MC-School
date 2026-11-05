@@ -44,6 +44,11 @@ public class LessonPreparationService {
         return response(repository.save(preparation));
     }
 
+    @Transactional(readOnly = true)
+    public LessonPreparationResponse read(AuthenticatedUser teacher, String eventId) {
+        return response(require(teacher, eventId));
+    }
+
     @Transactional
     public LessonPreparationResponse update(AuthenticatedUser teacher, String eventId, UpdateLessonPreparationRequest request) {
         LessonPreparation preparation = getOrCreateEntity(teacher, eventId);

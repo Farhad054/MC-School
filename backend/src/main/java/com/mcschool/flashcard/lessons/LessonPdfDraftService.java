@@ -193,6 +193,16 @@ public class LessonPdfDraftService {
                 "sizeBytes", pdf.length, "base64", Base64.getEncoder().encodeToString(pdf));
     }
 
+    public record PreviewFile(String eventId,String filename,byte[] bytes) {}
+
+    @Transactional(readOnly=true)
+    public PreviewFile previewFile(AuthenticatedUser teacher,UUID draftId,String kind) {
+        Draft draft=requireDraft(teacher,draftId,false);
+        if(!"workbook".equals(kind)&&!"answers".equals(kind))throw new IllegalArgumentException("kind must be workbook or answers");
+        return "workbook".equals(kind)?new PreviewFile(draft.eventId(),draft.workbookName(),draft.workbook())
+                :new PreviewFile(draft.eventId(),draft.answersName(),draft.answers());
+    }
+
     /**
      * Explicit publication only. A row lock prevents duplicate concurrent publications;
      * workbook + answers and draft status are committed together.
@@ -202,29 +212,44 @@ public class LessonPdfDraftService {
             throws Exception {
         if (!confirm) throw new IllegalArgumentException("Publication requires confirm=true after the user reviewed both PDFs");
         Draft draft = requireDraft(teacher, draftId, true);
-        if ("PUBLISHED".equals(draft.status()))
-            return Map.of("draftId", draftId.toString(), "status", "PUBLISHED", "alreadyPublished", true);
+        if ("PUBLISHED".equals(draft.status())) return publicationResult(teacher, draft, true);
         if (!"DRAFT".equals(draft.status())) throw new IllegalStateException("Draft is not publishable");
 
         // The two PDFs were generated and verified on create; recheck integrity before uploading.
         BufferedImage logo = extractOfficialLogo(guideService.pdfForStaff(teacher).bytes());
         verifyPdf(draft.workbook(), logo, "Arbeitsblatt");
         verifyPdf(draft.answers(), logo, "Loesungen");
-        LessonPreparationResponse workbook = preparationService.uploadWorkbook(
-                teacher, draft.eventId(), draft.workbookName(), draft.workbook());
-        LessonPreparationResponse answers = preparationService.uploadAnswers(
-                teacher, draft.eventId(), draft.answersName(), draft.answers());
-        if (!workbook.hasWorkbook() || !answers.hasWorkbook() || !answers.hasAnswers())
-            throw new IllegalStateException("Lesson upload readback did not confirm both PDFs");
+        preparationService.prepareMaterials(teacher, draft.eventId(), null,
+                draft.workbookName(), draft.workbook(), draft.answersName(), draft.answers());
         jdbc.update("UPDATE lesson_pdf_drafts SET status = 'PUBLISHED', published_at = ? WHERE id = ?",
                 Instant.now(), draftId);
-        return Map.of("draftId", draftId.toString(), "status", "PUBLISHED",
-                "eventId", draft.eventId(), "workbookFilename", draft.workbookName(),
-                "answersFilename", draft.answersName(), "homeworkCount", 0,
-                "hasWorkbook", answers.hasWorkbook(), "hasAnswers", answers.hasAnswers());
+        return publicationResult(teacher, draft, false);
+    }
+
+    private Map<String,Object> publicationResult(AuthenticatedUser teacher, Draft draft, boolean alreadyPublished) {
+        LessonPreparationResponse saved = preparationService.read(teacher, draft.eventId());
+        if (!draft.eventId().equals(saved.eventId()) || !saved.hasWorkbook() || !saved.hasAnswers()
+                || !draft.workbookName().equals(saved.workbookFilename()) || !draft.answersName().equals(saved.answersFilename())
+                || saved.workbookSizeBytes() != draft.workbook().length || saved.answersSizeBytes() != draft.answers().length)
+            throw new IllegalStateException("Lesson readback did not confirm the exact approved PDF slots, filenames and sizes");
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("draftId", draft.id().toString());
+        result.put("status", "PUBLISHED");
+        result.put("eventId", saved.eventId());
+        result.put("workbookFilename", saved.workbookFilename());
+        result.put("answersFilename", saved.answersFilename());
+        result.put("hasWorkbook", saved.hasWorkbook());
+        result.put("hasAnswers", saved.hasAnswers());
+        result.put("alreadyPublished", alreadyPublished);
+        result.put("published", true);
+        result.put("homeworkCount", 0);
+        return result;
     }
 
     private Draft requireDraft(AuthenticatedUser teacher, UUID id, boolean lock) {
+        if (teacher == null || teacher.role() != com.mcschool.flashcard.users.Role.TEACHER)
+            throw new IllegalArgumentException("A scoped teacher identity is required");
         String suffix = lock ? " FOR UPDATE" : "";
         List<Draft> results = jdbc.query("""
                 SELECT id, teacher_id, event_id, workbook_filename, answers_filename,

@@ -74,6 +74,15 @@ class PersonalLessonWorkbookServiceTest {
     }
 
     @Test
+    void ordinaryActiveTeacherHasOwnPersonalWorksheetWorkflow() {
+        UUID otherId = UUID.randomUUID();
+        when(users.existsByIdAndRoleAndStatusAndArchivedFalse(otherId,Role.TEACHER,UserStatus.ACTIVE)).thenReturn(true);
+        assertThat(service.enabled(new AuthenticatedUser(otherId,null,Role.TEACHER))).isTrue();
+        assertThat(service.enabled(new AuthenticatedUser(otherId,null,Role.STUDENT))).isFalse();
+        verifyNoInteractions(repository,lessons,preparations);
+    }
+
+    @Test
     void listUsesOnlyCurrentOwnActiveGroupStudentsAndMetadata() {
         StudentGroup group = StudentGroup.create(teacher, "Group");
         User inactive = User.managedStudent("Inactive", teacher);

@@ -1,4 +1,4 @@
-# Personal lesson worksheets pilot
+# Personal lesson worksheets
 
 The classroom has two pupil buttons: **Общая доска** and **Моя доска**.
 The shared board always uses the lesson's shared PDF. My board uses that pupil's
@@ -8,8 +8,7 @@ copy the worksheet to other pupils.
 Each pupil's worksheet can also have a separate private PDF answer key for the
 teacher. Answers are stored and served separately from the pupil's worksheet.
 
-The pilot is enabled only for lessons owned by teacher
-`14e3c7c1-1fc8-41bd-858a-6c20efdd957a`. Other teachers keep their existing behavior.
+The workflow is enabled for every active teacher's own lessons.
 The owning teacher sees the per-pupil upload controls on the lesson preparation
 page. A pupil opens both shared and individually assigned work through **Моя
 доска**, without a third worksheet button. The teacher selects each pupil once
@@ -37,13 +36,11 @@ including when the teacher opens a pupil's My board. The individual upload
 explicitly names the selected pupil. The selected destination is captured when
 the file picker opens, so switching surfaces cannot silently change recipients.
 
-## Connector tools (MCP 1.26.0)
+## Connector tools (MCP 1.30.0)
 
-All personal worksheet and answer tools require a current active OAuth identity: the pilot teacher, or an
-administrator exercising existing lesson-management authority. The selected
-`teacherId` must always be the exact pilot teacher. Other teachers, anonymous
-clients and the legacy PDF-import API key cannot discover or invoke these tools.
-An administrator cannot enable personal worksheets for a different teacher.
+All personal worksheet and answer tools require a current active OAuth teacher or administrator identity.
+Teachers can access only their own lessons and current pupils. Administrators select the exact accessible
+`teacherId`. Anonymous clients, students and the legacy PDF-import API key cannot discover or invoke these tools.
 After the server deployment, a connected client may need to refresh or reconnect
 MCH3 to load the new tool catalog and input schemas cached by that client.
 

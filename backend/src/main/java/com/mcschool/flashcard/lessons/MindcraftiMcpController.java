@@ -54,7 +54,7 @@ public class MindcraftiMcpController {
 
     private static final String API_KEY_HEADER = "X-Mindcrafti-Api-Key";
     private static final String SERVER_NAME = "mindcrafti-lessons";
-    private static final String SERVER_VERSION = "1.30.2";
+    private static final String SERVER_VERSION = "1.31.0";
     private static final int MAX_DIRECT_PDF_BYTES = 15 * 1024 * 1024;
     private static final String FILE_TRANSFER_RESOURCE = "ui://mindcrafti/lesson-file-transfer-v2.html";
     private static final String FILE_TRANSFER_MIME = "text/html;profile=mcp-app";
@@ -84,6 +84,10 @@ public class MindcraftiMcpController {
     private final LessonPdfDraftService lessonPdfDraftService;
     private OwnerWorkbookGeneratorService ownerWorkbookGeneratorService;
     private OwnerWorkbookPdfRenderService ownerWorkbookPdfRenderService;
+    private WorkbookContentService workbookContentService;
+    private WorkbookDraftDownloadService workbookDraftDownloads;
+    private com.mcschool.flashcard.skills.SkillBoardService workbookBoards;
+    private com.mcschool.flashcard.skills.SkillMasteryService workbookMastery;
     private final StoryTemplateMasterService storyTemplateMasterService;
     private final StoryTemplateDownloadLinkService storyTemplateDownloadLinkService;
     private final FunnelAnalyticsService funnelAnalyticsService;
@@ -180,6 +184,23 @@ public class MindcraftiMcpController {
     @Autowired
     public void setOwnerWorkbookPdfRenderService(OwnerWorkbookPdfRenderService service) {
         this.ownerWorkbookPdfRenderService = service;
+    }
+
+    @Autowired
+    public void setWorkbookContentService(WorkbookContentService service) {
+        this.workbookContentService = service;
+    }
+
+    @Autowired
+    public void setWorkbookDraftDownloads(WorkbookDraftDownloadService service) {
+        this.workbookDraftDownloads=service;
+    }
+
+    @Autowired
+    public void setWorkbookSkills(com.mcschool.flashcard.skills.SkillBoardService boards,
+                                  com.mcschool.flashcard.skills.SkillMasteryService mastery) {
+        this.workbookBoards = boards;
+        this.workbookMastery = mastery;
     }
 
     @Autowired
@@ -490,9 +511,6 @@ public class MindcraftiMcpController {
         requireLesson(teacher, eventId);
         if (personal) {
             requirePersonalWorkbookActor(auth);
-            if (!AiLessonPilotService.PILOT_TEACHER_ID.equals(teacherId)) {
-                throw new org.springframework.security.access.AccessDeniedException("Personal worksheets are enabled only for the pilot teacher's lessons");
-            }
             if ("upload_personal_lesson_answers".equals(operation) && personalLessonAnswersService == null) {
                 throw new IllegalStateException("Personal teacher-answer uploads are unavailable");
             }
@@ -586,13 +604,24 @@ public class MindcraftiMcpController {
                     schema(Map.of("file", property("string", "Optional file from the returned manifest; omit to list available source files.")), List.of()),
                     readOnlyAnnotations()));
         }
-        if (workbookRendererAvailableFor(auth)) {
+        if (workbookStaff(auth) && ownerWorkbookPdfRenderService != null) {
             tools.add(tool("prepare_workbook_context",
-                    "Identify the EXACT teacher-owned calendar lesson and read the current month plan, prior lesson notes, recent homework submissions, missing homework and documented card errors. Returns a contextToken for generate_workbook. TEACHER accounts are restricted to their own lessons; ADMIN may select an accessible teacher. Handwritten PDFs are NOT graded: inspect their pages before claiming specific errors. Read school prompts; do not publish automatically.",
+                    "Read the EXACT owned lesson, current school prompt, Brand Guide, available monthly plan, prior lesson notes and documented card/homework evidence. Teachers see only their own students and lessons; ADMIN selects teacherId. Handwritten PDFs are NOT graded. Teachers should use the server-side workbook generation tool. The source-code retrieval endpoint remains owner/admin only.",
                     schema(Map.of(
                             "teacherId", property("string", "Exact teacher UUID from find_lessons"),
                             "eventId", property("string", "Exact eventId from find_lessons")),
-                            List.of("teacherId", "eventId")), readOnlyAnnotations()));
+                            List.of("eventId")), readOnlyAnnotations()));
+            tools.add(tool("generate_lesson_workbook_draft",
+                    "Generate two mathematically rendered branded PDFs server-side for one exact owned lesson. Reads fresh school prompt, Brand Guide, monthly plan and available student evidence itself. Never publishes. With server AI configured, eventId/instruction suffice. Without it, call prepare_workbook_context, prepare structured lessonJson from its declarative rendererContract, then supply lessonJson and contextToken here. No generator source is exposed. Returns an unpublished draft for download/review; call publish_lesson_draft only after an explicit user command to publish. Teachers should use the server-side workbook generation tool. The source-code retrieval endpoint remains owner/admin only.",
+                    schema(Map.of("teacherId", property("string", "ADMIN selects teacher UUID; teachers may omit it for themselves"),
+                            "eventId", property("string", "Exact lesson eventId from find_lessons"),
+                            "instruction", property("string", "Optional additional lesson instructions, at most 6000 characters"),
+                            "lessonJson", property("string", "Optional content prepared by ChatGPT according to prepare_workbook_context.rendererContract, never executable source. Requires contextToken."),
+                            "contextToken", property("string", "Required with lessonJson. Exact fresh token from prepare_workbook_context; binds lesson, current prompts, Brand Guide and student evidence."),
+                            "idempotencyKey", property("string", "Stable unique key for this generation; reuse unchanged on identical retries")),
+                            List.of("eventId", "idempotencyKey")), writeAnnotations()));
+        }
+        if (workbookStaff(auth) && ownerWorkbookPdfRenderService != null) {
             Map<String,Object> workbookGeneration = new LinkedHashMap<>();
             workbookGeneration.put("teacherId", property("string", "Exact teacher UUID"));
             workbookGeneration.put("eventId", property("string", "Exact lesson eventId"));
@@ -601,9 +630,10 @@ public class MindcraftiMcpController {
             workbookGeneration.put("confirmDurationOverride", property("boolean", "OPTIONAL. True only when the teacher explicitly requests a duration different from the calendar; defaults false."));
             workbookGeneration.put("lessonPlan", property("string", "Optional concise lesson planning note for teacher draft metadata."));
             workbookGeneration.put("difficulties", property("string", "Optional evidenced difficulties, no invented errors."));
+            workbookGeneration.put("idempotencyKey", property("string", "Required for TEACHER. Stable key reused on identical retries; ADMIN legacy calls may omit it."));
             tools.add(tool("generate_workbook",
-                    "Run the canonical Mindcrafti SVG workbook generator, including official Brand Guide logo, vector math/graphs/geometry and mandatory PDF layout/math QA. TEACHER accounts may generate only for their own exact lesson; ADMIN may select an accessible teacher. Saves exactly student/teacher PDFs as an UNPUBLISHED DRAFT. Nothing is posted until separately approved via publish_lesson_draft.",
-                    schema(workbookGeneration, List.of("teacherId","eventId","contextToken","lessonJson")),
+                    "Compatibility alias for structured server-side rendering. Prefer generate_lesson_workbook_draft. TEACHER must provide a fresh contextToken from prepare_workbook_context and a stable idempotencyKey, and can render only their own lesson. ADMIN legacy calls may omit the token/key; current context is still read before rendering. Produces two unpublished vector-math/SVG PDFs with mandatory QA; never publishes.",
+                    schema(workbookGeneration, List.of("eventId","lessonJson")),
                     writeAnnotations()));
         }
         tools.add(tool("get_brand_guide", "Get the current administrator-managed Mindcrafti Brand Guide, including its searchable rules and the uploaded source PDF as base64 when available. ALWAYS use this before creating or redesigning any Mindcrafti-branded PDF, homework, diagnostic, worksheet, report, presentation, work-on-mistakes document or other visual material. Fetch it fresh instead of relying on a Brand Guide remembered from chat history.", schema(Map.of(), List.of()), readOnlyAnnotations()));
@@ -616,15 +646,18 @@ public class MindcraftiMcpController {
         cdp.put("teacherId",property("string","Teacher UUID from find_lessons"));
         cdp.put("eventId",property("string","Exact calendar event ID"));
         cdp.put("lessonJson",property("string","Preferred: structured Mindcrafti workbook JSON with meta, workbookPages and teacherPages for the canonical SVG generator. Legacy simple shape title + tasks remains supported. No homework."));
-        tools.add(tool("create_lesson_draft","Generate and QA two branded PDF documents as an unpublished draft. Structured workbook JSON uses the canonical SVG/math generator; legacy simple task JSON remains supported. TEACHER is restricted to own lessons; ADMIN may select an accessible teacher. Read school prompt, Brand Guide and relevant lesson context first.",schema(cdp,List.of("teacherId","eventId","lessonJson")),writeAnnotations()));
+        cdp.put("contextToken",property("string","Required for TEACHER: fresh prepare_workbook_context token. ADMIN legacy callers may omit it."));
+        cdp.put("idempotencyKey",property("string","Required for TEACHER: stable key for this exact draft request. ADMIN legacy callers may omit it."));
+        tools.add(tool("create_lesson_draft","Compatibility draft endpoint; prefer generate_lesson_workbook_draft. Structured workbook JSON uses the canonical SVG/math renderer; legacy simple task JSON remains supported. TEACHER is restricted to own lessons and must provide fresh contextToken plus idempotencyKey. ADMIN may select an accessible teacher and omit token/key for legacy compatibility; fresh context is still read. Never publishes.",schema(cdp,List.of("eventId","lessonJson")),writeAnnotations()));
         Map<String,Object> dp = Map.of("teacherId",property("string","Teacher UUID"),"draftId",property("string","Draft UUID"));
-        tools.add(tool("get_lesson_draft","Get unpublished draft metadata.",schema(dp,List.of("teacherId","draftId")),readOnlyAnnotations()));
+        tools.add(tool("get_lesson_draft","Get draft metadata and refresh the five-minute signed workbook/answers PDF download links. Prefer these URLs for preview/download without base64. Staff and exact lesson ownership are checked again on download.",schema(dp,List.of("draftId")),readOnlyAnnotations()));
         Map<String,Object> dd = new LinkedHashMap<>(dp);
         dd.put("kind",property("string","workbook or answers"));
-        tools.add(tool("download_lesson_draft_pdf","Download student or teacher PDF for review.",schema(dd,List.of("teacherId","draftId","kind")),readOnlyAnnotations()));
+        tools.add(tool("download_lesson_draft_pdf","Download student or teacher PDF for review. Legacy base64 transport is retained; prefer signed PDF URLs returned by get_lesson_draft or generation to avoid manual base64 handling.",schema(dd,List.of("draftId","kind")),readOnlyAnnotations()));
         Map<String,Object> pd = new LinkedHashMap<>(dp);
         pd.put("confirm",property("boolean","True only on explicit user instruction to publish approved documents"));
-        tools.add(tool("publish_lesson_draft","Attach two approved PDFs to the exact lesson, without homework.",schema(pd,List.of("teacherId","draftId","confirm")),writeAnnotations()));
+        pd.put("idempotencyKey",property("string","Stable key for this exact approved draft publication; reuse on identical retries"));
+        tools.add(tool("publish_lesson_draft","Attach the exact two approved PDFs to the owned lesson after confirm=true and explicit user instruction. Replaces the workbook/answers slots, preserves unrelated lesson data and re-reads filenames/status. For PDFs generated or attached in ChatGPT, prefer direct file input. Do not upload to Google Drive as an intermediate step. Use Google Drive only when the source document already exists there.",schema(pd,List.of("draftId","confirm","idempotencyKey")),writeAnnotations()));
         tools.add(tool("find_lessons", "Find Mindcrafti schedule lessons, including lessons created on the website without Google Calendar. Admins can search accessible teachers; teachers search only their own lessons. Returns exact eventId and Berlin local date/time. To schedule a new lesson use create_lesson or create_lesson_series; preparation/draft tools only manage teaching materials.", schema(Map.of("query", property("string", "Optional student, group, or event title filter.")), List.of()), readOnlyAnnotations()));
         tools.add(tool("find_trial_lessons", "Find trial/diagnostic lessons. Admins can search trial lessons across the whole school; teachers see only their own. Returns the concrete teacherId/eventId and whether an original transcript PDF is stored, so download_lesson_transcript can be used next.", schema(Map.of("query", property("string", "Optional teacher name, lesson title, phone number or date text filter.")), List.of()), readOnlyAnnotations()));
         tools.add(tool("get_lesson_preparation", "Read lesson metadata, homework notes, difficulties, lesson plan, and which PDF documents are attached. For full saved transcript text, inspect get_site_function(functionId=lesson_transcripts.get), then read_site_function with its paginated source selector. Uploaded PDF download remains available separately.", schema(Map.of("teacherId", property("string", "Teacher UUID returned by find_lessons."), "eventId", property("string", "Google Calendar event ID returned by find_lessons.")), List.of("teacherId", "eventId")), readOnlyAnnotations()));
@@ -651,10 +684,10 @@ public class MindcraftiMcpController {
 
         if (personalLessonWorkbookService != null && personalWorkbookActorAllowed(auth)) {
             Map<String, Object> personalProperties = new LinkedHashMap<>();
-            personalProperties.put("teacherId", property("string", "Exact pilot teacher UUID returned by find_lessons. Personal worksheets are currently enabled only for Nick's lessons."));
+            personalProperties.put("teacherId", property("string", "Exact teacher UUID returned by find_lessons. Teachers access only their own lessons; ADMIN selects an accessible teacher."));
             personalProperties.put("eventId", property("string", "Exact eventId returned by find_lessons."));
             tools.add(tool("list_personal_lesson_workbooks",
-                    "OWNER LESSON PILOT: Staff-only list of the lesson's current students, their individual worksheet metadata and private teacher-answer status (hasAnswers, answersFilename, answersVersion). A pupil's assigned private PDF takes priority in My board; otherwise My board uses the common workbook or stays blank. Shared board keeps the common workbook for everyone. No answer PDF bytes are returned. OAuth Nick teacher or ADMIN only; import API keys and students cannot use this tool.",
+                    "Staff-only list of the lesson's current students, their individual worksheet metadata and private teacher-answer status (hasAnswers, answersFilename, answersVersion). A pupil's assigned private PDF takes priority in My board; otherwise My board uses the common workbook or stays blank. Shared board keeps the common workbook for everyone. No answer PDF bytes are returned. OAuth teacher or ADMIN only; teachers access only their own lessons. Import API keys and students cannot use this tool.",
                     schema(personalProperties, List.of("teacherId", "eventId")), readOnlyAnnotations()));
             Map<String, Object> personalUpload = new LinkedHashMap<>(personalProperties);
             personalUpload.put("studentId", property("string", "Exact student UUID from list_personal_lesson_workbooks. Only a current participant of this exact lesson may receive the PDF."));
@@ -664,13 +697,13 @@ public class MindcraftiMcpController {
             personalUpload.put("driveFileId", property("string", "Optional Google Drive PDF ID or URL readable by the selected teacher. Provide exactly one of pdfFile, pdfBase64 or driveFileId."));
             personalUpload.put("idempotencyKey", property("string", "Stable key for this explicitly requested upload. Reuse the same key and arguments for identical retries; use a new key only for a new requested upload."));
             tools.add(fileTool("upload_personal_lesson_workbook",
-                    "OWNER LESSON PILOT: Upload or replace one student's private PDF. It takes priority over the common workbook in that pupil's My board (Моя доска). Shared board keeps the common workbook for everyone, and other pupils are unchanged. The existing personal-workbook-<studentUserId> annotation scope is preserved; common-workbook annotations remain separate. This does not assign homework. Only the owning teacher and that admitted student can read the private worksheet in class. OAuth Nick teacher or ADMIN only, target teacher restricted to Nick. Prefer pdfFile for a ChatGPT attachment without a Google Drive intermediate. Supply exactly one of pdfFile, pdfBase64 or driveFileId and retry with the same idempotencyKey.",
+                    "Upload or replace one student's private PDF. It takes priority over the common workbook in that pupil's My board (Моя доска). Shared board keeps the common workbook for everyone, and other pupils are unchanged. The existing personal-workbook-<studentUserId> annotation scope is preserved; common-workbook annotations remain separate. This does not assign homework. Only the owning teacher and that admitted student can read the private worksheet in class. OAuth teacher or ADMIN only, restricted to the selected teacher's own lessons. Prefer pdfFile for a ChatGPT attachment without a Google Drive intermediate. Supply exactly one of pdfFile, pdfBase64 or driveFileId and retry with the same idempotencyKey.",
                     personalPdfSourcesSchema(personalUpload), writeAnnotations(), List.of("pdfFile")));
             if (personalLessonAnswersService != null) {
                 Map<String, Object> personalAnswers = new LinkedHashMap<>(personalUpload);
                 personalAnswers.put("filename", property("string", "Private teacher-answer PDF filename for this student's personal worksheet."));
                 tools.add(fileTool("upload_personal_lesson_answers",
-                        "OWNER LESSON PILOT: Upload or replace the private teacher-answer PDF for one student's personal worksheet. Only staff can read the answers; no answer bytes or metadata are exposed through student classroom routes. This preserves the student's worksheet and the lesson's shared answers. OAuth Nick teacher or ADMIN only, target teacher restricted to Nick. Prefer pdfFile for an attached ChatGPT PDF, without a Google Drive intermediate. Provide exactly one of pdfFile, pdfBase64 or driveFileId and reuse the same idempotencyKey on identical retries. Returns private answer metadata only.",
+                        "Upload or replace the private teacher-answer PDF for one student's personal worksheet. Only staff can read the answers; no answer bytes or metadata are exposed through student classroom routes. This preserves the student's worksheet and the lesson's shared answers. OAuth teacher or ADMIN only, restricted to the selected teacher's own lessons. Prefer pdfFile for an attached ChatGPT PDF, without a Google Drive intermediate. Provide exactly one of pdfFile, pdfBase64 or driveFileId and reuse the same idempotencyKey on identical retries. Returns private answer metadata only.",
                         personalPdfSourcesSchema(personalAnswers), writeAnnotations(), List.of("pdfFile")));
             }
         }
@@ -869,7 +902,7 @@ public class MindcraftiMcpController {
             case "get_school_prompt" -> toolResult(getSchoolPrompt(arguments));
             case "get_owner_workbook_generator" -> {
                 if (ownerWorkbookGeneratorService == null || !ownerWorkbookGeneratorService.allowed(auth.user(), auth.apiKey()))
-                    throw new IllegalArgumentException("This workbook generator pilot is restricted to the owner account");
+                    throw new IllegalArgumentException("Workbook generator source retrieval is restricted to an OAuth administrator");
                 yield toolResult(ownerWorkbookGeneratorService.source(string(arguments.get("file"))));
             }
             case "get_brand_guide" -> toolResult(schoolBrandGuideService.readForMcp());
@@ -877,13 +910,14 @@ public class MindcraftiMcpController {
                 requireWorkbookStaff(auth);
                 yield toolResult(prepareWorkbookContext(arguments, auth));
             }
+            case "generate_lesson_workbook_draft" -> toolResult(generateLessonWorkbookDraft(arguments, auth));
             case "generate_workbook" -> {
                 requireWorkbookStaff(auth);
-                yield toolResult(generateWorkbook(arguments, auth));
+                yield toolResult(generateWorkbookCompatibility(arguments, auth));
             }
             case "create_lesson_draft" -> toolResult(createLessonDraft(arguments,auth));
-            case "get_lesson_draft" -> toolResult(lessonPdfDraftService.info(requireTeacher(arguments,auth),uuid(required(arguments,"draftId"),"draftId")));
-            case "download_lesson_draft_pdf" -> toolResult(lessonPdfDraftService.download(requireTeacher(arguments,auth),uuid(required(arguments,"draftId"),"draftId"),required(arguments,"kind")));
+            case "get_lesson_draft" -> toolResult(draftInfo(arguments,auth));
+            case "download_lesson_draft_pdf" -> toolResult(draftDownload(arguments,auth));
             case "publish_lesson_draft" -> toolResult(publishLessonDraft(arguments,auth));
             case "get_story_template_info" -> toolResult(storyTemplateMasterService.infoForMcp(auth.user(), auth.apiKey()));
             case "get_story_template_download_link" -> toolResult(storyTemplateDownloadLinkService.create(auth.user(), auth.apiKey()));
@@ -1001,16 +1035,16 @@ public class MindcraftiMcpController {
     }
 
 
-    private boolean workbookRendererAvailableFor(AuthContext auth) {
-        return ownerWorkbookPdfRenderService != null
-                && auth != null && !auth.apiKey() && auth.user() != null
+    private boolean workbookStaff(AuthContext auth) {
+        return !auth.apiKey() && auth.user() != null && !auth.user().isArchived()
+                && auth.user().getStatus() == com.mcschool.flashcard.users.UserStatus.ACTIVE
                 && (auth.user().getRole() == Role.ADMIN || auth.user().getRole() == Role.TEACHER);
     }
 
     private void requireWorkbookStaff(AuthContext auth) {
-        if (!workbookRendererAvailableFor(auth)) {
-            throw new IllegalArgumentException("Workbook generation requires a signed-in Mindcrafti ADMIN or TEACHER account");
-        }
+        if (!workbookStaff(auth) || ownerWorkbookPdfRenderService == null)
+            throw new IllegalArgumentException("School OAuth teacher or administrator sign-in is required for workbooks");
+        if (personalWorkbookAccess != null) personalWorkbookAccess.requireActor(auth.user());
     }
 
     private static final java.time.ZoneId WORKBOOK_ZONE = java.time.ZoneId.of("Europe/Berlin");
@@ -1020,16 +1054,25 @@ public class MindcraftiMcpController {
         return lesson.startsAt().atZone(WORKBOOK_ZONE).toLocalDate();
     }
 
-    private String workbookContextToken(AuthenticatedUser teacher, GroupLessonResponse lesson,
-                                        MonthlyPlanResponse plan) {
-        String evidence = teacher.id() + "|" + lesson.eventId() + "|" +
-                plan.version() + "|" + plan.month() + "|" + plan.planJson();
+    private String workbookContextToken(Map<String,Object> context) {
+        Map<String,Object> evidence = new LinkedHashMap<>(context);
+        evidence.remove("contextToken");
         try {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(evidence.getBytes(StandardCharsets.UTF_8)));
+                    .digest(objectMapper.writeValueAsBytes(canonicalWorkbookContext(evidence))));
         } catch (java.security.NoSuchAlgorithmException ex) {
             throw new IllegalStateException("Missing SHA-256", ex);
         }
+    }
+
+    private Object canonicalWorkbookContext(Object value) {
+        if(value instanceof Map<?,?> map) {
+            Map<String,Object> canonical=new java.util.TreeMap<>();
+            map.forEach((key,item)->canonical.put(String.valueOf(key),canonicalWorkbookContext(item)));
+            return canonical;
+        }
+        if(value instanceof List<?> list) return list.stream().map(this::canonicalWorkbookContext).toList();
+        return value;
     }
 
     private GroupLessonResponse selectedWorkbookLesson(AuthenticatedUser teacher, String eventId) {
@@ -1046,9 +1089,6 @@ public class MindcraftiMcpController {
                 "Workbook pilot requires a lesson linked to an actual group or student");
         String month = workbookLocalDate(lesson).withDayOfMonth(1).toString().substring(0, 7);
         MonthlyPlanResponse result = monthlyPlanService.get(teacher, type, targetId, month);
-        if (result == null || result.planJson() == null || result.planJson().isBlank()) {
-            throw new IllegalArgumentException("No structured monthly plan for this lesson. Create or confirm its monthly plan before generating a workbook.");
-        }
         return result;
     }
 
@@ -1065,7 +1105,6 @@ public class MindcraftiMcpController {
         MonthlyPlanResponse monthPlan = selectedWorkbookPlan(teacher, lesson);
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("contextVersion", "v2-teacher-scoped");
-        result.put("contextToken", workbookContextToken(teacher, lesson, monthPlan));
         result.put("teacherId", teacher.id().toString());
         result.put("eventId", lesson.eventId());
         result.put("targetType", lesson.groupId() == null ? "student" : "group");
@@ -1076,15 +1115,16 @@ public class MindcraftiMcpController {
         result.put("lessonDate", lessonDate.toString());
         result.put("startsAt", lesson.startsAt().atZone(WORKBOOK_ZONE).toString());
         result.put("calendarDurationMinutes", durationMinutes);
-        result.put("month", monthPlan.month());
-        result.put("monthPlanVersion", monthPlan.version());
-        result.put("monthPlanUpdatedAt", monthPlan.updatedAt() == null ? null : monthPlan.updatedAt().toString());
+        result.put("month", lessonDate.toString().substring(0, 7));
+        result.put("monthPlanVersion", monthPlan == null ? null : monthPlan.version());
+        result.put("monthPlanUpdatedAt", monthPlan == null || monthPlan.updatedAt() == null ? null : monthPlan.updatedAt().toString());
 
         Map<String,Object> parsedPlan = new LinkedHashMap<>();
-        if (monthPlan.planJson() != null && !monthPlan.planJson().isBlank()) {
+        if (monthPlan != null && monthPlan.planJson() != null && !monthPlan.planJson().isBlank()) {
             parsedPlan = objectMapper.readValue(monthPlan.planJson(), Map.class);
         }
         result.put("monthPlan", parsedPlan);
+        result.put("monthPlanAvailable", !parsedPlan.isEmpty());
         List<GroupLessonResponse> actualLessons = calendarLessonService.listGroupLessons(teacher).stream()
                 .filter(l -> l.startsAt() != null)
                 .filter(l -> lesson.groupId() != null ? lesson.groupId().equals(l.groupId())
@@ -1150,9 +1190,34 @@ public class MindcraftiMcpController {
         for (Map<String,Object> student : students) {
             UUID studentId = uuid(String.valueOf(student.get("id")), "studentId");
             Map<String,Object> item = new LinkedHashMap<>(student);
+            userRepository.findById(studentId)
+                    .filter(u -> u.getRole() == Role.STUDENT && u.getTeacher() != null && teacher.id().equals(u.getTeacher().getId()))
+                    .ifPresent(u -> {
+                        item.put("grade", u.getGrade());
+                        item.put("schoolType", u.getSchoolType());
+                        item.put("learningStrengths", u.getLearningStrengths());
+                        item.put("learningDifficulties", u.getLearningDifficulties());
+                        item.put("learningNotes", u.getLearningNotes());
+                    });
             Map<String,Object> activity = analyticsService.studentActivity(auth.user(), auth.apiKey(),
                     studentId, activityStart, activityEnd);
             item.put("activityTotals", activity.get("totals"));
+            if (workbookBoards != null && workbookMastery != null) {
+                List<Map<String,Object>> skills = new ArrayList<>();
+                for (var board : workbookBoards.list()) {
+                    if (item.get("grade") instanceof Number grade && board.grade() != grade.intValue()) continue;
+                    var mastery = workbookMastery.get(board.id(), studentId, teacher);
+                    if (mastery.mastery().isEmpty()) continue;
+                    // Read the current board before interpreting saved node IDs.
+                    var currentBoard = workbookBoards.get(board.id());
+                    skills.add(Map.of("boardId", board.id(), "revision", currentBoard.revision(),
+                            "mastery", mastery.mastery(), "skills", currentBoard.data().nodes().stream()
+                                    .filter(node -> mastery.mastery().containsKey(node.id()))
+                                    .map(node -> Map.of("id", node.id(), "title", node.title())).toList()));
+                    if (skills.size() >= 3) break;
+                }
+                item.put("savedSkills", skills);
+            }
             Object rawErrors = activity.get("errors");
             List<Map<String,Object>> errorEvidence = new ArrayList<>();
             if (rawErrors instanceof List<?> errorList) for (Object rawError : errorList) {
@@ -1206,6 +1271,17 @@ public class MindcraftiMcpController {
                 prompts.groupLessonPrompt() : prompts.individualLessonPrompt());
         result.put("workbookPrompt", prompts.workbookPrompt());
         result.put("promptUpdatedAt", prompts.updatedAt() == null ? null : prompts.updatedAt().toString());
+        Map<String,Object> brand = new LinkedHashMap<>(schoolBrandGuideService.readForMcp());
+        Object guideSource=brand.remove("base64");
+        if(guideSource instanceof String encoded && !encoded.isBlank()) {
+            try {
+                brand.put("pdfSha256",java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                        .digest(Base64.getDecoder().decode(encoded))));
+            } catch(IllegalArgumentException invalidEncoding) {
+                throw new IllegalStateException("Current Brand Guide PDF encoding is invalid");
+            }
+        }
+        result.put("brandGuide", brand);
         result.put("rules", List.of(
                 "Use the documented month plan but verify the lesson candidate against actual past work.",
                 "Review submitted handwritten homework via get_homework_submission_pages before claiming errors in PDF solutions.",
@@ -1213,8 +1289,28 @@ public class MindcraftiMcpController {
                 "Generate exactly two PDFs, workbook + teacher answers; do not generate or assign homework or cards.",
                 "Use canonical generator v3 SVG/CSS; download both unpublished draft PDFs and review before publication.",
                 "If pupil level, topic, date or duration is ambiguous, stop and ask the teacher to decide."));
-        result.put("nextStep", "Inspect the indicated homework PDF pages and prior transcript as needed; construct checked lessonJson and call generate_workbook with this contextToken.");
+        result.put("nextStep", "Teachers should call generate_lesson_workbook_draft with the exact eventId and any additional instruction; it reads fresh context and stores two unpublished PDF previews. Inspect handwritten homework separately before claiming errors.");
+        result.put("rendererContract",workbookRendererContract());
+        result.put("contextToken",workbookContextToken(result));
         return result;
+    }
+
+    private Map<String,Object> workbookRendererContract() {
+        return Map.of("format","Mindcrafti lesson JSON, declarative data only",
+                "rootFields",List.of("meta","workbookPages","teacherPages","qa"),
+                "meta","school: MINDCRAFTI SCHOOL; subject: MATHEMATIK; durationMinutes: exact calendarDurationMinutes; group/date/weekday are set from the exact lesson",
+                "pages","Each workbookPages/teacherPages item has title, subtitle and blocks. Keep 2-3 tasks per A4 page with reasonable answer space. Student pages must not contain solutions, schedule or teacherNote, including nested layouts.",
+                "math","Use {latex: string} for new math, {tokens: string[]} or legacy token arrays are accepted. Strings are text, never raw HTML. Rich text is {type: richText, content: [{text: string}, {math: string or MathExpression}]} and works in text, subtitles, callouts, facts and solution labels.",
+                "blocks",List.of("callout {label,text}","exercise {number,title,subtitle,rows:[{label,math,work:true}],writeLines:3}",
+                        "example {label,text,expressions:[MathExpression]}","facts {given:[RichText],find:[RichText]}",
+                        "row/column/stack {children:[blocks],gap:4mm}","grid {columns:2,children:[blocks]}",
+                        "split {columns:[42%,58%],gap:6mm,left:[blocks],right:[blocks]}","taskCard {title,children:[blocks]}",
+                        "answerLines {lines:3}","answerBox {height:24mm}","studentHeader", "conclusionBox {title,text}",
+                        "matching {left:[RichText],right:[RichText]}","spacer {height:4mm}","divider",
+                        "teacherNote {label,title,paragraphs:[RichText]} (teacher only)","solutions {section,title,items:[{label,math,text,note}]} (teacher only)"),
+                "graphs","graph {xRange:[-5,5],yRange:[-5,5],gridStep:1,series:[{kind:linear,m:2,b:-1}],showIntersections:true}. coordinateGrid uses the same axes without series. Series: linear(m,b), quadratic(a,b,c), polynomial(coefficients, constant term first), absolute(a,h,k), reciprocal(a,h,k), rational(numerator,denominator polynomial arrays constant-first), sqrt(a,h,k), exponential(a,base,h,k), logarithmic(a,base,h,k), constant(value), sine/cosine(amplitude,frequency,phase,offset), piecewise(pieces:[{domain:[min,max],function:structured series,includeStart:true,includeEnd:false}]). Labels are derived from coefficients. Never rasterize graph/math/text.",
+                "algebraQA","Include qa.algebra with at least one actual task/answer assertion: {kind:equivalence,expression:'(x+3)^2',answer:'x^2+6*x+9',restrictions:[]} or {kind:solution,equation:'2*x-1=5-x',solution:{x:2},restrictions:[]}. State rational restrictions such as 'x != 3' both in assertions and pupil text. QA covers explicit assertions, not every prose answer.",
+                "publication","Draft only. No homework, schedules, transcripts, assignments, arbitrary URLs, image-generated worksheets or executable code. User must review both PDFs and explicitly approve publication.");
     }
 
     private Map<String,Object> workbookPrepSummary(LessonPreparation p) {
@@ -1229,15 +1325,101 @@ public class MindcraftiMcpController {
         summary.put("transcriptFilename", p.getTranscriptFilename());
         summary.put("hasWorkbook", p.hasWorkbook());
         summary.put("hasAnswers", p.hasAnswers());
+        summary.put("transcriptText", boundedContext(preparationService.transcriptTextForAnalysis(p), 12000));
+        summary.put("coveredMaterial", boundedContext(p.getCoveredMaterial(), 6000));
         return summary;
+    }
+
+    private static String boundedContext(String value, int limit) {
+        return value == null ? "" : value.substring(0, Math.min(limit, value.length()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String,Object> generateLessonWorkbookDraft(Map<String,Object> args, AuthContext auth) throws Exception {
+        requireWorkbookStaff(auth);
+        if (personalWorkbookAccess == null || personalWorkbookReceipts == null)
+            throw new IllegalStateException("Server workbook generation is unavailable");
+        if (!java.util.Set.of("teacherId", "eventId", "instruction", "lessonJson", "contextToken", "idempotencyKey").containsAll(args.keySet()))
+            throw new IllegalArgumentException("Unsupported workbook generation arguments");
+        AuthenticatedUser actor = personalWorkbookAccess.requireActor(auth.user());
+        UUID selected = args.containsKey("teacherId") ? uuid(required(args, "teacherId"), "teacherId") : null;
+        AuthenticatedUser teacher = personalWorkbookAccess.requireTeacher(actor, selected);
+        String eventId = required(args, "eventId");
+        String instruction = string(args.get("instruction"));
+        if (instruction.length() > 6000) throw new IllegalArgumentException("instruction is too long");
+        String key = required(args, "idempotencyKey");
+        boolean suppliedContent=args.containsKey("lessonJson");
+        if(suppliedContent != args.containsKey("contextToken")) throw new IllegalArgumentException("lessonJson and contextToken must be supplied together");
+        String suppliedJson=suppliedContent?required(args,"lessonJson"):"";
+        String suppliedToken=suppliedContent?required(args,"contextToken"):"";
+        if(suppliedJson.length()>OwnerWorkbookPdfRenderService.MAX_INPUT_CHARS) throw new IllegalArgumentException("lessonJson is too large");
+        Map<String,Object> normalized = Map.of("teacherId", teacher.id().toString(), "eventId", eventId, "instruction", instruction,
+                "lessonJson",suppliedJson,"contextToken",suppliedToken);
+        Map<String,Object> result=(Map<String,Object>) personalWorkbookReceipts.execute(actor, teacher.id(), "generate_lesson_workbook_draft", key, normalized,
+                () -> {
+                    selectedWorkbookLesson(personalWorkbookAccess.requireTeacher(actor, teacher.id()), eventId);
+                    if(suppliedContent) {
+                        try {
+                            Map<String,Object> fresh=prepareWorkbookContext(Map.of("teacherId",teacher.id().toString(),"eventId",eventId),auth);
+                            requireFreshWorkbookToken(fresh,suppliedToken);
+                        } catch(RuntimeException ex) { throw ex; }
+                        catch(Exception ex) { throw new IllegalStateException("Cannot refresh workbook evidence",ex); }
+                    }
+                },
+                () -> personalWorkbookAccess.asTeacher(actor, teacher, () -> {
+                    try {
+                        Map<String,Object> scoped = Map.of("teacherId", teacher.id().toString(), "eventId", eventId);
+                        Map<String,Object> context = prepareWorkbookContext(scoped, auth);
+                        WorkbookContentService.Content content;
+                        if(suppliedContent) {
+                            requireFreshWorkbookToken(context,suppliedToken);
+                            @SuppressWarnings("unchecked") Map<String,Object> prepared=objectMapper.readValue(suppliedJson,Map.class);
+                            if(!(prepared.get("qa") instanceof Map<?,?> qa) || !(qa.get("algebra") instanceof List<?> checks) || checks.isEmpty())
+                                throw new IllegalArgumentException("Prepared lessonJson must include explicit qa.algebra assertions from its actual tasks and answers");
+                            content=new WorkbookContentService.Content(suppliedJson,"","");
+                        } else {
+                            if(workbookContentService==null) throw new IllegalStateException("Call prepare_workbook_context and supply lessonJson/contextToken to generate_lesson_workbook_draft");
+                            content=workbookContentService.generate(context,instruction);
+                        }
+                        Map<String,Object> generation = new LinkedHashMap<>(scoped);
+                        generation.put("contextToken", context.get("contextToken"));
+                        generation.put("lessonJson", content.lessonJson());
+                        generation.put("lessonPlan", content.lessonPlan());
+                        generation.put("difficulties", content.difficulties());
+                        Map<String,Object> draftResult = generateWorkbook(generation, auth);
+                        draftResult.put("contextVersion", context.get("contextVersion"));
+                        draftResult.put("published", false);
+                        return draftResult;
+                    } catch (RuntimeException ex) { throw ex; }
+                    catch (Exception ex) { throw new IllegalStateException("Workbook generation failed", ex); }
+                }));
+        return withWorkbookDownloadLinks(result,actor,teacher);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String,Object> withWorkbookDownloadLinks(Map<String,Object> raw,AuthenticatedUser actor,AuthenticatedUser teacher) {
+        if(workbookDraftDownloads==null) return raw;
+        Map<String,Object> result=new LinkedHashMap<>(raw);
+        UUID id=uuid(String.valueOf(result.get("draftId")),"draftId");
+        for(String kind:List.of("workbook","answers")) {
+            Map<String,Object> file=result.get(kind) instanceof Map<?,?> existing?new LinkedHashMap<>((Map<String,Object>)existing):new LinkedHashMap<>();
+            file.putAll(workbookDraftDownloads.create(actor,teacher.id(),id,kind));
+            result.put(kind,file);
+        }
+        return result;
+    }
+
+    private void requireFreshWorkbookToken(Map<String,Object> context,String received) {
+        String expected=String.valueOf(context.get("contextToken"));
+        if(!MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),received.getBytes(StandardCharsets.UTF_8)))
+            throw new IllegalArgumentException("Workbook context is stale; call prepare_workbook_context again and reconcile the new evidence before rendering");
     }
 
     private Map<String,Object> generateWorkbook(Map<String,Object> arguments, AuthContext auth)
             throws Exception {
         AuthenticatedUser teacher = requireTeacher(arguments, auth);
         GroupLessonResponse lesson = selectedWorkbookLesson(teacher, required(arguments, "eventId"));
-        MonthlyPlanResponse monthPlan = selectedWorkbookPlan(teacher, lesson);
-        String expectedContext = workbookContextToken(teacher, lesson, monthPlan);
+        String expectedContext = String.valueOf(prepareWorkbookContext(arguments,auth).get("contextToken"));
         String receivedContext = required(arguments, "contextToken");
         if (!MessageDigest.isEqual(expectedContext.getBytes(StandardCharsets.UTF_8),
                 receivedContext.getBytes(StandardCharsets.UTF_8)))
@@ -1275,6 +1457,62 @@ public class MindcraftiMcpController {
         return ownerWorkbookPdfRenderService.create(teacher, lesson.eventId(),
                 objectMapper.writeValueAsString(doc),
                 string(arguments.get("lessonPlan")), string(arguments.get("difficulties")));
+    }
+
+    private Map<String,Object> generateWorkbookCompatibility(Map<String,Object> args,AuthContext auth) throws Exception {
+        if(!java.util.Set.of("teacherId","eventId","lessonJson","contextToken","idempotencyKey","lessonPlan","difficulties","confirmDurationOverride").containsAll(args.keySet()))
+            throw new IllegalArgumentException("Unsupported workbook generation arguments");
+        return writeWorkbookDraft("generate_workbook",args,auth,(teacher,event,scoped)->generateWorkbook(scoped,auth));
+    }
+
+    @FunctionalInterface
+    private interface WorkbookDraftCreation {
+        Map<String,Object> create(AuthenticatedUser teacher,String eventId,Map<String,Object> scoped) throws Exception;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String,Object> writeWorkbookDraft(String operation,Map<String,Object> args,AuthContext auth,WorkbookDraftCreation creation) throws Exception {
+        requireWorkbookStaff(auth);
+        AuthenticatedUser teacher=requireTeacher(args,auth);
+        String event=required(args,"eventId");
+        selectedWorkbookLesson(teacher,event);
+        String key=string(args.get("idempotencyKey")).trim();
+        String token=string(args.get("contextToken")).trim();
+        if(auth.user().getRole()==Role.TEACHER && (key.isBlank()||token.isBlank()))
+            throw new IllegalArgumentException("Teachers must call prepare_workbook_context first and supply its fresh contextToken plus a stable idempotencyKey. Prefer generate_lesson_workbook_draft.");
+        Map<String,Object> scoped=new LinkedHashMap<>(args);
+        scoped.put("teacherId",teacher.id().toString());
+        scoped.put("eventId",event);
+        if(token.isBlank()) scoped.put("contextToken",prepareWorkbookContext(scoped,auth).get("contextToken"));
+        Runnable recheck=()->{
+            try {
+                if(personalWorkbookAccess!=null) {
+                    AuthenticatedUser currentActor=personalWorkbookAccess.requireActor(auth.user());
+                    personalWorkbookAccess.requireTeacher(currentActor,teacher.id());
+                }
+                selectedWorkbookLesson(teacher,event);
+                requireFreshWorkbookToken(prepareWorkbookContext(scoped,auth),String.valueOf(scoped.get("contextToken")));
+            } catch(RuntimeException ex) { throw ex; }
+            catch(Exception ex) { throw new IllegalStateException("Cannot refresh workbook evidence",ex); }
+        };
+        Map<String,Object> result;
+        if(key.isBlank()) {
+            recheck.run();
+            result=creation.create(teacher,event,scoped);
+        } else {
+            if(personalWorkbookAccess==null||personalWorkbookReceipts==null)throw new IllegalStateException("Idempotent workbook generation is unavailable");
+            AuthenticatedUser actor=personalWorkbookAccess.requireActor(auth.user());
+            personalWorkbookAccess.requireTeacher(actor,teacher.id());
+            Map<String,Object> normalized=new LinkedHashMap<>(scoped);
+            normalized.remove("idempotencyKey");
+            result=(Map<String,Object>)personalWorkbookReceipts.execute(actor,teacher.id(),operation,key,normalized,recheck,
+                    ()->personalWorkbookAccess.asTeacher(actor,teacher,()->{
+                        try { return creation.create(teacher,event,scoped); }
+                        catch(RuntimeException ex) { throw ex; }
+                        catch(Exception ex) { throw new IllegalStateException("Workbook draft generation failed",ex); }
+                    }));
+        }
+        return withWorkbookDownloadLinks(result,principal(auth.user()),teacher);
     }
 
     private List<Map<String, Object>> findLessons(String query, AuthContext auth) {
@@ -1416,29 +1654,22 @@ public class MindcraftiMcpController {
         User user = auth.user();
         return !auth.apiKey() && user != null && !user.isArchived()
                 && user.getStatus() == com.mcschool.flashcard.users.UserStatus.ACTIVE
-                && (user.getRole() == Role.ADMIN || (user.getRole() == Role.TEACHER
-                && AiLessonPilotService.PILOT_TEACHER_ID.equals(user.getId())));
+                && (user.getRole() == Role.ADMIN || user.getRole() == Role.TEACHER);
     }
 
     private AuthenticatedUser requirePersonalWorkbookActor(AuthContext auth) {
         if (!personalWorkbookActorAllowed(auth) || personalWorkbookAccess == null
                 || personalLessonWorkbookService == null) {
-            throw new org.springframework.security.access.AccessDeniedException("Personal worksheets require the owner teacher or administrator OAuth account");
+            throw new org.springframework.security.access.AccessDeniedException("Personal worksheets require a teacher or administrator OAuth account");
         }
         AuthenticatedUser actor = personalWorkbookAccess.requireActor(auth.user());
-        if (actor.role() != Role.ADMIN && (actor.role() != Role.TEACHER
-                || !AiLessonPilotService.PILOT_TEACHER_ID.equals(actor.id()))) {
-            throw new org.springframework.security.access.AccessDeniedException("Personal worksheets are restricted to the owner lesson pilot");
-        }
         return actor;
     }
 
     private Object personalLessonWorkbooks(String name, Map<String, Object> arguments, AuthContext auth) throws Exception {
         AuthenticatedUser actor = requirePersonalWorkbookActor(auth);
-        UUID teacherId = uuid(required(arguments, "teacherId"), "teacherId");
-        if (!AiLessonPilotService.PILOT_TEACHER_ID.equals(teacherId)) {
-            throw new org.springframework.security.access.AccessDeniedException("Personal worksheets are enabled only for the pilot teacher's lessons");
-        }
+        UUID teacherId = arguments.containsKey("teacherId") ? uuid(required(arguments, "teacherId"), "teacherId")
+                : actor.role() == Role.TEACHER ? actor.id() : null;
         AuthenticatedUser teacher = personalWorkbookAccess.requireTeacher(actor, teacherId);
         String eventId = required(arguments, "eventId");
         if ("list_personal_lesson_workbooks".equals(name)) {
@@ -1679,49 +1910,82 @@ public class MindcraftiMcpController {
 
     @SuppressWarnings("unchecked")
     private Map<String,Object> createLessonDraft(Map<String,Object> args,AuthContext auth) throws Exception {
-        AuthenticatedUser teacher=requireTeacher(args,auth);
-        String eventId=required(args,"eventId");
-        GroupLessonResponse lesson=calendarLessonService.listGroupLessons(teacher).stream()
-                .filter(l->eventId.equals(l.eventId())).findFirst()
-                .orElseThrow(()->new IllegalArgumentException("Lesson not found"));
+        requireWorkbookStaff(auth);
+        if(!java.util.Set.of("teacherId","eventId","lessonJson","contextToken","idempotencyKey").containsAll(args.keySet()))
+            throw new IllegalArgumentException("Unsupported lesson draft arguments");
         String lessonJson=required(args,"lessonJson");
+        if(lessonJson.length()>OwnerWorkbookPdfRenderService.MAX_INPUT_CHARS)throw new IllegalArgumentException("lessonJson is too large");
         Map<String,Object> parsed=objectMapper.readValue(lessonJson,Map.class);
         if (ownerWorkbookPdfRenderService != null
                 && parsed.get("meta") instanceof Map<?,?>
                 && parsed.get("workbookPages") instanceof List<?>
                 && parsed.get("teacherPages") instanceof List<?>) {
-            Map<?,?> rawMeta=(Map<?,?>)parsed.get("meta");
-            Map<String,Object> safeMeta=new LinkedHashMap<>();
-            for (Map.Entry<?,?> entry:rawMeta.entrySet())
-                if (entry.getKey() instanceof String key) safeMeta.put(key,entry.getValue());
-            long actualMinutes=java.time.Duration.between(lesson.startsAt(),lesson.endsAt()).toMinutes();
-            if (actualMinutes < 30 || actualMinutes > 240)
-                throw new IllegalArgumentException("Calendar lesson duration must be 30..240 minutes for workbook generation");
-            LocalDate lessonDate=workbookLocalDate(lesson);
-            safeMeta.put("school","MINDCRAFTI SCHOOL");
-            safeMeta.put("subject","MATHEMATIK");
-            safeMeta.put("durationMinutes",(int)actualMinutes);
-            safeMeta.put("group",lesson.groupName()!=null?lesson.groupName():
-                    lesson.studentName()!=null?lesson.studentName():lesson.title());
-            safeMeta.put("date",lessonDate.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy")));
-            safeMeta.put("weekday",lessonDate.getDayOfWeek().getDisplayName(
-                    java.time.format.TextStyle.FULL,Locale.GERMAN));
-            parsed.put("meta",safeMeta);
-            return ownerWorkbookPdfRenderService.create(teacher,eventId,
-                    objectMapper.writeValueAsString(parsed),
-                    string(parsed.get("lessonPlan")),string(parsed.get("difficulties")));
+            return writeWorkbookDraft("create_lesson_draft",args,auth,(teacher,eventId,scoped)->{
+                GroupLessonResponse lesson=selectedWorkbookLesson(teacher,eventId);
+                Map<String,Object> safeMeta=new LinkedHashMap<>((Map<String,Object>)parsed.get("meta"));
+                safeMeta.put("durationMinutes",Math.toIntExact(java.time.Duration.between(lesson.startsAt(),lesson.endsAt()).toMinutes()));
+                parsed.put("meta",safeMeta);
+                Map<String,Object> generation=new LinkedHashMap<>(scoped);
+                generation.put("lessonJson",objectMapper.writeValueAsString(parsed));
+                generation.put("lessonPlan",string(parsed.get("lessonPlan")));
+                generation.put("difficulties",string(parsed.get("difficulties")));
+                return generateWorkbook(generation,auth);
+            });
         }
-        String name=lesson.groupName()!=null?lesson.groupName():
-                lesson.studentName()!=null?lesson.studentName():lesson.title();
-        return lessonPdfDraftService.create(teacher,eventId,name,lessonJson);
+        return writeWorkbookDraft("create_lesson_draft",args,auth,(teacher,eventId,scoped)->{
+            GroupLessonResponse lesson=selectedWorkbookLesson(teacher,eventId);
+            String name=lesson.groupName()!=null?lesson.groupName():lesson.studentName()!=null?lesson.studentName():lesson.title();
+            return lessonPdfDraftService.create(teacher,eventId,name,lessonJson);
+        });
+    }
+
+    private AuthenticatedUser draftTeacher(Map<String,Object> args, AuthContext auth) {
+        requireWorkbookStaff(auth);
+        AuthenticatedUser actor = personalWorkbookAccess.requireActor(auth.user());
+        return personalWorkbookAccess.requireTeacher(actor,
+                args.containsKey("teacherId") ? uuid(required(args,"teacherId"),"teacherId") : null);
+    }
+
+    private Map<String,Object> draftInfo(Map<String,Object> args, AuthContext auth) {
+        AuthenticatedUser teacher = draftTeacher(args,auth);
+        Map<String,Object> info = lessonPdfDraftService.info(teacher,uuid(required(args,"draftId"),"draftId"));
+        requireLesson(teacher,String.valueOf(info.get("eventId")));
+        return withWorkbookDownloadLinks(info,personalWorkbookAccess.requireActor(auth.user()),teacher);
+    }
+
+    private Map<String,Object> draftDownload(Map<String,Object> args, AuthContext auth) throws Exception {
+        AuthenticatedUser teacher = draftTeacher(args,auth);
+        UUID id = uuid(required(args,"draftId"),"draftId");
+        Map<String,Object> info = lessonPdfDraftService.info(teacher,id);
+        requireLesson(teacher,String.valueOf(info.get("eventId")));
+        String kind=required(args,"kind");
+        Map<String,Object> result=new LinkedHashMap<>(lessonPdfDraftService.download(teacher,id,kind));
+        if(workbookDraftDownloads!=null) result.putAll(workbookDraftDownloads.create(personalWorkbookAccess.requireActor(auth.user()),teacher.id(),id,kind));
+        return result;
     }
     private Map<String,Object> publishLessonDraft(Map<String,Object> args,AuthContext auth) throws Exception {
-        AuthenticatedUser teacher=requireTeacher(args,auth);
+        requireWorkbookStaff(auth);
+        AuthenticatedUser actor=personalWorkbookAccess.requireActor(auth.user());
+        UUID requestedTeacher=args.containsKey("teacherId")?uuid(required(args,"teacherId"),"teacherId"):null;
+        AuthenticatedUser teacher=personalWorkbookAccess.requireTeacher(actor,requestedTeacher);
         UUID id=uuid(required(args,"draftId"),"draftId");
         if(!booleanValue(args.get("confirm"),"confirm"))throw new IllegalArgumentException("Explicit confirmation required");
         Map<String,Object> d=lessonPdfDraftService.info(teacher,id);
-        requireLesson(teacher,String.valueOf(d.get("eventId")));
-        return lessonPdfDraftService.publish(teacher,id,true);
+        String eventId=String.valueOf(d.get("eventId"));
+        @SuppressWarnings("unchecked") Map<String,Object> result=(Map<String,Object>)personalWorkbookReceipts.execute(actor,teacher.id(),"publish_lesson_draft",
+                required(args,"idempotencyKey"),Map.of("teacherId",teacher.id().toString(),"draftId",id.toString(),"eventId",eventId),
+                () -> requireLesson(personalWorkbookAccess.requireTeacher(actor,teacher.id()),eventId),
+                () -> personalWorkbookAccess.asTeacher(actor,teacher,() -> {
+                    try { return lessonPdfDraftService.publish(teacher,id,true); }
+                    catch (RuntimeException ex) { throw ex; }
+                    catch (Exception ex) { throw new IllegalStateException("Draft publication failed",ex); }
+                }));
+        LessonPreparationResponse current=preparationService.read(teacher,eventId);
+        if(!current.hasWorkbook()||!current.hasAnswers()||!eventId.equals(current.eventId())
+                ||!String.valueOf(result.get("workbookFilename")).equals(current.workbookFilename())
+                ||!String.valueOf(result.get("answersFilename")).equals(current.answersFilename()))
+            throw new IllegalStateException("Approved draft is no longer the lesson's current materials; review the lesson before publishing again");
+        return result;
     }
     private Map<String, Object> findHomeworkTargets(Map<String, Object> arguments, AuthContext auth) {
         String query = string(arguments.get("query"));
@@ -1811,7 +2075,8 @@ public class MindcraftiMcpController {
     }
 
     private AuthenticatedUser requireTeacher(Map<String, Object> arguments, AuthContext auth) {
-        String teacherId = required(arguments, "teacherId");
+        String teacherId = !arguments.containsKey("teacherId") && !auth.apiKey() && auth.user() != null && auth.user().getRole() == Role.TEACHER
+                ? auth.user().getId().toString() : required(arguments, "teacherId");
         UUID id = uuid(teacherId, "teacherId");
         if (!auth.apiKey() && auth.user() != null && auth.user().getRole() == Role.TEACHER && !auth.user().getId().equals(id)) throw new IllegalArgumentException("You can access only your own lessons");
         User teacher = userRepository.findById(id).filter(user -> user.getRole() == Role.TEACHER).filter(user -> !user.isArchived()).orElseThrow(() -> new IllegalArgumentException("Teacher not found"));
@@ -1872,7 +2137,7 @@ public class MindcraftiMcpController {
     }
     private Map<String, Object> fileTool(String name, String description, Map<String, Object> inputSchema,
             Map<String, Object> annotations, List<String> fileParameters) {
-        Map<String, Object> result = tool(name, description + " For PDFs already created or attached in ChatGPT, prefer the direct file input. Do NOT upload to Google Drive as an intermediate step. Use Google Drive only when the source file already lives there. When the PDFs already have ChatGPT file IDs, prefer prepare_lesson_file_transfer; its panel also provides a direct-transfer fallback when host file-argument translation fails.", inputSchema, annotations);
+        Map<String, Object> result = tool(name, description + " For PDFs generated or attached in ChatGPT, prefer direct file input. Do not upload to Google Drive as an intermediate step. Use Google Drive only when the source document already exists there. When the PDFs already have ChatGPT file IDs, prefer prepare_lesson_file_transfer; its panel also provides a direct-transfer fallback when host file-argument translation fails.", inputSchema, annotations);
         result.put("_meta", Map.of("openai/fileParams", fileParameters));
         return result;
     }

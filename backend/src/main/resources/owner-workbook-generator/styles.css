@@ -4,14 +4,14 @@
   --navy: #070a20;
   --orange: #ff6a00;
   --orange-soft: #fff3e8;
-  --gray-text: #697488;
-  --border: #e0e5ec;
+  --gray-text: #6b7280;
+  --border: #e5e7eb;
   --line: #bdc9d8;
   --card-gray: #f7f8fa;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: #eceef1; color: var(--navy); }
-body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: Inter, Arial, 'Liberation Sans', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 @page { size: A4 portrait; margin: 0; }
 .sheet {
   background: white; width: 210mm; height: 297mm; position: relative;
@@ -169,3 +169,44 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
 .facts-card ul { margin: 0; padding-left: 4.3mm; }
 .facts-card li { font-size: 12.5px; line-height: 1.45; margin: 0 0 1.1mm; }
 .facts-note { font-size: 10.8px; color: var(--gray-text); line-height: 1.35; margin-top: 1.8mm; }
+
+/* MathJax TeX -> inline SVG. Supports algebraic fractions, powers, roots and equations. */
+.math-latex { display:inline-block; max-width:100%; vertical-align:middle; line-height:0; }
+.math-latex svg { max-width:100%; overflow:visible; }
+.formula-latex { min-height:1.45em; }
+.inline-math { font-size:inherit; line-height:inherit; vertical-align:middle; }
+.inline-math.formula > * + * { margin-left:.2em; }
+.rich-text, .task-description { font-size:13px; line-height:1.6; margin:2mm 0; overflow-wrap:break-word; }
+.layout-grid { display:grid; align-items:start; }
+.layout-grid > *, .layout-stack > * { min-width:0; max-width:100%; }
+.layout-grid > .block, .layout-stack > .block { margin-top:0; }
+.layout-stack { display:flex; flex-direction:column; gap:3mm; min-width:0; }
+.layout-grid .example-inner { margin-left:0; flex-wrap:wrap; }
+.layout-grid .task-row { flex-wrap:wrap; }
+.layout-grid .expression-wrap { flex:1 1 auto; max-width:100%; }
+.layout-grid .formula { font-size:18px; }
+.layout-grid .inline-math { font-size:inherit; }
+.task-card, .matching { border:.26mm solid var(--border); border-radius:4mm; padding:4mm; break-inside:avoid; page-break-inside:avoid; }
+.task-card-title { font-size:14px; font-weight:700; line-height:1.4; margin-bottom:2mm; }
+.task-card-number { color:var(--orange); margin-right:2mm; }
+.task-card-subtitle { color:var(--gray-text); font-size:12px; line-height:1.4; margin-bottom:2mm; }
+.answer-lines { width:100%; margin-bottom:1mm; }
+.answer-line { border-bottom:.23mm solid var(--line); min-height:6mm; }
+.answer-label { font-size:11px; color:var(--gray-text); line-height:1.4; margin-bottom:1mm; }
+.answer-box { width:100%; min-height:12mm; border:.23mm solid var(--line); border-radius:2mm; padding:2.5mm; }
+.answer-box p { font-size:12px; line-height:1.5; }
+.student-header { display:grid; gap:5mm; font-size:11px; margin-bottom:4mm; }
+.student-header > div { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:end; gap:2mm; }
+.student-field-line { display:block; border-bottom:.23mm solid var(--line); min-width:8mm; height:5mm; line-height:1; }
+.conclusion-box { background:var(--orange-soft); padding:4mm; border-radius:4mm; break-inside:avoid; page-break-inside:avoid; }
+.layout-divider { height:0; border:0; border-top:.23mm solid var(--border); }
+.matching-body { display:grid; grid-template-columns:minmax(0,1fr) 15% minmax(0,1fr); align-items:start; }
+.matching-column { display:grid; }
+.matching-item { height:14mm; display:grid; grid-template-columns:minmax(0,1fr) 2mm; align-items:center; gap:2mm; font-size:12px; line-height:1.35; }
+.matching-dot { display:block; width:2mm; height:2mm; border:.3mm solid var(--orange); border-radius:50%; }
+.matching-right .matching-item { grid-template-columns:2mm minmax(0,1fr); }
+.matching-right .matching-text { grid-column:2; grid-row:1; text-align:right; }
+.matching-right .matching-dot { grid-column:1; grid-row:1; }
+.matching-connections { width:100%; align-self:start; overflow:visible; }
+.intersection-result { font-size:13px; line-height:1.5; }
+.math-block { text-align:left; }

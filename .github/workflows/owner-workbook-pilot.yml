@@ -47,6 +47,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Compile backend and run workbook unit tests
         working-directory: backend
         run: mvn -B -ntp -Dtest=OwnerWorkbookPdfRenderServiceTest test
@@ -57,7 +60,10 @@ jobs:
         working-directory: backend/src/main/resources/owner-workbook-generator
         run: node diagrams.test.mjs
       - name: Install PDF smoke-test runtime
-        run: python3 -m pip install --quiet 'weasyprint>=60' pymupdf
+        working-directory: backend/src/main/resources/owner-workbook-generator
+        run: |
+          npm ci --ignore-scripts
+          python3 -m pip install --quiet -r requirements.txt
       - name: Generate and verify real vector PDFs
         working-directory: backend/src/main/resources/owner-workbook-generator
         run: |

@@ -14,7 +14,7 @@ class OwnerWorkbookGeneratorServiceTest {
     @Test
     void onlyOwnerOrAdminMayUsePrivatePilot() {
         assertTrue(OwnerWorkbookGeneratorService.allowed(Role.ADMIN, UUID.randomUUID(), false));
-        assertTrue(OwnerWorkbookGeneratorService.allowed(Role.TEACHER, NICK, false));
+        assertFalse(OwnerWorkbookGeneratorService.allowed(Role.TEACHER, NICK, false));
         assertFalse(OwnerWorkbookGeneratorService.allowed(Role.TEACHER, UUID.randomUUID(), false));
         assertFalse(OwnerWorkbookGeneratorService.allowed(Role.STUDENT, NICK, false));
         assertFalse(OwnerWorkbookGeneratorService.allowed(Role.ADMIN, NICK, true));
@@ -24,7 +24,7 @@ class OwnerWorkbookGeneratorServiceTest {
     @Test
     void manifestAndContentAreReadOnlyAndNoPathTraversal() throws Exception {
         Map<String,Object> metadata = service.source("");
-        assertEquals("CHATGPT_OWNER_PILOT", metadata.get("mode"));
+        assertEquals("SERVER_WORKBOOK_GENERATION", metadata.get("mode"));
         assertTrue(((java.util.List<?>)metadata.get("files")).contains("diagrams.mjs"));
         assertTrue(((java.util.List<?>)metadata.get("files")).contains("examples/clean-tasks-demo.json"));
         assertEquals("integration/railway-and-ux", metadata.get("sourceBranch"));

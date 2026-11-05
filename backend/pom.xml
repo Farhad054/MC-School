@@ -73,6 +73,16 @@
 	</dependencies>
 
 	<build>
+		<resources>
+			<resource>
+				<directory>src/main/resources</directory>
+				<excludes>
+					<exclude>**/node_modules/**</exclude>
+					<exclude>owner-workbook-generator/out/**</exclude>
+					<exclude>**/__pycache__/**</exclude>
+				</excludes>
+			</resource>
+		</resources>
 		<plugins>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
