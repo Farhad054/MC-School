@@ -218,7 +218,7 @@ export function TeacherParentsPage() {
           {language === 'DE' ? 'Noch keine Elternkonten.' : 'Родителей пока нет.'}
         </div>
       ) : (
-        <div className="teacher-student-list">
+        <div className="teacher-student-list teacher-parent-list">
           {parents.map((parent, index) => {
             const availableStudents = students.filter((student) => student.parentId !== parent.id);
 

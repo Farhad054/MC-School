@@ -1,4 +1,11 @@
 /* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell .teacher-parent-list .teacher-student-card{display:grid;grid-template-columns:42px minmax(0,1fr) minmax(150px,auto) 36px;align-items:center;gap:15px;width:100%;padding:18px 20px}
+.teacher-shell .teacher-parent-list .teacher-student-avatar{grid-column:1;grid-row:1}
+.teacher-shell .teacher-parent-list .teacher-student-main{grid-column:2;grid-row:1;min-width:0}
+.teacher-shell .teacher-parent-list .teacher-parent-pupil{grid-column:3;grid-row:1;margin:0;max-width:300px;min-width:0;justify-self:end;text-align:right}
+.teacher-shell .teacher-parent-list .teacher-student-menu-wrap{grid-column:4;grid-row:1;justify-self:end;position:relative}
+.teacher-shell .teacher-parent-list .teacher-student-menu{right:0;left:auto}
+@media(max-width:540px){.teacher-shell .teacher-parent-list .teacher-student-card{grid-template-columns:32px minmax(0,1fr) 36px;gap:9px;padding:14px 12px}.teacher-shell .teacher-parent-list .teacher-student-menu-wrap{grid-column:3;grid-row:1}.teacher-shell .teacher-parent-list .teacher-parent-pupil{grid-column:2/4;grid-row:2;max-width:100%;justify-self:end}}
 .teacher-shell .teacher-topbar-actions{display:flex;align-items:center;gap:12px;margin-left:auto;min-width:0}
 .teacher-shell .teacher-admin-return{border:1px solid var(--teacher-selected-border);border-radius:9px;background:var(--teacher-selected);color:var(--teacher-selected-text);font:inherit;font-size:12px;padding:7px 11px;min-height:34px;white-space:nowrap}
 .teacher-shell .teacher-admin-return:disabled{opacity:.6}
