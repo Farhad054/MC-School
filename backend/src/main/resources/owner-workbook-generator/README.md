@@ -1,6 +1,6 @@
 # Mindcrafti Workbook Generator
 
-Version `2026-11-05-production`. The backend creates a Student Workbook PDF and a separate Teacher Answers PDF. AI produces structured lesson JSON. Code produces layout, MathJax SVG, graphs, geometry and PDFs. Text, formulas and coordinate systems are never generated as AI images.
+Version `2026-11-05-v4-fast-shared`. The backend creates a Student Workbook PDF and a separate Teacher Answers PDF. AI produces structured lesson JSON. Code produces layout, MathJax SVG, graphs, geometry and PDFs. Text, formulas and coordinate systems are never generated as AI images.
 
 Teachers should use the server-side workbook generation tool. The source-code retrieval endpoint remains owner/admin only. The implementation becomes available in MCH3 after the backend containing this version is deployed; a Git push alone does not verify deployment.
 
@@ -22,6 +22,8 @@ Draft creation does not change lesson materials. Publication replaces the approv
 For PDFs generated or attached in ChatGPT, prefer direct file input. Do not upload to Google Drive as an intermediate step. Use Google Drive only when the source document already exists there. Each supplied PDF slot accepts exactly one of direct file, legacy base64, or existing Drive file ID. Omitted slots remain unchanged. See [INTEGRATION.md](INTEGRATION.md).
 
 ## Runtime and verification
+
+The server reuses an immutable renderer runtime and caches the extracted logo until the current Brand Guide revision changes. Both PDFs render in one warm Python process, with independent geometry and hash checks. A bounded preflight rejects clearly excessive page layouts before PDF rendering. At most two generation jobs run per server instance.
 
 Requirements: Node 20+, Python 3.10+, system Pango/Cairo libraries and fonts. Production geometry inspection is pinned to **WeasyPrint 70.0**. Install the committed npm lockfile and `requirements.txt`.
 

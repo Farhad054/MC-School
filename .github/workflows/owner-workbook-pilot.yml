@@ -1,6 +1,17 @@
-name: Owner workbook v3 pilot
+name: Workbook generator v4
 
 on:
+  pull_request:
+    branches:
+      - integration/railway-and-ux
+    paths:
+      - 'backend/src/main/java/com/mcschool/flashcard/lessons/MindcraftiMcpController.java'
+      - 'backend/src/main/java/com/mcschool/flashcard/lessons/OwnerWorkbookPdfRenderService.java'
+      - 'backend/src/main/java/com/mcschool/flashcard/lessons/LessonPdfDraftService.java'
+      - 'backend/src/test/java/com/mcschool/flashcard/lessons/OwnerWorkbookPdfRenderServiceTest.java'
+      - 'backend/src/main/resources/owner-workbook-generator/**'
+      - 'backend/Dockerfile'
+      - '.github/workflows/owner-workbook-pilot.yml'
   push:
     branches:
       - integration/railway-and-ux
@@ -36,7 +47,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compile backend and run owner-only workbook unit tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile backend and run workbook unit tests
         working-directory: backend
         run: mvn -B -ntp -Dtest=OwnerWorkbookPdfRenderServiceTest test
       - name: Package backend
@@ -45,3 +59,15 @@ jobs:
       - name: Check SVG and geometry generator
         working-directory: backend/src/main/resources/owner-workbook-generator
         run: node diagrams.test.mjs
+      - name: Install PDF smoke-test runtime
+        working-directory: backend/src/main/resources/owner-workbook-generator
+        run: |
+          npm ci --ignore-scripts
+          python3 -m pip install --quiet -r requirements.txt
+      - name: Generate and verify real vector PDFs
+        working-directory: backend/src/main/resources/owner-workbook-generator
+        run: |
+          rm -rf /tmp/mindcrafti-workbook-v4-ci
+          node generate.mjs --lesson=examples/clean-tasks-demo.json --out=/tmp/mindcrafti-workbook-v4-ci --basename=Mindcrafti_CI
+          test -f /tmp/mindcrafti-workbook-v4-ci/Mindcrafti_CI_Arbeitsheft_90min.pdf
+          test -f /tmp/mindcrafti-workbook-v4-ci/Mindcrafti_CI_Lehrerloesungen_90min.pdf

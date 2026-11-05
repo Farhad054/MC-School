@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class OwnerWorkbookGeneratorService {
-    private static final String VERSION = "2026-11-05-production";
+    private static final String VERSION = "2026-11-05-v4-fast-shared";
     private static final String RESOURCE_PREFIX = "owner-workbook-generator/";
     private static final String REPO_PATH = "backend/src/main/resources/owner-workbook-generator/";
     private static final List<String> TEXT_FILES = List.of(

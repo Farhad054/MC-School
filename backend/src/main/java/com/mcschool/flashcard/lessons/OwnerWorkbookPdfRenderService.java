@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -32,7 +33,7 @@ import tools.jackson.databind.ObjectMapper;
 public class OwnerWorkbookPdfRenderService {
     static final int MAX_INPUT_CHARS = 115_000;
     static final int MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
-    static final String VERSION = "2026-11-05-production";
+    static final String VERSION = "2026-11-05-v4-fast-shared";
     private static final List<String> RENDER_FILES = List.of(
             "generate.mjs", "math.mjs", "schema.mjs", "diagrams.mjs", "styles.css", "render_pdf.py", "verify_pdf.py", "algebra_qa.py");
 
@@ -43,12 +44,67 @@ public class OwnerWorkbookPdfRenderService {
     private final LessonPdfDraftService drafts;
     private final SchoolBrandGuideService brandGuide;
     private final Semaphore renderSlots = new Semaphore(2);
+    private final Object runtimeLock = new Object();
+    private volatile Path runtimeDirectory;
+    private volatile CachedLogo cachedLogo;
 
     public OwnerWorkbookPdfRenderService(ObjectMapper mapper, LessonPdfDraftService drafts,
                                          SchoolBrandGuideService brandGuide) {
         this.mapper = mapper;
         this.drafts = drafts;
         this.brandGuide = brandGuide;
+    }
+
+    /** @Value is assigned after construction; initialize the immutable shared runtime on first render. */
+    private Path runtimeDirectory() {
+        Path current = runtimeDirectory;
+        if (current != null) return current;
+        synchronized (runtimeLock) {
+            current = runtimeDirectory;
+            if (current == null) runtimeDirectory = current = prepareRuntimeDirectory();
+            return current;
+        }
+    }
+
+    private Path prepareRuntimeDirectory() {
+        if (modulesDirectory == null || modulesDirectory.isBlank())
+            throw new IllegalStateException("Workbook MathJax runtime is unavailable; configure MINDCRAFTI_WORKBOOK_MODULES");
+        Path modules = Path.of(modulesDirectory).toAbsolutePath().normalize();
+        if (!Files.isDirectory(modules.resolve("mathjax")))
+            throw new IllegalStateException("Workbook MathJax runtime is unavailable; configure MINDCRAFTI_WORKBOOK_MODULES");
+        Path runtime = null;
+        try {
+            runtime = Files.createTempDirectory("mindcrafti-workbook-runtime-");
+            runtime.toFile().deleteOnExit();
+            for (String name : RENDER_FILES) {
+                Path target = runtime.resolve(name);
+                try (var input = new ClassPathResource("owner-workbook-generator/" + name).getInputStream()) {
+                    Files.copy(input, target);
+                }
+                target.toFile().deleteOnExit();
+            }
+            Path moduleLink = runtime.resolve("node_modules");
+            Files.createSymbolicLink(moduleLink, modules);
+            moduleLink.toFile().deleteOnExit();
+            return runtime;
+        } catch (IOException | RuntimeException ex) {
+            if (runtime != null) cleanupWorkspace(runtime);
+            throw new IllegalStateException("Cannot initialize Mindcrafti workbook renderer runtime", ex);
+        }
+    }
+
+    private BufferedImage officialLogo(AuthenticatedUser teacher) throws IOException {
+        var guide = brandGuide.readForStaff(teacher);
+        if (guide == null || !guide.hasPdf()) throw new IllegalArgumentException("Original Mindcrafti Brand Guide PDF is missing");
+        CachedLogo current = cachedLogo;
+        if (current != null && Objects.equals(current.updatedAt(), guide.updatedAt())) return current.image();
+        synchronized (this) {
+            current = cachedLogo;
+            if (current != null && Objects.equals(current.updatedAt(), guide.updatedAt())) return current.image();
+            BufferedImage image = LessonPdfDraftService.extractOfficialLogo(brandGuide.pdfForStaff(teacher).bytes());
+            cachedLogo = new CachedLogo(guide.updatedAt(), image);
+            return image;
+        }
     }
 
     public Map<String, Object> create(AuthenticatedUser teacher, String eventId,
@@ -67,6 +123,7 @@ public class OwnerWorkbookPdfRenderService {
     private Map<String, Object> render(AuthenticatedUser teacher, String eventId,
                                       String lessonJson, String planSummary,
                                       String difficultySummary) throws Exception {
+        long startedNanos = System.nanoTime();
         Objects.requireNonNull(teacher, "teacher");
         if (eventId == null || eventId.isBlank())
             throw new IllegalArgumentException("eventId is required");
@@ -76,19 +133,10 @@ public class OwnerWorkbookPdfRenderService {
         Map<String, Object> document = mapper.readValue(lessonJson, Map.class);
         int exerciseCount = validateDocument(document);
 
-        BufferedImage officialLogo = LessonPdfDraftService.extractOfficialLogo(
-                brandGuide.pdfForStaff(teacher).bytes());
-        Path workspace = Files.createTempDirectory("mindcrafti-workbook-v3-");
+        BufferedImage officialLogo = officialLogo(teacher);
+        Path runtime = runtimeDirectory();
+        Path workspace = Files.createTempDirectory("mindcrafti-workbook-job-");
         try {
-            for (String name : RENDER_FILES) {
-                try (var input = new ClassPathResource("owner-workbook-generator/" + name).getInputStream()) {
-                    Files.copy(input, workspace.resolve(name));
-                }
-            }
-            Path modules = Path.of(modulesDirectory).toAbsolutePath().normalize();
-            if (!Files.isDirectory(modules.resolve("mathjax")))
-                throw new IllegalStateException("Workbook MathJax runtime is unavailable; configure MINDCRAFTI_WORKBOOK_MODULES");
-            Files.createSymbolicLink(workspace.resolve("node_modules"), modules);
             Path logoPath = workspace.resolve("logo.png");
             if (!ImageIO.write(officialLogo, "png", logoPath.toFile()))
                 throw new IllegalStateException("Cannot encode official school logo");
@@ -99,10 +147,10 @@ public class OwnerWorkbookPdfRenderService {
             String duration = String.valueOf(((Number) requireMap(document.get("meta"), "meta")
                     .get("durationMinutes")).intValue());
             String basename = "Mindcrafti_Workbook_v3";
-            ProcessBuilder pb = new ProcessBuilder("node", "generate.mjs",
+            ProcessBuilder pb = new ProcessBuilder("node", runtime.resolve("generate.mjs").toString(),
                     "--lesson=" + dataPath, "--out=" + output,
                     "--basename=" + basename, "--logo=" + logoPath);
-            pb.directory(workspace.toFile());
+            pb.directory(runtime.toFile());
             pb.redirectErrorStream(true);
             Path logs = workspace.resolve("renderer.log");
             pb.redirectOutput(logs.toFile());
@@ -131,6 +179,7 @@ public class OwnerWorkbookPdfRenderService {
                 throw new IllegalArgumentException("Workbook generation/QA failed: " +
                         fullLog.substring(Math.max(0, fullLog.length() - 1800)));
             }
+            long renderedNanos = System.nanoTime();
             Path workbookPath=output.resolve(basename + "_Arbeitsheft_" + duration + "min.pdf");
             Path answersPath=output.resolve(basename + "_Lehrerloesungen_" + duration + "min.pdf");
             if(Files.size(workbookPath)>MAX_DOCUMENT_BYTES || Files.size(answersPath)>MAX_DOCUMENT_BYTES)
@@ -158,15 +207,22 @@ public class OwnerWorkbookPdfRenderService {
             qa.put("graphWarnings",mathQa.getOrDefault("graphWarnings",List.of()));
             result.put("qa",qa);
             result.put("published", false);
+            result.put("renderMs", (renderedNanos - startedNanos) / 1_000_000L);
+            result.put("totalGenerationMs", (System.nanoTime() - startedNanos) / 1_000_000L);
+            result.put("runtimeCached", true);
             result.put("publication", "DRAFT only; review both PDFs before calling publish_lesson_draft");
             return result;
         } finally {
-            try (var paths = Files.walk(workspace)) {
-                paths.sorted(Comparator.reverseOrder()).forEach(path -> {
-                    try { Files.deleteIfExists(path); } catch (IOException ignored) { }
-                });
-            } catch (IOException ignored) { }
+            cleanupWorkspace(workspace);
         }
+    }
+
+    private static void cleanupWorkspace(Path workspace) {
+        try (var paths = Files.walk(workspace)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+            });
+        } catch (IOException ignored) { }
     }
 
     static int validateDocument(Map<String, Object> document) {
@@ -232,4 +288,5 @@ public class OwnerWorkbookPdfRenderService {
             throw new IllegalArgumentException("Each page must contain 1..35 blocks");
         return blocks;
     }
+    private record CachedLogo(Instant updatedAt, BufferedImage image) {}
 }

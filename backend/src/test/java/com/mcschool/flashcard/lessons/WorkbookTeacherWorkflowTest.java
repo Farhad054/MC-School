@@ -142,6 +142,35 @@ class WorkbookTeacherWorkflowTest {
         verifyNoInteractions(content,renderer,preparation);
     }
 
+    @Test
+    void teacherCompatibilityAliasesRequireFreshContextAndIdempotencyAndReuseDraft() throws Exception {
+        for(String tool:List.of("generate_workbook","create_lesson_draft")) {
+            assertThat(call(a,tool,Map.of("eventId","lesson-a","lessonJson",preparedJson()))).containsKey("error");
+        }
+        verifyNoInteractions(renderer,content,receipts);
+        String token=contextToken();
+        Map<String,Object> args=Map.of("eventId","lesson-a","lessonJson",preparedJson(),"contextToken",token,"idempotencyKey","compat-generate-one");
+        assertThat(call(a,"generate_workbook",args)).doesNotContainKey("error");
+        assertThat(call(a,"generate_workbook",args)).doesNotContainKey("error");
+        verify(renderer,times(1)).create(eq(principal(a)),eq("lesson-a"),anyString(),eq(""),eq(""));
+        when(prompts.readForMcp()).thenReturn(new SchoolPromptSettingsResponse("changed","changed","","","changed","",Instant.now()));
+        assertThat(call(a,"generate_workbook",args)).containsKey("error");
+        verify(renderer,times(1)).create(any(),anyString(),anyString(),anyString(),anyString());
+        verifyNoInteractions(content,preparation);
+    }
+
+    @Test
+    void structuredCreateDraftAliasUsesCanonicalRendererAndAdminLegacyMayOmitKeyAndToken() throws Exception {
+        String token=contextToken();
+        Map<String,Object> args=Map.of("eventId","lesson-a","lessonJson",preparedJson(),"contextToken",token,"idempotencyKey","compat-create-one");
+        assertThat(call(a,"create_lesson_draft",args)).doesNotContainKey("error");
+        assertThat(call(a,"create_lesson_draft",args)).doesNotContainKey("error");
+        verify(renderer,times(1)).create(eq(principal(a)),eq("lesson-a"),anyString(),eq(""),eq(""));
+        assertThat(call(admin,"create_lesson_draft",Map.of("teacherId",a.getId().toString(),"eventId","lesson-a","lessonJson",preparedJson()))).doesNotContainKey("error");
+        verify(renderer,times(2)).create(eq(principal(a)),eq("lesson-a"),anyString(),eq(""),eq(""));
+        verifyNoInteractions(content,preparation);
+    }
+
     @SuppressWarnings("unchecked")
     private String contextToken() {
         Map<String,Object> envelope=call(a,"prepare_workbook_context",Map.of("eventId","lesson-a"));

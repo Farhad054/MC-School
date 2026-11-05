@@ -11,6 +11,15 @@
 - Enabled ordinary teachers' scoped personal workbook/answer workflow and retained direct ChatGPT files, legacy base64 and existing Drive inputs. No mandatory Drive staging.
 - Added production CI for legacy/current fixtures and QA rejection tests. Deployment and human draft review remain separate release checks.
 
+## v4 — 2026-11-05 — Fast shared server renderer
+
+- Enabled the canonical SVG/A4 renderer for signed-in teachers, scoped to their own lessons; source retrieval remains owner/admin-only.
+- Structured `create_lesson_draft` requests now use the canonical vector renderer while legacy simple task JSON stays compatible.
+- Added lightweight A4 layout preflight before expensive PDF rendering.
+- Workbook and teacher-answer HTML are rendered in one WeasyPrint process, reducing repeated Python/font initialization.
+- Cached the immutable renderer runtime for the server process and cached the official Brand Guide logo until the guide version changes.
+- Draft + explicit publication semantics remain unchanged; no automatic homework or publication.
+
 ## v3 — 2026-10-19 — Clean geometry tasks
 
 - Replaced freehand-looking math labels with an SVG coordinate renderer that uses deterministic positions and legible dark text.

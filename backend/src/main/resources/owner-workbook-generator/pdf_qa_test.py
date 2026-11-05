@@ -2,6 +2,8 @@
 import hashlib
 import json
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -30,6 +32,23 @@ def document(content):
 
 
 class LayoutRejectionTests(unittest.TestCase):
+    def test_batch_render_checks_the_second_document_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for name, height in [('valid', 100), ('overflow', 1100)]:
+                html, pdf = root / f'{name}.html', root / f'{name}.pdf'
+                html.write_text(f'<style>{STYLE}</style><article class="sheet"><h1>MINDCRAFTI SCHOOL</h1>'
+                                f'<main class="paper-content"><div class="block" data-qa="task" style="height:{height}px">Task</div></main>'
+                                '<footer class="footer">Mindcrafti School / 1</footer></article>', encoding='utf-8')
+                paths.extend([str(html), str(pdf)])
+            result = subprocess.run([sys.executable, str(ROOT / 'render_pdf.py'), *paths],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            report = json.loads((root / 'overflow.pdf.layout.json').read_text(encoding='utf-8'))
+            self.assertFalse(report['passed'])
+            self.assertFalse((root / 'overflow.pdf').exists())
+
     def test_unverified_weasyprint_version_is_rejected(self):
         with patch('render_pdf.weasyprint.__version__', '71.0'):
             with self.assertRaisesRegex(RuntimeError, 'requires WeasyPrint 70.0'):

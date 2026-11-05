@@ -53,6 +53,9 @@ test('nested layouts and rich text render through the production pipeline',async
     {type:'facts',given:[rich],find:[rich],notes:[rich]},
     {type:'example',label:rich,text:rich,expressions:[{latex:'x^2'}]}
   ];
+  // Exercise every component without putting an entire component catalog on
+  // one A4 page. The fast preflight also applies to HTML-only previews.
+  lesson.workbookPages.push({title:'Weitere Aufgaben',blocks:lesson.workbookPages[0].blocks.splice(5)});
   lesson.teacherPages[0].blocks=[{type:'solutions',title:rich,items:[{label:rich,text:rich,note:rich}]},{type:'matching',left:['A'],right:['B'],matches:[[0,0]],showConnections:true}];
   const {workbook,teacher}=await render(lesson);
   assert.match(workbook,/grid-template-columns:42fr 58fr;gap:6mm/);
@@ -63,6 +66,23 @@ test('nested layouts and rich text render through the production pipeline',async
   assert.match(teacher,/<line x1="0" y1="7" x2="100" y2="7"/);
   assert.ok((workbook.match(/data-qa="math"/g)||[]).length>=10,'inline math in all supported text fields');
   assert.match(teacher,/inline-math/);
+});
+
+test('preflight counts parallel columns by maximum and stacked rows by sum',async()=>{
+  const graph=()=>({type:'coordinateGrid',xRange:[-5,5],yRange:[-5,5]});
+  for(const block of [
+    {type:'row',children:Array.from({length:4},graph)},
+    {type:'grid',columns:2,children:Array.from({length:4},graph)},
+    {type:'split',left:[graph(),graph()],right:[graph(),graph()]}
+  ]) {
+    const lesson=basic();lesson.workbookPages[0].blocks=[block];
+    await render(lesson);
+  }
+  const lesson=basic();
+  lesson.workbookPages[0].blocks=[{type:'stack',children:Array.from({length:4},graph)}];
+  await assert.rejects(()=>render(lesson),/likely to overflow A4/);
+  lesson.workbookPages[0].blocks=Array.from({length:20},()=>({type:'divider'}));
+  await render(lesson);
 });
 
 test('legacy v3 lessons and corrected MathJax example still render',async()=>{

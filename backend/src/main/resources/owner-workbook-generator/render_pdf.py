@@ -7,6 +7,7 @@ change requires the regression fixtures and this adapter to be verified together
 import json
 import hashlib
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import weasyprint
 from weasyprint import HTML
@@ -104,6 +105,13 @@ def render(source, destination):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        raise SystemExit('Usage: python render_pdf.py input.html output.pdf')
-    render(Path(sys.argv[1]), Path(sys.argv[2]))
+    args = sys.argv[1:]
+    if len(args) < 2 or len(args) % 2:
+        raise SystemExit('Usage: python render_pdf.py input.html output.pdf [input2.html output2.pdf ...]')
+    pairs = [(Path(args[i]), Path(args[i + 1])) for i in range(0, len(args), 2)]
+    # Reuse one imported runtime for both independent documents. Each render
+    # keeps its own fetcher, layout tree and hash-bound QA sidecar.
+    with ThreadPoolExecutor(max_workers=min(2, len(pairs))) as pool:
+        jobs = [pool.submit(render, source, destination) for source, destination in pairs]
+        for job in jobs:
+            job.result()
