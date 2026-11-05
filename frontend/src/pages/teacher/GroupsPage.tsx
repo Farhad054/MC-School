@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { TeacherIcon } from '../../components/TeacherIcon';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { StudentGroup, StudentListItem } from '../../api/types';
@@ -164,44 +165,12 @@ export function GroupsPage() {
         <div className="teacher-empty-state">Групп пока нет. Нажмите «Создать группу», чтобы добавить первую.</div>
       ) : (
         <section className="teacher-groups-list">
-          {groups.map((group, index) => (
-            <div className="teacher-group-row" key={group.id}>
-              <div className={`teacher-group-avatar teacher-group-avatar--${index % 3}`}>{groupInitials(group.name)}</div>
+          {groups.map(group => <Link className="teacher-group-tile" key={group.id} to={`/groups/${group.id}`}><div className="teacher-group-tile-top"><span className="teacher-group-tile-icon"><TeacherIcon name="groups" /></span><span className="teacher-group-tile-badge">{group.name.match(/\d+\s*класс/i)?.[0] || 'Группа'}</span></div><div className="teacher-group-tile-title"><h2>{group.name}</h2><p>Общие материалы и история занятий</p></div><div className="teacher-group-tile-footer"><div className="teacher-group-tile-avatars">{group.students.slice(0,3).map(student=><span key={student.id} title={student.fullName}>{student.fullName.trim().charAt(0).toUpperCase()}</span>)}</div><span>{group.students.length} {studentWord(group.students.length)}</span><span className="teacher-group-tile-arrow" aria-hidden="true">↗</span></div></Link>)}
 
-              <div className="teacher-group-info">
-                <strong>{group.name}</strong>
-                <span>{group.students.length} {studentWord(group.students.length)}</span>
-              </div>
-
-              <div className="teacher-group-members" aria-label="Ученики группы">
-                {group.students.slice(0, 4).map((student, studentIndex) => (
-                  <div
-                    key={student.id}
-                    className={`teacher-member-avatar teacher-member-avatar--${studentIndex % 4}`}
-                    title={student.fullName}
-                  >
-                    {student.fullName.trim().charAt(0).toUpperCase() || '?'}
-                  </div>
-                ))}
-                {group.students.length > 4 && <div className="teacher-member-avatar teacher-member-avatar--more">+{group.students.length - 4}</div>}
-              </div>
-
-              <div className="teacher-group-row__spacer" />
-
-              <Link className="teacher-open-group-btn" to={`/groups/${group.id}`}>Открыть группу</Link>
-            </div>
-          ))}
         </section>
       )}
     </div>
   );
-}
-
-function groupInitials(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 'Г';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return `${words[0][0] ?? ''}${words[1][0] ?? ''}`.toUpperCase();
 }
 
 function studentWord(count: number) {
