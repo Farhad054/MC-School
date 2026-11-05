@@ -1,0 +1,14 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { I18nProvider } from '../../i18n/I18nContext';
+import { LessonCardsPanel } from './LessonCardsPanel';
+import { api } from '../../api/client';
+import type { GroupLesson } from '../../api/types';
+vi.mock('../../api/client',()=>({api:{groups:{get:vi.fn(),importCards:vi.fn()},homeworks:{listForStudent:vi.fn(),create:vi.fn()},cards:{listForHomework:vi.fn(),importConfirmInHomework:vi.fn()}}}));
+beforeEach(()=>{cleanup();vi.clearAllMocks();localStorage.clear();HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};vi.mocked(api.groups.get).mockResolvedValue({students:[]} as never);vi.mocked(api.homeworks.listForStudent).mockResolvedValue([]);vi.mocked(api.groups.importCards).mockResolvedValue(2);vi.mocked(api.cards.importConfirmInHomework).mockResolvedValue([]);});
+const lesson={eventId:'lesson',startsAt:'2026-11-05T15:00:00Z',groupId:'group',studentId:null} as GroupLesson;
+function mount(value=lesson){render(<I18nProvider><LessonCardsPanel lesson={value}/></I18nProvider>);fireEvent.click(screen.getByRole('button',{name:'Задать карточки'}));return within(screen.getByRole('dialog'));}
+describe('lesson cards assignment',()=>{
+ it('assigns an entire group through one bulk request and shows the questions',async()=>{const dialog=mount();fireEvent.change(dialog.getByRole('textbox',{name:'Вопрос 1'}),{target:{value:'2 + 2'}});fireEvent.change(dialog.getByRole('textbox',{name:'Правильный ответ'}),{target:{value:'4'}});fireEvent.submit(dialog.getByRole('button',{name:'Задать карточки'}).closest('form')!);await waitFor(()=>expect(api.groups.importCards).toHaveBeenCalledWith('group','2026-11-06',[expect.objectContaining({question:'2 + 2',correctAnswer:'4'})]));await waitFor(()=>expect(screen.getByRole('textbox',{name:'Информация о карточках'})).toHaveValue('2 + 2'));expect(screen.queryByRole('dialog')).not.toBeInTheDocument();});
+ it('reuses the existing student homework on the selected date',async()=>{vi.mocked(api.homeworks.listForStudent).mockResolvedValue([{id:'batch',startDate:'2026-11-06',totalCards:0}] as never);const dialog=mount({...lesson,groupId:null,studentId:'student'});fireEvent.change(dialog.getByRole('textbox',{name:'Вопрос 1'}),{target:{value:'3 + 3'}});fireEvent.change(dialog.getByRole('textbox',{name:'Правильный ответ'}),{target:{value:'6'}});fireEvent.submit(dialog.getByRole('button',{name:'Задать карточки'}).closest('form')!);await waitFor(()=>expect(api.cards.importConfirmInHomework).toHaveBeenCalledWith('batch',[expect.objectContaining({question:'3 + 3',correctAnswer:'6'})]));expect(api.homeworks.create).not.toHaveBeenCalled();});
+});

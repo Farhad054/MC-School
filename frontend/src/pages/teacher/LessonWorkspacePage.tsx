@@ -1,3 +1,4 @@
+import { LessonCardsPanel } from './LessonCardsPanel';
 import { TeacherIcon, type TeacherIconName } from '../../components/TeacherIcon';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -23,6 +24,7 @@ export function LessonWorkspacePage() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const documentsDialog = useRef<HTMLDialogElement>(null);
   const homeworkDialog = useRef<HTMLDialogElement>(null);
   const generation = useRef(0);
   useEffect(() => {
@@ -62,11 +64,11 @@ export function LessonWorkspacePage() {
   }
   function fileControls(kind: Kind) {
     const filename = kind === 'workbook' ? prep?.workbookFilename : kind === 'answers' ? prep?.answersFilename : prep?.transcriptFilename;
-    return <><p className="muted workspace-filename">{filename || (de ? 'Noch keine Datei' : 'Файл пока не добавлен')}</p><div className="workspace-actions">
+    return <><div className="workspace-actions">
       {filename && <button type="button" className="btn btn--secondary" disabled={busy} onClick={() => open(kind)}>{de ? 'Öffnen' : 'Открыть'}</button>}
       <label className="btn btn--secondary">{de ? 'PDF hinzufügen' : 'Добавить PDF'}<input aria-label={`${de ? 'PDF hochladen' : 'Загрузить PDF'}: ${kind}`} type="file" accept="application/pdf,.pdf" disabled={busy} hidden onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void upload(kind, file); }} /></label>
       {kind !== 'transcript' && <GoogleDrivePdfPicker disabled={busy} onSelect={file => upload(kind, file)} />}
-    </div></>;
+    </div><p className="muted workspace-filename">{filename || (de ? 'Noch keine Datei' : 'Файл пока не добавлен')}</p></>;
   }
   async function save() {
     if (!prep) return;
@@ -89,11 +91,13 @@ export function LessonWorkspacePage() {
     </section>
     {prep && <div className="workspace-columns"><div className="workspace-materials"><WorkspaceCard title={de ? 'Gemeinsames Arbeitsheft' : 'Общая рабочая тетрадь'} symbol="workbook">{fileControls('workbook')}<details className="workspace-answers"><summary>{de ? 'Lösungen für die Lehrkraft' : 'Ответы для учителя'}</summary>{fileControls('answers')}</details></WorkspaceCard><PersonalWorkbooksPanel eventId={eventId} /></div>
       <div className="workspace-info-grid">
-        <WorkspaceCard title={de ? 'Hausaufgaben' : 'Домашняя работа'} symbol="homework">{note('homeworkNotes')}<button type="button" className="btn btn--secondary" onClick={() => homeworkDialog.current?.showModal()}>{de ? 'Hausaufgaben vergeben' : 'Выдать домашку'}</button></WorkspaceCard>
-        <WorkspaceCard title={de ? 'Schwierigkeiten' : 'Проблемы и сложности'} symbol="difficulties">{note('difficulties')}<button type="button" className="btn btn--secondary" disabled={busy} onClick={() => void save()}>{busy ? (de ? 'Speichern…' : 'Сохраняем…') : (de ? 'Informationen speichern' : 'Сохранить информацию')}</button></WorkspaceCard>
-        <WorkspaceCard title={de ? 'Transkription' : 'Транскрипция'} symbol="transcript">{fileControls('transcript')}{(prep.sonioxTranscriptText || prep.transcriptText) && <details><summary>{de ? 'Text ansehen' : 'Просмотреть текст'}</summary><p className="workspace-transcript">{prep.sonioxTranscriptText || prep.transcriptText}</p></details>}</WorkspaceCard>
-        <WorkspaceCard title={de ? 'Dokument der vergangenen Stunde' : 'Документ пройденного урока'} symbol="completed"><div className="workspace-document-list">{documents.map(doc => <button type="button" key={doc.id} className="workspace-document" onClick={() => void perform(() => completedLessonApi.open(eventId, doc.id))}>{doc.filename} ↗</button>)}</div>{!documents.length && <p className="muted">{de ? 'Das Dokument wird nach dem Unterricht hinzugefügt.' : 'Документ добавится после урока.'}</p>}</WorkspaceCard>
+        <WorkspaceCard title={de ? 'Hausaufgaben' : 'Домашняя работа'} symbol="homework"><button type="button" className="btn btn--secondary" onClick={() => homeworkDialog.current?.showModal()}>{de ? 'Hausaufgaben vergeben' : 'Выдать домашку'}</button>{note('homeworkNotes')}</WorkspaceCard>
+        <LessonCardsPanel lesson={lesson} />
+        <WorkspaceCard title={de ? 'Schwierigkeiten' : 'Проблемы и сложности'} symbol="difficulties"><button type="button" className="btn btn--secondary" disabled={busy} onClick={() => void save()}>{busy ? (de ? 'Speichern…' : 'Сохраняем…') : (de ? 'Informationen speichern' : 'Сохранить информацию')}</button>{note('difficulties')}</WorkspaceCard>
+        <WorkspaceCard title={de ? 'Transkription' : 'Транскрипция'} symbol="transcript"><button type="button" className="btn btn--secondary" disabled={busy || !(prep.transcriptFilename || prep.sonioxTranscriptText || prep.transcriptText)} onClick={()=>{if(prep.transcriptFilename){open('transcript');return;}const url=URL.createObjectURL(new Blob([prep.sonioxTranscriptText || prep.transcriptText || ''],{type:'text/plain;charset=utf-8'}));window.open(url,'_blank','noopener,noreferrer');window.setTimeout(()=>URL.revokeObjectURL(url),60000);}}>{de?'Transkription öffnen':'Открыть транскрипцию'}</button></WorkspaceCard>
+        <WorkspaceCard title={de ? 'Dokument der vergangenen Stunde' : 'Документ пройденного урока'} symbol="completed"><button type="button" className="btn btn--secondary" onClick={()=>documentsDialog.current?.showModal()}>{de?'Alle Dokumente':'Все документы'}</button>{!documents.length && <p className="muted">{de?'Das Dokument wird nach dem Unterricht hinzugefügt.':'Документ добавится после урока.'}</p>}</WorkspaceCard>
       </div></div>}
+    <dialog className="workspace-homework-dialog" ref={documentsDialog}><div className="workspace-dialog-heading"><h2>{de?'Alle Dokumente':'Все документы'}</h2><button type="button" className="teacher-icon-button" aria-label={de?'Schließen':'Закрыть'} onClick={()=>documentsDialog.current?.close()}>×</button></div><div className="workspace-document-list">{documents.length ? documents.map(doc=><button type="button" className="workspace-document" key={doc.id} onClick={()=>void perform(()=>completedLessonApi.open(eventId,doc.id))}>{doc.filename} ↗</button>) : <p className="muted">{de?'Das Dokument wird nach dem Unterricht hinzugefügt.':'Документ добавится после урока.'}</p>}</div></dialog>
     <dialog className="workspace-homework-dialog" ref={homeworkDialog}><div className="workspace-dialog-heading"><h2>{de ? 'Hausaufgaben vergeben' : 'Выдать домашку'}</h2><button type="button" className="teacher-icon-button" aria-label={de ? 'Schließen' : 'Закрыть'} onClick={() => homeworkDialog.current?.close()}>×</button></div><LessonHomeworkSeriesPanel lesson={lesson} onAssign={(startDate, days, files) => lessonPreparationApi.assignHomeworkSeries(eventId, startDate, days, files)} /></dialog>
   </div>;
 }

@@ -1,4 +1,12 @@
 /* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell .workspace-actions+.workspace-filename{margin-top:10px}
+.teacher-shell .workspace-info-grid>.workspace-card>.btn{margin-bottom:12px}
+.teacher-shell .workspace-info-grid>.workspace-card:last-child{grid-column:1/-1}
+.teacher-shell .workspace-card-fields{border:0;padding:0;margin:0;min-width:0}
+.teacher-shell .workspace-card-editor{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 0;border-top:1px solid var(--border);margin:12px 0}
+.teacher-shell .workspace-card-editor textarea{width:100%;min-height:85px}
+.teacher-shell .workspace-homework-dialog .workspace-document{padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:var(--teacher-raised);color:var(--text);width:100%}
+@media(max-width:540px){.teacher-shell .workspace-card-editor{grid-template-columns:1fr}}
 .teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day{border:0;box-shadow:none;background:transparent}
 .teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day:hover{background:var(--teacher-raised)}
 .teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day[aria-pressed="true"]{background:var(--teacher-selected);color:var(--teacher-selected-text)}

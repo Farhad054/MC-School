@@ -27,6 +27,10 @@ describe('lesson workspace',()=>{
     expect(screen.queryByText('AI пилот Николая')).not.toBeInTheDocument();
     expect(screen.queryByText('Камера тетради')).not.toBeInTheDocument();
     expect(screen.getByRole('heading',{name:'Документ пройденного урока'})).toBeInTheDocument();
+    expect(screen.queryByText('Просмотреть текст')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Все документы'}));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Документ добавится после урока.');
+    fireEvent.click(screen.getByRole('button',{name:'Закрыть'}));
     expect(screen.getByText('Настройки срока и файла')).not.toBeVisible();
     fireEvent.click(screen.getByRole('button',{name:'Выдать домашку'}));
     expect(screen.getByText('Настройки срока и файла')).toBeVisible();

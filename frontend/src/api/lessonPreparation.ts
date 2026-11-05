@@ -215,10 +215,15 @@ export const completedLessonApi = {
     }).then(parse<CompletedLessonDocument>);
   },
   async open(eventId: string, id: string): Promise<void> {
-    const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents/${encodeURIComponent(id)}`, { headers: authHeaders() });
-    if (!response.ok) throw new ApiRequestError(response.status, 'COMPLETED_DOCUMENT', response.statusText);
-    const url = URL.createObjectURL(await response.blob());
-    window.open(url, '_blank', 'noopener,noreferrer');
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
+    try {
+      const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      if (!response.ok) throw new ApiRequestError(response.status, 'COMPLETED_DOCUMENT', response.statusText);
+      const url = URL.createObjectURL(await response.blob());
+      if (!tab) { URL.revokeObjectURL(url); throw new Error('Разрешите открытие документа в новой вкладке.'); }
+      tab.location.href = url;
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) { tab?.close(); throw error; }
   },
 };
