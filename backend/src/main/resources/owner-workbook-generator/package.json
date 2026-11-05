@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "generate": "node generate.mjs",
-    "html": "node generate.mjs --html-only"
+    "html": "node generate.mjs --html-only",
+    "test:math": "node mathjax-smoke.mjs"
   },
-  "dependencies": {}
+  "dependencies": {
+    "mathjax": "^4.1.3"
+  }
 }
