@@ -2,7 +2,6 @@ import { TeacherIcon } from '../../components/TeacherIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { CreateLessonPanel } from './CreateLessonPanel';
 import { Link } from 'react-router-dom';
-import { isNativeLesson } from '../../lib/lessonSchedule';
 import { api } from '../../api/client';
 import { ApiRequestError } from '../../api/client';
 import { driveApi, type DriveItem } from '../../api/drive';
@@ -349,27 +348,19 @@ export function GroupLessonsPage() {
     const expanded = expandedLessonId === lesson.eventId;
     const finished = finishedLessonId === lesson.eventId;
 
-    const native = isNativeLesson(lesson);
-    const past = native ? berlinDateKey(lesson.startsAt) < todayKey : new Date(lesson.endsAt).getTime() < Date.now();
     const kind = lesson.groupId ? (language === 'DE' ? 'Gruppenunterricht' : 'Групповое занятие')
       : lesson.studentId ? (language === 'DE' ? 'Einzelunterricht' : 'Индивидуальное занятие')
         : (language === 'DE' ? 'Probeunterricht' : 'Пробный урок');
     return (
       <article key={lesson.eventId} className="lesson-agenda-card">
         <div className="lesson-agenda-card__row">
-          <div className="lesson-agenda-card__when">
-            <strong>{formatStartTime(lesson.startsAt, language)}</strong>
-            <span>{(language === 'DE' ? 'bis ' : 'до ') + formatStartTime(lesson.endsAt, language)}</span>
-          </div>
-          <div className="lesson-agenda-card__info">
-            <h3>{lesson.title}</h3><p>{kind}{lesson.meetUrl ? ' · Google Meet' : ''}</p>
-            {readiness[lesson.eventId] !== undefined && <span className={readiness[lesson.eventId] ? 'material-ready' : 'material-reminder'}>{readiness[lesson.eventId] ? (language==='DE'?'Materialien bereit':'Материалы готовы') : (language==='DE'?'⚠ Materialien fehlen':'⚠ Материалы не готовы')}</span>}
-            <span className={'lesson-agenda-status' + (past ? ' is-past' : '')}>{past ? (language === 'DE' ? 'Vergangen' : 'Прошедший') : (language === 'DE' ? 'Geplant' : 'Запланирован')}</span>
-          </div>
-          <div className="lesson-agenda-card__actions">
-            <Link className="btn" to={'/teacher/lessons/' + encodeURIComponent(lesson.eventId)}>{language === 'DE' ? 'Unterricht öffnen' : 'Открыть урок'}</Link>
-            <button className="teacher-icon-button" type="button" aria-label={(language === 'DE' ? 'Unterrichtseinstellungen: ' : 'Настройки урока: ') + lesson.title} aria-expanded={expanded} aria-controls={'lesson-options-' + lesson.eventId} onClick={() => expanded ? setExpandedLessonId(null) : openTimeEditor(lesson)}>⋯</button>
-          </div>
+          <Link className="lesson-agenda-card__link" to={'/teacher/lessons/' + encodeURIComponent(lesson.eventId)} aria-label={(language==='DE'?'Unterricht öffnen: ':'Открыть урок: ')+lesson.title}>
+            <div className="lesson-agenda-card__when"><strong>{formatStartTime(lesson.startsAt,language)}</strong><span>{formatStartTime(lesson.endsAt,language)}</span></div>
+            <div className="lesson-agenda-card__info"><h3>{lesson.title}</h3><p>{lesson.groupName || kind}{lesson.groupId && (lesson.participantStudentIds?.length || brief?.group.students.length) ? ' · '+(lesson.participantStudentIds?.length || brief?.group.students.length)+' '+(language==='DE'?'Schüler':'ученика') : ''}</p></div>
+            <span className="lesson-row-readiness">{readiness[lesson.eventId] !== undefined && <span className={readiness[lesson.eventId]?'material-ready':'material-reminder'}>{!readiness[lesson.eventId] && <TeacherIcon name="difficulties"/>}{readiness[lesson.eventId]?(language==='DE'?'Materialien bereit':'Материалы готовы'):(language==='DE'?'Materialien fehlen':'Материалы не готовы')}</span>}</span>
+            <TeacherIcon name="chevronRight" />
+          </Link>
+          <button className="teacher-icon-button lesson-row-menu" type="button" aria-label={(language === 'DE' ? 'Unterrichtseinstellungen: ' : 'Настройки урока: ') + lesson.title} aria-expanded={expanded} aria-controls={'lesson-options-' + lesson.eventId} onClick={() => expanded ? setExpandedLessonId(null) : openTimeEditor(lesson)}>⋯</button>
         </div>
         {expanded && <div className="lesson-agenda-card__options" id={'lesson-options-' + lesson.eventId}>
           <div className="stack" style={{ gap: 8, marginBottom: 14 }}>

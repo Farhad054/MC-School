@@ -112,7 +112,7 @@ describe('native lesson schedule', () => {
     expect(screen.getByRole('button', { name: 'Запланировать урок' })).toBeInTheDocument();
     expect(within(screen.getByRole('group', { name: 'Выбрать день уроков' })).getAllByRole('button')).toHaveLength(7);
     expect(screen.getByRole('button', { name: 'Следующая неделя' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Открыть урок' })).toHaveAttribute('href', '/teacher/lessons/local-lesson');
+    expect(screen.getByRole('link', { name: /^Открыть урок/ })).toHaveAttribute('href', '/teacher/lessons/local-lesson');
     expect(screen.queryByRole('button', { name: 'Начать урок' })).not.toBeInTheDocument();
     expect(screen.getByText('12:00')).toBeInTheDocument();
   });
@@ -158,7 +158,7 @@ describe('native lesson schedule', () => {
     expect(payload.endsAt).toBe('2026-11-10T16:15:00.000Z');
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Урок создан: ' + trialTitle));
     expect(lessonApi.groupLessons).toHaveBeenCalledTimes(2);
-    expect(screen.getAllByRole('link', { name: 'Открыть урок' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: /^Открыть урок/ })).toHaveLength(2);
   });
 
   it('uses the selected student name and keeps selection and duration when saving fails', async () => {
@@ -352,7 +352,6 @@ describe('native lesson schedule', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Предыдущая неделя' }));
     await userEvent.click(screen.getByRole('button', { name: 'Предыдущая неделя' }));
     expect(screen.getByRole('heading', { name: 'Прошлая неделя' })).toBeInTheDocument();
-    expect(screen.getByText('Прошедший')).toBeInTheDocument();
     expect(within(screen.getByRole('group', { name: 'Выбрать день уроков' })).getByRole('button', { pressed: true })).toBeInTheDocument();
   });
 
@@ -373,7 +372,7 @@ describe('native lesson schedule', () => {
     lessonApi.groupLessons.mockResolvedValue([{ ...lesson('Google lesson'), eventId: 'google-event', meetUrl: 'https://meet.google.com/test', calendarUrl: 'https://calendar.google.com/' }]);
     renderPage();
     await screen.findByText('Google lesson');
-    expect(screen.getByRole('link', { name: 'Открыть урок' })).toHaveAttribute('href', '/teacher/lessons/google-event');
+    expect(screen.getByRole('link', { name: /^Открыть урок/ })).toHaveAttribute('href', '/teacher/lessons/google-event');
     await userEvent.click(screen.getByRole('button', { name: 'Настройки урока: Google lesson' }));
     expect(screen.getByRole('button', { name: 'Начать урок' })).toBeInTheDocument();
     expect(screen.getByLabelText('Группа или ученик для этого события')).toBeInTheDocument();
