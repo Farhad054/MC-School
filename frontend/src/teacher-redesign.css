@@ -1,4 +1,13 @@
 /* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell .teacher-parent-list{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:17px;background:var(--surface)}
+.teacher-shell .teacher-parent-list .teacher-student-card{border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none}
+.teacher-shell .teacher-parent-list .teacher-student-card:last-child{border-bottom:0}
+.teacher-shell .teacher-parent-list .teacher-student-avatar{width:42px;height:42px;border-radius:12px;background:var(--teacher-raised);color:var(--muted)}
+.teacher-shell .teacher-parent-list .teacher-student-name{font-size:15px}
+.teacher-shell .teacher-student-list--cards .teacher-student-card:hover,.teacher-shell .teacher-parent-list .teacher-student-card:hover{background:var(--teacher-raised);border-color:var(--border);box-shadow:none;transform:none}
+.teacher-shell .teacher-student-list--cards .teacher-student-card:first-child,.teacher-shell .teacher-parent-list .teacher-student-card:first-child{border-top-left-radius:16px;border-top-right-radius:16px}
+.teacher-shell .teacher-student-list--cards .teacher-student-card:last-child,.teacher-shell .teacher-parent-list .teacher-student-card:last-child{border-bottom-left-radius:16px;border-bottom-right-radius:16px}
+.teacher-shell .teacher-student-list--cards .teacher-student-name a:hover{text-decoration:none;color:inherit}
 .teacher-shell .lesson-calendar-panel[data-view="month"]{padding:18px;border:1px solid var(--border);border-radius:22px;background:var(--surface);margin-bottom:28px}
 .teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-navigation{grid-template-columns:66px minmax(0,1fr) 66px;gap:14px;margin:0 0 19px}
 .teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-arrow{width:66px;height:66px;border:1px solid var(--border);border-radius:17px;background:var(--surface);color:var(--muted)}
