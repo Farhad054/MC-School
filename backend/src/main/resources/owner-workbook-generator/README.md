@@ -12,7 +12,7 @@
 
 ## Files
 
-- `generate.mjs`: HTML/SVG/print generator; rational math checks (no external npm modules).
+- `generate.mjs`: HTML/SVG/print generator; MathJax 4 renders TeX formulas to vector SVG; legacy numeric token math remains backward compatible.
 - `diagrams.mjs`: coordinate-grid/function plotting and geometrically consistent SVG for 2D and 3D figures. Triangle vertices A/B/C, sides a/b/c, angles α/β/γ are the default; values are separate.
 - `diagrams.test.mjs`: no-dependency tests for functions, dimensions, safety, and exact geometry.
 - `examples/graphs-geometry-demo.json`: legacy illustrated graph/geometry test.
@@ -28,7 +28,9 @@
 Requirements: Node 20+, Python 3.10+, `weasyprint`, `pymupdf`.
 
 ```sh
+npm install
 python3 -m pip install 'weasyprint>=60' pymupdf
+npm run test:math
 node diagrams.test.mjs
 node generate.mjs --lesson=lesson.sample.json --basename=Mindcrafti_Pilot_20261019
 python3 verify_pdf.py lesson.sample.json out
@@ -50,13 +52,14 @@ Use `node generate.mjs --html-only` to inspect/edit source HTML without PDF conv
 - Page size A4; official palette: navy `#070A20`, orange `#FF6A00`.
 - One original official M logo per page; no fabricated logo.
 - Student worksheets are in German; teacher answer key is a **separate PDF**.
-- Math expressions are vector SVG; fractional rectangles are vector SVG.
+- Math expressions are vector SVG. Use `{"latex":"\\frac{x+2}{x-3}"}` for algebraic fractions, powers, roots and equations; legacy token arrays still work.
+- Graphs and geometry remain generated from structured data by `diagrams.mjs`, so axes/curves are mathematical SVG rather than screenshots.
 - A4 layout must not overlap footer or crop mathematical notation, even on iPad zoom.
 - Never auto-publish student material; never expose teacher answers to students.
 
 ## Scope / limitations
 
-Pilot v3 supports fractions and fraction bars, **equal-scale coordinate grids**, function graphs of types `linear`, `quadratic`, `polynomial` (degree ≤ 4), `sine`, and `cosine`, plus `triangle`, `rectangle`, `quadrilateral`, `circle`, `cube`, and `cuboid` figures. The image is precise vector SVG, not a generated bitmap. Geometry side labels and angle arcs are computed from input coordinates, and rectangle constraints are checked. **Not yet supported:** arbitrary expression parsing, 3D perspective/measurement validation for arbitrary solids, constructions with compasses, advanced geometric theorem validation. The rational-answer checker verifies numeric chains, not free-text or algebraic answers; human review is still required.
+Pilot v3 supports TeX math via MathJax SVG (including algebraic fractions, powers, roots and equations), legacy numeric fraction bars, **equal-scale coordinate grids**, function graphs of types `linear`, `quadratic`, `polynomial` (degree ≤ 4), `sine`, and `cosine`, plus `triangle`, `rectangle`, `quadrilateral`, `circle`, `cube`, and `cuboid` figures. The image is precise vector SVG, not a generated bitmap. Geometry side labels and angle arcs are computed from input coordinates, and rectangle constraints are checked. **Not yet supported:** arbitrary expression parsing, 3D perspective/measurement validation for arbitrary solids, constructions with compasses, advanced geometric theorem validation. The rational-answer checker verifies numeric chains, not free-text or algebraic answers; human review is still required.
 
 ## Backend pilot endpoint
 
@@ -118,3 +121,26 @@ Numeric measures can be explicitly requested (`showSides: true`, `showAngles: tr
 - **Current access:** source retrieval by `get_owner_workbook_generator` is for admin/owner only. Existing teachers still receive normal school prompts. No teacher-visible button, no automatic PDF publication.
 - **Future rollout:** after testing, add a teacher-authorized connector workflow for creating draft workbooks from school lesson data, run the versioned renderer and checks, return student and teacher PDFs separately, and require teacher preview/approval before publication. Add role-based authorization on the backend. Do **not** merely expose the owner's source-fetch endpoint to teachers; that endpoint does not run PDF generation.
 - **Validation gate:** run `node diagrams.test.mjs` and `python3 verify_pdf.py ...`, render and inspect representative A4 pages. Match lesson context with the current school prompt, learning plan and student needs; do not publish if numeric given data disagree with geometry or answers.
+
+
+## TeX / mathematical formula input
+
+For any formula that is more complex than the legacy token format, pass a LaTeX object as the `math` value. MathJax renders it to inline SVG before WeasyPrint/Chromium creates the PDF.
+
+```json
+{
+  "label": "a.",
+  "math": { "latex": "\\frac{x+2}{x-3}=2" },
+  "work": true
+}
+```
+
+Other examples:
+
+```json
+{"latex":"(2x-3)^2"}
+{"latex":"\\frac{x^2-9}{x-3}"}
+{"latex":"\\sqrt{x+4}=3"}
+```
+
+Do not put raw SVG or HTML into lesson JSON. LaTeX is parsed by MathJax; graphs and geometry must continue to use the typed `graph` / `geometry` blocks.
