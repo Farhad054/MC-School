@@ -80,16 +80,15 @@ export function TeacherShell({ children, user, isImpersonating, returningToAdmin
       </div>
     </aside>
     <section className="teacher-workspace">
-      {isImpersonating && <div className="teacher-impersonation">
-        <span>{de ? 'Administratoransicht' : 'Просмотр администратором'} · {user.fullName}</span>
-        <button type="button" className="btn btn--secondary" disabled={returningToAdmin} onClick={onReturnToAdmin}>
-          {returningToAdmin ? (de ? 'Zurück…' : 'Возвращаемся…') : (de ? 'Zur Administration' : 'Вернуться в админку')}
-        </button>
-      </div>}
       <header className="teacher-topbar">
         <div className="teacher-breadcrumb">Mindcrafti <span>/</span> {de ? 'Lehrkraft' : 'Преподаватель'}</div>
         <div className="teacher-mobile-brand"><Brand /><span>{de ? 'Lehrkraft' : 'Преподаватель'}</span></div>
-        <div className="teacher-topbar-avatar" title={user.fullName}>{nameInitials}</div>
+        <div className="teacher-topbar-actions">
+          {isImpersonating && <button type="button" className="teacher-admin-return" disabled={returningToAdmin} onClick={onReturnToAdmin}>
+            {returningToAdmin ? (de ? 'Zurück…' : 'Возвращаемся…') : (de ? 'Zur Administration' : 'Вернуться в админку')}
+          </button>}
+          <div className="teacher-topbar-avatar" title={user.fullName}>{nameInitials}</div>
+        </div>
       </header>
       <main id="teacher-main" tabIndex={-1} className="content teacher-content">{children}</main>
     </section>

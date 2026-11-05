@@ -1,4 +1,8 @@
 /* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell .teacher-topbar-actions{display:flex;align-items:center;gap:12px;margin-left:auto;min-width:0}
+.teacher-shell .teacher-admin-return{border:1px solid var(--teacher-selected-border);border-radius:9px;background:var(--teacher-selected);color:var(--teacher-selected-text);font:inherit;font-size:12px;padding:7px 11px;min-height:34px;white-space:nowrap}
+.teacher-shell .teacher-admin-return:disabled{opacity:.6}
+@media(max-width:699px){.teacher-shell .teacher-topbar-actions .teacher-topbar-avatar{display:grid}.teacher-shell .teacher-admin-return{font-size:11px;padding:7px}.teacher-shell .teacher-mobile-brand>span{display:none}}
 .teacher-shell{grid-template-columns:90px minmax(0,1fr)}
 .teacher-shell[data-theme="light"]{--bg:#f7f8fa;--surface:#fff;--border:#e8eaee;--text:#101322;--muted:#697484;--danger:#bf3838;--green-dark:#277552;--teacher-raised:#f1f3f5;--teacher-selected:#fff3e8;--teacher-selected-text:#b34400;--teacher-selected-border:#ffd5b6;--teacher-success:#edf6f0;--teacher-success-text:#277552;--teacher-error:#fff0f0;--teacher-error-text:#bf3838;color-scheme:light}
 body:has(.teacher-shell){background:var(--teacher-bg,#f7f8fa)}
