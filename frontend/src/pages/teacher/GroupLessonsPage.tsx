@@ -1,3 +1,4 @@
+import { TeacherIcon } from '../../components/TeacherIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { CreateLessonPanel } from './CreateLessonPanel';
 import { Link } from 'react-router-dom';
@@ -468,19 +469,20 @@ export function GroupLessonsPage() {
 
       <div className="calendar-view-control"><span>{language === 'DE' ? 'Kalenderansicht' : 'Вид календаря'}</span><div role="group" aria-label={language === 'DE' ? 'Kalenderansicht' : 'Вид календаря'}>{(['week','month'] as const).map(view=><button className="btn btn--secondary" type="button" key={view} aria-pressed={calendarView===view} onClick={()=>{setCalendarView(view);localStorage.setItem('mindcrafti.calendarView',view);}}>{view==='week' ? (language==='DE'?'Woche':'Неделя') : (language==='DE'?'Monat':'Месяц')}</button>)}</div></div>
       <section className="lesson-agenda" aria-label={language === 'DE' ? 'Unterrichtsplan' : 'Расписание уроков'} aria-busy={loading}>
-        <div className="lesson-agenda-navigation">
-          <button className="lesson-agenda-arrow" type="button" aria-label={calendarView==='month' ? (language==='DE'?'Vorheriger Monat':'Предыдущий месяц') : (language==='DE'?'Vorherige Woche':'Предыдущая неделя')} onClick={() => moveWeek(-1)}>‹</button>
-          <strong className="lesson-agenda-month">{formatMonthTitle(selectedDate,language)}</strong>
-          <button className="lesson-agenda-arrow" type="button" aria-label={calendarView==='month' ? (language==='DE'?'Nächster Monat':'Следующий месяц') : (language==='DE'?'Nächste Woche':'Следующая неделя')} onClick={() => moveWeek(1)}>›</button>
+        <div className="lesson-calendar-panel" data-view={calendarView}><div className="lesson-agenda-navigation">
+          <button className="lesson-agenda-arrow" type="button" aria-label={calendarView==='month' ? (language==='DE'?'Vorheriger Monat':'Предыдущий месяц') : (language==='DE'?'Vorherige Woche':'Предыдущая неделя')} onClick={() => moveWeek(-1)}><TeacherIcon name="chevronLeft" /></button>
+          <strong className="lesson-agenda-month">{formatMonthTitle(selectedDate,language)}{language === 'RU' ? ' г.' : ''}</strong>
+          <button className="lesson-agenda-arrow" type="button" aria-label={calendarView==='month' ? (language==='DE'?'Nächster Monat':'Следующий месяц') : (language==='DE'?'Nächste Woche':'Следующая неделя')} onClick={() => moveWeek(1)}><TeacherIcon name="chevronRight" /></button>
         </div>
+        {calendarView === 'month' && <div className="lesson-calendar-weekdays" aria-hidden="true">{weekdayLabels(language).map(label=><span key={label}>{label}</span>)}</div>}
         <div className={"lesson-agenda-days" + (calendarView === 'month' ? ' lesson-agenda-days--month' : '')} role="group" aria-label={language === 'DE' ? 'Unterrichtstag auswählen' : 'Выбрать день уроков'}>
-          {scheduleDays.map((day, index) => <button type="button" key={day.key} className={'lesson-agenda-day' + (day.key === todayKey ? ' is-today' : '')}
+          {scheduleDays.map((day, index) => <button type="button" key={day.key} className={'lesson-agenda-day' + (day.key === todayKey ? ' is-today' : '') + (calendarView === 'month' && day.date.getUTCMonth() !== selectedDate.getUTCMonth() ? ' is-outside-month' : '')}
             aria-pressed={selectedDayKey === day.key} aria-label={formatAgendaDate(day.key, language) + ', ' + lessonCountText(day.lessons.length, language)} onClick={() => selectDate(day.key)}>
-            <span>{weekdayLabels(language)[index % 7]}</span><strong>{day.date.getUTCDate()}</strong>
+            {calendarView === 'week' && <span>{weekdayLabels(language)[index % 7]}</span>}<strong>{day.date.getUTCDate()}</strong>
             <i className={day.lessons.length > 0 ? 'has-lessons' : ''} aria-hidden="true" />
           </button>)}
         </div>
-        <div className="lesson-agenda-day-heading"><h2>{formatAgendaDate(selectedDayKey, language)}</h2><span>{lessonCountText(selectedLessons.length, language)}</span></div>
+        </div><div className="lesson-agenda-day-heading"><h2>{formatAgendaDate(selectedDayKey, language)}</h2><span>{lessonCountText(selectedLessons.length, language)}</span></div>
         {loading ? <p className="muted">{t('common.loading')}</p>
           : selectedLessons.length ? <div className="lesson-agenda-list">{selectedLessons.map(renderLessonCard)}</div>
           : error ? <div className="teacher-empty-state"><button className="btn btn--secondary" type="button" onClick={() => void loadAll()}>{language === 'DE' ? 'Erneut versuchen' : 'Повторить загрузку'}</button></div>

@@ -1,6 +1,8 @@
-export type TeacherIconName = 'students' | 'parents' | 'groups' | 'lessons' | 'video' | 'skills' | 'settings' | 'more' | 'logout' | 'search' | 'workbook' | 'homework' | 'difficulties' | 'transcript' | 'completed';
+export type TeacherIconName = 'students' | 'parents' | 'groups' | 'lessons' | 'video' | 'skills' | 'settings' | 'more' | 'logout' | 'search' | 'workbook' | 'homework' | 'difficulties' | 'transcript' | 'completed' | 'chevronLeft' | 'chevronRight';
 
 const paths: Record<TeacherIconName, string[]> = {
+  chevronLeft: ['m15 18-6-6 6-6'],
+  chevronRight: ['m9 18 6-6-6-6'],
   workbook: ['M12 7v14', 'M3 3h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5v17h-5a4 4 0 0 0-4 1 4 4 0 0 0-4-1H3Z'],
   homework: ['M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4', 'm16 3 5 5-9 9-5 1 1-5Z', 'm14 5 5 5'],
   difficulties: ['M21 11.5a8.5 8.5 0 0 1-8.5 8.5H8l-5 2 2-5v-5.5A8.5 8.5 0 0 1 13.5 3H15', 'M20 3v5', 'M20 11h.01'],
