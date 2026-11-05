@@ -16,6 +16,7 @@ import './pdf-homework.css';
 import './student-menu.css';
 import './student-today-status.css';
 import './teacher-theme.css';
+import './teacher-redesign.css';
 
 // mindcrafti.de is served by a host that can return its root document but does
 // not consistently fall back to index.html for direct client-side routes such

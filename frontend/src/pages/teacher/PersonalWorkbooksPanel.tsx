@@ -97,46 +97,10 @@ export function PersonalWorkbooksPanel({ eventId }: { eventId: string }) {
     }
   }
 
-  return <section className="panel" style={{ padding: 20, marginBottom: 18 }} aria-labelledby="personal-workbooks-title">
-    <h2 id="personal-workbooks-title" style={{ marginTop: 0 }}>{de ? 'Arbeitsblätter der Schüler' : 'Листы учеников'}</h2>
-    <p className="muted">{de
-      ? 'Die gemeinsame PDF erscheint unter „Gemeinsames Whiteboard“ und als Vorlage unter „Mein Whiteboard“. Ein persönliches Arbeitsblatt ersetzt diese Vorlage nur unter „Mein Whiteboard“ des ausgewählten Schülers. Andere Schüler behalten die gemeinsame Vorlage. Persönliche Notizen sind nur für den Schüler und dich sichtbar.'
-      : 'Общий PDF показывается в разделе «Общая доска» и служит основой для «Моя доска» каждого ученика. Персональный лист заменяет эту основу только в «Моя доска» выбранного ученика; у остальных остаётся общий PDF. Личные записи доступны только ученику и тебе.'}</p>
-    <p className="muted">{de ? 'Persönliche Lösungen bleiben privat. Beim Wechsel zu diesem Schüler zeigt die Lösungsleiste dessen eigenes PDF.'
-      : 'Решения каждого ученика видны только преподавателю. При переключении на ученика панель решений покажет его отдельный PDF.'}</p>
+  return <section className="workspace-personal" aria-label={de ? 'Persönliche Arbeitshefte' : 'Личные рабочие тетради'}>
     {!value.students.length && <p className="muted">{de ? 'Diesem Unterricht sind noch keine Schüler zugeordnet.' : 'К этому уроку ещё не привязаны ученики.'}</p>}
-    <div style={{ display: 'grid', gap: 12 }}>
-      {value.students.map(student => <div key={student.studentId} role="group" aria-label={student.studentName}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid #e5e7eb', borderRadius: 12, padding: 12 }}>
-        <div style={{ flex: '1 1 180px', overflowWrap: 'anywhere' }}>
-          <strong>{student.studentName}</strong>
-          <div className="muted" style={{ fontSize: 13 }}>{student.hasWorkbook ? student.filename : (de ? 'Kein persönliches Arbeitsblatt' : 'Персональный лист ещё не добавлен')}</div>
-        </div>
-        {student.hasWorkbook && <button type="button" className="button secondary" onClick={() => void open(student.studentId)}>{de ? 'Arbeitsblatt ansehen' : 'Посмотреть лист'}</button>}
-        <label className="button secondary" style={{ cursor: busy ? 'wait' : 'pointer' }}>
-          {busy === `${student.studentId}:workbook` ? (de ? 'Wird hochgeladen…' : 'Загрузка…') : student.hasWorkbook ? (de ? 'Arbeitsblatt ersetzen' : 'Заменить лист') : (de ? 'Arbeitsblatt hochladen' : 'Загрузить лист')}
-          <input type="file" accept="application/pdf,.pdf" disabled={busy !== null}
-            aria-label={`${de ? 'Arbeitsblatt für' : 'Лист для'} ${student.studentName}`}
-            style={{ display: 'none' }} onChange={event => {
-              const file = event.target.files?.[0];
-              event.target.value = '';
-              if (file) void upload(student.studentId, file);
-            }} />
-        </label>
-        <div style={{ flex: '1 1 180px', overflowWrap: 'anywhere' }}>
-          <strong>{de ? 'Lösungen · nur Lehrkraft' : 'Решения · только учителю'}</strong>
-          <div className="muted" style={{ fontSize: 13 }}>{student.hasAnswers ? student.answersFilename : (de ? 'Keine persönlichen Lösungen' : 'Персональные решения ещё не добавлены')}</div>
-        </div>
-        {student.hasAnswers && <button type="button" className="button secondary" onClick={() => void open(student.studentId, 'answers')}>
-          {de ? 'Lösungen ansehen' : 'Посмотреть решения'}</button>}
-        <label className="button secondary" style={{ cursor: busy ? 'wait' : 'pointer' }}>
-          {busy === `${student.studentId}:answers` ? (de ? 'Wird hochgeladen…' : 'Загрузка…')
-            : student.hasAnswers ? (de ? 'Lösungen ersetzen' : 'Заменить решения') : (de ? 'Lösungen hochladen' : 'Загрузить решения')}
-          <input type="file" accept="application/pdf,.pdf" disabled={busy !== null}
-            aria-label={`${de ? 'Lösungen für' : 'Решения для'} ${student.studentName}`} style={{ display: 'none' }}
-            onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void upload(student.studentId, file, 'answers'); }} />
-        </label>
-      </div>)}
+    <div className="workspace-pupils">
+      {value.students.map(student => <section key={student.studentId} className="workspace-pupil-card" aria-label={student.studentName}><h3>{student.studentName}</h3><div className="workspace-pupil-halves">{(['workbook','answers'] as const).map(kind=><div key={kind}><strong>{kind==='workbook' ? (de?'Arbeitsheft':'Рабочая тетрадь') : (de?'Lösungen':'Решения')}</strong><p className="muted">{(kind==='workbook'?student.filename:student.answersFilename) || (de?'Noch keine Datei':'Файл пока не добавлен')}</p><div className="workspace-actions">{(kind==='workbook'?student.hasWorkbook:student.hasAnswers) && <button type="button" className="btn btn--secondary" disabled={busy!==null} onClick={()=>void open(student.studentId,kind)}>{de?'Öffnen':'Открыть'}</button>}<label className="btn btn--secondary">{de?'PDF hinzufügen':'Добавить PDF'}<input type="file" accept="application/pdf,.pdf" hidden disabled={busy!==null} aria-label={`${kind==='workbook'?(de?'Arbeitsblatt für':'Лист для'):(de?'Lösungen für':'Решения для')} ${student.studentName}`} onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void upload(student.studentId,file,kind);}} /></label></div></div>)}</div></section>)}
     </div>
     {notice && <p role="status">{notice}</p>}
     {error && <p role="alert" style={{ color: '#b91c1c' }}>{error}</p>}

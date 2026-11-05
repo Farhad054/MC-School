@@ -2,7 +2,6 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
 import { teacherParentApi } from '../../api/parent';
 import type { ParentAccount, StudentListItem } from '../../api/types';
-import { ParentTeacherChat } from '../../components/ParentTeacherChat';
 import { useI18n } from '../../i18n/I18nContext';
 
 export function TeacherParentsPage() {
@@ -14,7 +13,8 @@ export function TeacherParentsPage() {
   const [createdAccess, setCreatedAccess] = useState<{ username: string; password: string } | null>(null);
   const [selectedStudents, setSelectedStudents] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [openChatStudentId, setOpenChatStudentId] = useState<string | null>(null);
+
+  const [menuId, setMenuId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -57,8 +57,8 @@ export function TeacherParentsPage() {
     }
   }
 
-  async function linkStudent(parent: ParentAccount) {
-    const studentId = selectedStudents[parent.id];
+  async function linkStudent(parent: ParentAccount, selectedId?: string) {
+    const studentId = selectedId || selectedStudents[parent.id];
     if (!studentId) return;
     const student = students.find((item) => item.id === studentId);
     if (!student) return;
@@ -128,8 +128,8 @@ export function TeacherParentsPage() {
         <div><h1>{language === 'DE' ? 'Eltern' : 'Родители'}</h1>
         <p>
           {language === 'DE'
-            ? 'Erstelle Elternkonten, verknüpfe Kinder und schreibe direkt mit den Eltern.'
-            : 'Создавайте аккаунты родителей, привязывайте учеников и общайтесь с родителями прямо здесь.'}
+            ? 'Eltern und ihre Kinder.'
+            : 'Родители и их ученики.'}
         </p></div>
         <button className="btn" type="button" aria-expanded={createOpen} aria-controls="teacher-add-parent" onClick={() => setCreateOpen(!createOpen)}>
           {createOpen ? (language === 'DE' ? 'Schließen' : 'Закрыть') : (language === 'DE' ? '+ Eltern hinzufügen' : '+ Добавить родителя')}
@@ -221,7 +221,7 @@ export function TeacherParentsPage() {
         <div className="teacher-student-list">
           {parents.map((parent, index) => {
             const availableStudents = students.filter((student) => student.parentId !== parent.id);
-            const openChild = parent.children.find((child) => child.id === openChatStudentId) ?? null;
+
             return (
               <article key={parent.id} className="teacher-student-card" style={{ flexWrap: 'wrap' }}>
                 <div className={`teacher-student-avatar teacher-student-avatar--${index % 4}`}>
@@ -239,72 +239,12 @@ export function TeacherParentsPage() {
                       ? `${language === 'DE' ? 'Kinder' : 'Дети'}: ${parent.children.map((child) => child.fullName).join(', ')}`
                       : (language === 'DE' ? 'Noch kein Schüler verknüpft' : 'Ученик ещё не привязан')}
                   </div>
-                  {parent.children.length > 0 && (
-                    <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                      {parent.children.map((child) => (
-                        <button
-                          key={child.id}
-                          type="button"
-                          className={openChatStudentId === child.id ? 'btn' : 'btn btn--secondary'}
-                          onClick={() => setOpenChatStudentId((current) => current === child.id ? null : child.id)}
-                        >
-                          {language === 'DE' ? `Chat: ${child.fullName}` : `Чат: ${child.fullName}`}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+
                 </div>
 
-                <div className="teacher-student-stats" style={{ minWidth: 260 }}>
-                  <label className="field" style={{ margin: 0 }}>
-                    <span className="field__label">{language === 'DE' ? 'Schüler verknüpfen' : 'Привязать ученика'}</span>
-                    <select
-                      className="input"
-                      value={selectedStudents[parent.id] ?? ''}
-                      onChange={(event) => setSelectedStudents((current) => ({
-                        ...current,
-                        [parent.id]: event.target.value,
-                      }))}
-                    >
-                      <option value="">{language === 'DE' ? 'Schüler auswählen…' : 'Выберите ученика…'}</option>
-                      {availableStudents.map((student) => (
-                        <option key={student.id} value={student.id}>
-                          {student.fullName}{student.parentFullName ? ` — ${language === 'DE' ? 'aktuell' : 'сейчас'}: ${student.parentFullName}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
-                    disabled={!selectedStudents[parent.id] || busyId === parent.id}
-                    onClick={() => void linkStudent(parent)}
-                  >
-                    {language === 'DE' ? 'Verknüpfen' : 'Привязать'}
-                  </button>
-                </div>
+                <div className="teacher-parent-pupil">{parent.children.length ? parent.children.map(child=>child.fullName).join(', ') : <select className="input" aria-label={`${language === 'DE' ? 'Schüler für' : 'Ученик для'} ${parent.fullName}`} disabled={busyId === parent.id} value="" onChange={e=>void linkStudent(parent,e.target.value)}><option value="">{language === 'DE' ? 'Schüler auswählen' : 'Выбрать ученика'}</option>{availableStudents.map(student=><option value={student.id} key={student.id}>{student.fullName}</option>)}</select>}</div>
+                <div className="teacher-student-menu-wrap"><button type="button" className="teacher-more-btn" aria-label={`${language==='DE'?'Einstellungen':'Настройки'}: ${parent.fullName}`} aria-expanded={menuId===parent.id} onClick={()=>setMenuId(menuId===parent.id?null:parent.id)}>⋯</button>{menuId===parent.id && <div className="teacher-student-menu"><button type="button" disabled={busyId===parent.id} onClick={()=>{setMenuId(null);void changePassword(parent);}}>{language==='DE'?'Passwort festlegen/ändern':'Задать/изменить пароль'}</button></div>}</div>
 
-                <div className="teacher-student-actions">
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    disabled={busyId === parent.id}
-                    onClick={() => void changePassword(parent)}
-                  >
-                    {language === 'DE' ? 'Passwort ändern' : 'Изменить пароль'}
-                  </button>
-                </div>
-
-                {openChild && (
-                  <div style={{ width: '100%', flexBasis: '100%', gridColumn: '1 / -1', marginTop: 14 }}>
-                    <ParentTeacherChat
-                      studentId={openChild.id}
-                      studentName={openChild.fullName}
-                      language={language}
-                      viewerRole="TEACHER"
-                    />
-                  </div>
-                )}
               </article>
             );
           })}

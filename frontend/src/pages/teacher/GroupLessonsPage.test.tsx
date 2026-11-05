@@ -18,6 +18,8 @@ vi.mock('../../api/client', async (importOriginal) => {
   } };
 });
 
+vi.mock('../../api/lessonPreparation',()=>({lessonPreparationApi:{get:vi.fn().mockResolvedValue({hasWorkbook:false,hasAnswers:false})}}));
+
 const lessonApi = vi.mocked(api.lessons);
 const trialNameLabel = 'Имя ученика';
 const durationLabel = 'Длительность урока, минут';
@@ -196,7 +198,7 @@ describe('native lesson schedule', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить урок' }));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Урок создан: Тестовая группа'));
     expect(lessonApi.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'Тестовая группа', groupId: 'group-1', studentId: null }));
-    expect(screen.getByLabelText('Перейти к дате')).toHaveValue(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date));
+    expect(within(screen.getByRole('group', { name: 'Выбрать день уроков' })).getByRole('button', { pressed: true })).toHaveTextContent(new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Berlin', day: 'numeric' }).format(date));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -241,7 +243,7 @@ describe('native lesson schedule', () => {
     fireEvent.change(screen.getByLabelText(timeLabel), { target: { value: '15:00' } });
     await chooseTarget('group:group-1');
     fireEvent.change(screen.getByLabelText('Дата урока'), { target: { value: '2026-10-22' } });
-    await userEvent.click(screen.getByRole('button', { name: 'Месяц', pressed: false }));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Месяц', pressed: false }));
     expect(screen.getByRole('checkbox', { name: 'Четверг' })).toBeChecked();
     expect(screen.getByRole('list', { name: 'Даты уроков' }).children).toHaveLength(5);
     expect(screen.getByRole('status')).toHaveTextContent('Период: 22.10.2026 — 21.11.2026');
@@ -358,9 +360,11 @@ describe('native lesson schedule', () => {
     const view = renderPage();
     const trigger = await screen.findByRole('button', { name: 'Запланировать урок' });
     await waitFor(() => expect(trigger).toBeEnabled());
-    fireEvent.change(screen.getByLabelText('Перейти к дате'), { target: { value: '2026-11-19' } });
+    const today = new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    const nextWeek = new Date(today+'T12:00:00Z'); nextWeek.setUTCDate(nextWeek.getUTCDate()+7);
+    await userEvent.click(screen.getByRole('button',{name:'Следующая неделя'}));
     await userEvent.click(trigger);
-    expect(screen.getByLabelText('Дата урока')).toHaveValue('2026-11-19');
+    expect(screen.getByLabelText('Дата урока')).toHaveValue(nextWeek.toISOString().slice(0,10));
     view.unmount();
     expect(document.body.style.overflow).toBe('');
   });
@@ -493,6 +497,19 @@ describe('native lesson schedule', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('combobox', { name: 'Найти ученика' }));
     expect(screen.getByText(/Учеников пока нет/)).toBeInTheDocument();
+  });
+
+  it('switches to a real month and keeps navigation and lesson selection working', async()=>{
+    lessonApi.groupLessons.mockResolvedValue([lesson()]);
+    renderPage();await screen.findByText('Математика без Google');
+    await userEvent.click(screen.getByRole('button',{name:'Месяц'}));
+    expect(screen.queryByLabelText('Перейти к дате')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group',{name:'Выбрать день уроков'})).getAllByRole('button').length).toBeGreaterThanOrEqual(28);
+    await userEvent.click(screen.getByRole('button',{name:'Следующий месяц'}));
+    expect(screen.queryByText('Математика без Google')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button',{name:'Предыдущий месяц'}));
+    expect(screen.getByText('Математика без Google')).toBeInTheDocument();
+    expect(localStorage.getItem('mindcrafti.calendarView')).toBe('month');
   });
 
 });

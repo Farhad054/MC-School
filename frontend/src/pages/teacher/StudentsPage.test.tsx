@@ -9,7 +9,7 @@ import { StudentsPage } from './StudentsPage';
 vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
   return { ...actual, api: { ...actual.api,
-    students: { ...actual.api.students, list: vi.fn(), create: vi.fn(), reviewHistory: vi.fn() },
+    students: { ...actual.api.students, list: vi.fn(), create: vi.fn(), updateLearningProfile: vi.fn().mockResolvedValue({}), reviewHistory: vi.fn() },
     cards: { ...actual.api.cards, summaryForStudent: vi.fn() },
     homeworks: { ...actual.api.homeworks, listForStudent: vi.fn() },
   } };

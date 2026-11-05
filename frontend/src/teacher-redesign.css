@@ -1,0 +1,109 @@
+/* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell{grid-template-columns:90px minmax(0,1fr)}
+.teacher-shell[data-theme="light"]{--bg:#f7f8fa;--surface:#fff;--border:#e8eaee;--text:#101322;--muted:#697484;--danger:#bf3838;--green-dark:#277552;--teacher-raised:#f1f3f5;--teacher-selected:#fff3e8;--teacher-selected-text:#b34400;--teacher-selected-border:#ffd5b6;--teacher-success:#edf6f0;--teacher-success-text:#277552;--teacher-error:#fff0f0;--teacher-error-text:#bf3838;color-scheme:light}
+body:has(.teacher-shell){background:var(--teacher-bg,#f7f8fa)}
+.teacher-shell .teacher-sidebar{padding:22px 6px 14px;gap:24px}
+.teacher-shell .teacher-brand{flex-direction:column;gap:7px;text-align:center}
+.teacher-shell .teacher-brand__logo{width:34px;height:30px}
+.teacher-shell .teacher-brand__text{font-size:12px;font-weight:650}
+.teacher-shell .teacher-brand__text small{font-size:8px;letter-spacing:2px}
+.teacher-shell .teacher-nav-item{display:flex;flex-direction:column;justify-content:center;text-align:center;min-height:69px;padding:10px 3px;gap:7px;font-size:11px;line-height:1.35}
+.teacher-shell .teacher-nav-item svg{width:23px;height:23px}
+.teacher-shell .teacher-account{flex-direction:column;gap:9px;padding:12px 0 0}
+.teacher-shell .teacher-profile__text{display:none}
+.teacher-shell .teacher-topbar{height:56px;padding:12px 26px;border-bottom:1px solid var(--border);background:var(--surface)}
+.teacher-shell .teacher-content{width:100%;max-width:1600px;padding:26px 28px 32px}
+.teacher-shell .teacher-content .btn{background:var(--teacher-selected);color:var(--teacher-selected-text);border:1px solid var(--teacher-selected-border);min-height:42px}
+.teacher-shell .teacher-content .btn--secondary,.teacher-shell .teacher-content .btn--ghost{background:var(--surface);color:var(--text);border-color:var(--border)}
+.teacher-shell .teacher-content .btn:hover:not(:disabled){background:var(--teacher-raised);color:var(--text)}
+.teacher-shell .panel{box-shadow:none;border:1px solid var(--border);background:var(--surface);border-radius:17px}
+.teacher-shell .teacher-student-list--cards{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:17px;background:var(--surface)}
+.teacher-shell .teacher-student-list--cards .teacher-student-card{display:grid;grid-template-columns:42px minmax(0,1fr) 36px;align-items:center;padding:18px 20px;border:0;border-bottom:1px solid var(--border);border-radius:0;gap:15px;background:transparent}
+.teacher-shell .teacher-student-list--cards .teacher-student-card:last-child{border-bottom:0}
+.teacher-shell .teacher-student-list--cards .teacher-student-stats,.teacher-shell .teacher-student-list--cards .teacher-student-footer,.teacher-shell .teacher-student-list--cards .teacher-student-extra{display:none}
+.teacher-shell .teacher-student-list--cards .teacher-student-menu-wrap{grid-row:1;grid-column:3}
+.teacher-shell .teacher-student-list--cards .teacher-student-avatar{width:42px;height:42px;background:var(--teacher-raised);color:var(--muted)}
+.teacher-shell .teacher-student-list--cards .teacher-student-name{font-size:15px}
+.teacher-shell .teacher-students-page{position:relative}
+.teacher-shell .teacher-student-popover{position:absolute;right:0;top:66px;width:400px;max-width:100%;z-index:30;border:1px solid var(--border);background:var(--surface);box-shadow:0 16px 45px #0002;padding:22px;border-radius:17px}
+.teacher-shell .teacher-popover-close{position:absolute;right:10px;top:8px}
+.teacher-shell .teacher-create-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.teacher-shell .teacher-group-stats{display:none}
+.teacher-shell .teacher-parent-pupil{margin-left:auto;min-width:150px;max-width:40%;font-size:13px}
+.teacher-shell .teacher-student-card:has(.teacher-parent-pupil){flex-wrap:nowrap!important}
+.teacher-shell .teacher-student-card:has(.teacher-parent-pupil) .teacher-student-main .teacher-student-meta{display:none}
+.teacher-shell .teacher-groups-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+.teacher-shell .lesson-agenda-integration{display:none}
+.teacher-shell .calendar-view-control{display:flex;align-items:flex-end;flex-direction:column;gap:6px;margin:0 0 16px;font-size:12px;color:var(--muted)}
+.teacher-shell .calendar-view-control>div{display:flex;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:11px}
+.teacher-shell .calendar-view-control .btn{border:0;background:transparent;min-width:76px;min-height:36px}
+.teacher-shell .calendar-view-control .btn[aria-pressed="true"]{background:var(--teacher-selected);color:var(--teacher-selected-text)}
+.teacher-shell .lesson-agenda-days{background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:8px}
+.teacher-shell .lesson-agenda-day{background:transparent;color:var(--muted)}
+.teacher-shell .lesson-agenda-day[aria-pressed="true"]{background:var(--teacher-selected);color:var(--teacher-selected-text);border-color:transparent}
+.teacher-shell .lesson-agenda-days--month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.teacher-shell .lesson-agenda-days--month .lesson-agenda-day{min-height:62px}
+.teacher-shell .lesson-agenda-card{background:var(--surface);border:1px solid var(--border);border-radius:15px;box-shadow:none}
+.teacher-shell .lesson-workspace .teacher-page-heading{margin:10px 0 16px}
+.teacher-shell .lesson-workspace .teacher-page-heading h1{font-size:25px}
+.teacher-shell .workspace-back{font-size:12px;color:var(--muted);text-decoration:none}
+.teacher-shell .workspace-summary{display:flex;align-items:center;gap:18px;padding:17px 20px;margin-bottom:18px}
+.teacher-shell .workspace-summary>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.teacher-shell .workspace-summary span{font-size:12px;color:var(--muted)}
+.teacher-shell .workspace-summary strong{font-size:14px;font-weight:550}
+.teacher-shell .workspace-summary>.btn{margin-left:auto}
+.teacher-shell .workspace-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+.teacher-shell .workspace-materials{display:flex;flex-direction:column;gap:14px;min-width:0}
+.teacher-shell .workspace-info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:stretch}
+.teacher-shell .teacher-content .workspace-card{padding:16px;margin:0;min-width:0;overflow-wrap:anywhere;background:var(--surface)}
+.teacher-shell .workspace-card-heading{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+.teacher-shell .workspace-card-heading>span{display:grid;place-items:center;width:32px;height:32px;flex:none;background:var(--teacher-selected);color:var(--teacher-selected-text);border-radius:10px;font-size:20px}
+.teacher-shell .workspace-card-heading h2{font-size:14px;line-height:1.35;margin:0}
+.teacher-shell .workspace-filename{font-size:12px;margin:0 0 12px;overflow-wrap:anywhere}
+.teacher-shell .workspace-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.teacher-shell .workspace-info-grid .workspace-actions{flex-direction:column;align-items:stretch}
+.teacher-shell .workspace-card .btn{font-size:11px;padding:7px 9px;min-height:36px;white-space:normal}
+.teacher-shell .workspace-note{width:100%;height:100px;min-height:70px;resize:vertical;font:inherit;font-size:12px;margin-bottom:10px}
+.teacher-shell .workspace-answers{border-top:1px solid var(--border);margin-top:12px;padding-top:10px;font-size:12px}
+.teacher-shell .workspace-answers summary{margin-bottom:10px}
+.teacher-shell .workspace-document{border:0;background:transparent;color:var(--teacher-selected-text);font:inherit;font-size:12px;text-align:left;padding:5px 0;overflow-wrap:anywhere}
+.teacher-shell .workspace-document-list{display:flex;flex-direction:column;margin-bottom:10px}
+.teacher-shell .workspace-transcript{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.teacher-shell .workspace-personal{border:0;padding:0;margin:0}
+.teacher-shell .lesson-workspace .teacher-page-heading{margin:7px 0 12px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-card-heading{flex-direction:row;align-items:center}
+.teacher-shell .workspace-materials>.workspace-card{padding:12px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-filename{margin-bottom:8px}
+.teacher-shell .workspace-materials .workspace-answers{margin-top:8px;padding-top:7px}
+.teacher-shell .workspace-pupil-card{padding:10px 12px!important}
+.teacher-shell .workspace-pupil-card h3{margin-bottom:7px!important}
+.teacher-shell .workspace-pupil-halves>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center}
+.teacher-shell .workspace-pupil-halves>div>strong{grid-column:1;grid-row:1;font-size:11px}
+.teacher-shell .workspace-pupil-halves>div>.muted{grid-column:1;grid-row:2;margin:0!important;font-size:11px}
+.teacher-shell .workspace-pupil-halves>div>.workspace-actions{grid-column:2;grid-row:1/3;flex-direction:column;gap:4px}
+.teacher-shell .workspace-pupil-halves .btn{min-height:32px!important;padding:5px 7px!important}
+.teacher-shell .workspace-pupils{display:grid;gap:12px}
+.teacher-shell .workspace-pupil-card{border:1px solid var(--border);border-radius:15px;padding:14px;background:var(--surface);min-width:0}
+.teacher-shell .workspace-pupil-card h3{margin:0 0 10px;font-size:14px}
+.teacher-shell .workspace-pupil-halves{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.teacher-shell .workspace-pupil-halves>div{min-width:0;font-size:12px;overflow-wrap:anywhere}
+.teacher-shell .workspace-pupil-halves>div+div{border-left:1px solid var(--border);padding-left:12px}
+.teacher-shell .workspace-pupil-halves .muted{font-size:11px;margin:6px 0 9px}
+.teacher-shell .workspace-pupil-halves .btn{font-size:11px;padding:6px 8px;min-height:36px}
+.teacher-shell .material-reminder,.teacher-shell .material-ready{display:inline-flex;font-size:12px;padding:5px 8px;border-radius:7px;margin-top:6px;background:var(--teacher-success);color:var(--teacher-success-text)}
+.teacher-shell .material-reminder{background:var(--teacher-error);color:var(--teacher-error-text)}
+.teacher-shell .workspace-pupil{display:grid!important;grid-template-columns:1fr 1fr;gap:9px!important;padding:14px!important;border:1px solid var(--border)!important;border-radius:15px!important;background:var(--surface)}
+.teacher-shell .workspace-pupil>div:first-child{grid-column:1/-1}
+.teacher-shell .workspace-pupil>div:first-child>strong{font-size:14px}
+.teacher-shell .workspace-pupil>div:nth-of-type(2){grid-column:2;grid-row:2}
+.teacher-shell .workspace-pupil .muted{font-size:11px!important}
+.teacher-shell .workspace-pupil .button{font-size:11px;padding:7px;border:1px solid var(--border);background:var(--teacher-raised);color:var(--text);border-radius:8px;text-align:center}
+.teacher-shell .workspace-homework-dialog{padding:24px;width:min(700px,calc(100% - 30px));max-height:90dvh;overflow:auto;border:1px solid var(--border);border-radius:18px;background:var(--surface);color:var(--text)}
+.teacher-shell .workspace-homework-dialog::backdrop{background:#0007}
+.teacher-shell .workspace-dialog-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+.teacher-shell .workspace-homework-dialog .panel{margin:0;box-shadow:none;border:0;padding:0;background:transparent}
+@media(min-width:700px){.teacher-shell .teacher-sidebar .teacher-nav-item span{display:block}.teacher-shell .teacher-sidebar .teacher-brand__text{display:flex;flex-direction:column}.teacher-shell .teacher-sidebar .teacher-nav-item{min-height:65px}}
+@media(min-width:700px) and (max-width:1000px){.teacher-shell .workspace-pupil-halves>div{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.teacher-shell .workspace-pupil-halves>div>.workspace-actions{flex-direction:row;flex-wrap:wrap}.teacher-shell .workspace-pupil-halves>div>.muted{overflow-wrap:anywhere}.teacher-shell .workspace-note{height:112px}}
+@media(min-width:700px) and (max-width:1200px){.teacher-shell .teacher-content:has(.lesson-workspace){padding-top:12px;padding-bottom:14px}.teacher-shell .workspace-pupils{gap:8px}.teacher-shell .workspace-pupil-card{padding-top:8px!important;padding-bottom:8px!important}}
+@media(min-width:700px) and (max-width:1200px){.teacher-shell{grid-template-columns:90px minmax(0,1fr)}.teacher-shell .teacher-content{padding:20px}.teacher-shell .teacher-sidebar{display:flex}.teacher-shell .teacher-mobile-nav{display:none}.teacher-shell .teacher-topbar{height:48px;margin-bottom:0}.teacher-shell .workspace-columns{gap:14px}.teacher-shell .workspace-info-grid{gap:10px}.teacher-shell .teacher-content .workspace-card{padding:12px}.teacher-shell .workspace-card-heading{flex-direction:column;align-items:flex-start;gap:7px}.teacher-shell .workspace-note{height:84px}.teacher-shell .workspace-summary{padding:13px;gap:12px}.teacher-shell .workspace-summary strong{font-size:12px}.teacher-shell .teacher-nav-item{min-height:65px}}
+@media(max-width:699px){.teacher-shell{display:block}.teacher-shell .workspace-columns{grid-template-columns:1fr}.teacher-shell .workspace-summary{flex-wrap:wrap}.teacher-shell .workspace-summary>.btn{width:100%;margin:0}.teacher-shell .workspace-info-grid{grid-template-columns:1fr}.teacher-shell .teacher-content{padding:16px 14px 100px}.teacher-shell .teacher-sidebar{display:none}.teacher-shell .teacher-parent-pupil{max-width:100%;min-width:0}.teacher-shell .teacher-student-card:has(.teacher-parent-pupil){flex-wrap:wrap!important}.teacher-shell .workspace-note{font-size:16px}.teacher-shell .workspace-actions{flex-direction:column;align-items:stretch}}

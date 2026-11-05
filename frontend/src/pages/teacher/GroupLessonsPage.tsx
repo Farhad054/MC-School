@@ -34,6 +34,8 @@ const SONIOX_NOTIFICATION_PREFIX = 'mindcrafti.sonioxStopNotification.';
 
 export function GroupLessonsPage() {
   const { language, t } = useI18n();
+  const [calendarView, setCalendarView] = useState<'week' | 'month'>(() => localStorage.getItem('mindcrafti.calendarView') === 'month' ? 'month' : 'week');
+  const [readiness, setReadiness] = useState<Record<string, boolean>>({});
   const [connection, setConnection] = useState<GoogleCalendarConnection | null>(null);
   const [teacher, setTeacher] = useState<User | null>(null);
   const [lessons, setLessons] = useState<GroupLesson[]>([]);
@@ -190,12 +192,16 @@ export function GroupLessonsPage() {
     return map;
   }, [lessons]);
 
-  const scheduleDays = useMemo<ScheduleDay[]>(() => Array.from({ length: 7 }, (_, offset) => {
-    const date = addDays(weekCursor, offset);
-    const key = localDateKey(date);
-    return { key, date, lessons: lessonsByDay.get(key) ?? [] };
-  }), [weekCursor, lessonsByDay]);
+  const scheduleDays = useMemo<ScheduleDay[]>(() => {
+    const selected = dateFromKey(selectedDayKey);
+    const first = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1));
+    const start = calendarView === 'month' ? startOfWeekMonday(first) : weekCursor;
+    const count = calendarView === 'month' ? Math.ceil((((first.getUTCDay()+6)%7)+new Date(Date.UTC(selected.getUTCFullYear(),selected.getUTCMonth()+1,0)).getUTCDate())/7)*7 : 7;
+    return Array.from({length:count},(_,offset)=>{const date=addDays(start,offset);const key=localDateKey(date);return {key,date,lessons:lessonsByDay.get(key)??[]};});
+  }, [weekCursor, lessonsByDay, calendarView, selectedDayKey]);
   const selectedLessons = lessonsByDay.get(selectedDayKey) ?? [];
+  const visibleLessonIds = selectedLessons.map(item=>item.eventId).join('|');
+  useEffect(()=>{let cancelled=false;const ids=visibleLessonIds.split('|').filter(Boolean);void Promise.all(ids.map(async id=>{try{const prep=await lessonPreparationApi.get(id);return [id,prep.hasWorkbook && prep.hasAnswers] as const;}catch{return null;}})).then(rows=>{if(!cancelled)setReadiness(current=>({...current,...Object.fromEntries(rows.filter((row):row is readonly [string,boolean]=>row!==null))}));});return()=>{cancelled=true;};},[visibleLessonIds]);
   const selectedDate = dateFromKey(selectedDayKey);
   const todayKey = berlinDateKey(new Date().toISOString());
   function selectDate(key: string) {
@@ -203,7 +209,7 @@ export function GroupLessonsPage() {
     setWeekCursor(startOfWeekMonday(dateFromKey(key)));
     setExpandedLessonId(null);
   }
-  function moveWeek(offset: number) { selectDate(localDateKey(addDays(selectedDate, offset * 7))); }
+  function moveWeek(offset: number) { if(calendarView === 'week') { selectDate(localDateKey(addDays(selectedDate, offset * 7))); return; } const first=new Date(Date.UTC(selectedDate.getUTCFullYear(),selectedDate.getUTCMonth()+offset,1)); const last=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate(); first.setUTCDate(Math.min(selectedDate.getUTCDate(),last)); selectDate(localDateKey(first)); }
 
   const returnedLesson = returnedLessonId ? lessons.find((lesson) => lesson.eventId === returnedLessonId) ?? null : null;
   const returnedGroup = returnedLesson?.groupId
@@ -356,6 +362,7 @@ export function GroupLessonsPage() {
           </div>
           <div className="lesson-agenda-card__info">
             <h3>{lesson.title}</h3><p>{kind}{lesson.meetUrl ? ' · Google Meet' : ''}</p>
+            {readiness[lesson.eventId] !== undefined && <span className={readiness[lesson.eventId] ? 'material-ready' : 'material-reminder'}>{readiness[lesson.eventId] ? (language==='DE'?'Materialien bereit':'Материалы готовы') : (language==='DE'?'⚠ Materialien fehlen':'⚠ Материалы не готовы')}</span>}
             <span className={'lesson-agenda-status' + (past ? ' is-past' : '')}>{past ? (language === 'DE' ? 'Vergangen' : 'Прошедший') : (language === 'DE' ? 'Geplant' : 'Запланирован')}</span>
           </div>
           <div className="lesson-agenda-card__actions">
@@ -415,7 +422,7 @@ export function GroupLessonsPage() {
   return (
     <div className="teacher-lessons-page">
       <div className="teacher-page-heading lesson-agenda-heading">
-        <div><h1>{language === 'DE' ? 'Unterricht' : 'Уроки'}</h1>
+        <div><h1>{language === 'DE' ? 'Online-Unterricht' : 'Онлайн-уроки'}</h1>
           <p>{language === 'DE' ? 'Stundenplan und Unterrichtsmaterialien' : 'Расписание и переход к материалам урока'}</p>
         </div>
         <CreateLessonPanel students={students} groups={groups} selectedDate={selectedDayKey} disabled={loading} onCreated={async (created) => {
@@ -459,19 +466,17 @@ export function GroupLessonsPage() {
         </div>
       )}
 
+      <div className="calendar-view-control"><span>{language === 'DE' ? 'Kalenderansicht' : 'Вид календаря'}</span><div role="group" aria-label={language === 'DE' ? 'Kalenderansicht' : 'Вид календаря'}>{(['week','month'] as const).map(view=><button className="btn btn--secondary" type="button" key={view} aria-pressed={calendarView===view} onClick={()=>{setCalendarView(view);localStorage.setItem('mindcrafti.calendarView',view);}}>{view==='week' ? (language==='DE'?'Woche':'Неделя') : (language==='DE'?'Monat':'Месяц')}</button>)}</div></div>
       <section className="lesson-agenda" aria-label={language === 'DE' ? 'Unterrichtsplan' : 'Расписание уроков'} aria-busy={loading}>
         <div className="lesson-agenda-navigation">
-          <button className="lesson-agenda-arrow" type="button" aria-label={language === 'DE' ? 'Vorherige Woche' : 'Предыдущая неделя'} onClick={() => moveWeek(-1)}>‹</button>
-          <label className="lesson-agenda-month" title={language === 'DE' ? 'Datum auswählen' : 'Выбрать дату'}>
-            <strong>{formatMonthTitle(selectedDate, language)}</strong>
-            <input type="date" aria-label={language === 'DE' ? 'Zu Datum wechseln' : 'Перейти к дате'} value={selectedDayKey} onClick={(event) => event.currentTarget.showPicker?.()} onChange={(event) => { if (event.target.value) selectDate(event.target.value); }} />
-          </label>
-          <button className="lesson-agenda-arrow" type="button" aria-label={language === 'DE' ? 'Nächste Woche' : 'Следующая неделя'} onClick={() => moveWeek(1)}>›</button>
+          <button className="lesson-agenda-arrow" type="button" aria-label={calendarView==='month' ? (language==='DE'?'Vorheriger Monat':'Предыдущий месяц') : (language==='DE'?'Vorherige Woche':'Предыдущая неделя')} onClick={() => moveWeek(-1)}>‹</button>
+          <strong className="lesson-agenda-month">{formatMonthTitle(selectedDate,language)}</strong>
+          <button className="lesson-agenda-arrow" type="button" aria-label={calendarView==='month' ? (language==='DE'?'Nächster Monat':'Следующий месяц') : (language==='DE'?'Nächste Woche':'Следующая неделя')} onClick={() => moveWeek(1)}>›</button>
         </div>
-        <div className="lesson-agenda-days" role="group" aria-label={language === 'DE' ? 'Unterrichtstag auswählen' : 'Выбрать день уроков'}>
+        <div className={"lesson-agenda-days" + (calendarView === 'month' ? ' lesson-agenda-days--month' : '')} role="group" aria-label={language === 'DE' ? 'Unterrichtstag auswählen' : 'Выбрать день уроков'}>
           {scheduleDays.map((day, index) => <button type="button" key={day.key} className={'lesson-agenda-day' + (day.key === todayKey ? ' is-today' : '')}
             aria-pressed={selectedDayKey === day.key} aria-label={formatAgendaDate(day.key, language) + ', ' + lessonCountText(day.lessons.length, language)} onClick={() => selectDate(day.key)}>
-            <span>{weekdayLabels(language)[index]}</span><strong>{day.date.getUTCDate()}</strong>
+            <span>{weekdayLabels(language)[index % 7]}</span><strong>{day.date.getUTCDate()}</strong>
             <i className={day.lessons.length > 0 ? 'has-lessons' : ''} aria-hidden="true" />
           </button>)}
         </div>
