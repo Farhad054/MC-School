@@ -1,4 +1,10 @@
 /* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day{border:0;box-shadow:none;background:transparent}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day:hover{background:var(--teacher-raised)}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day[aria-pressed="true"]{background:var(--teacher-selected);color:var(--teacher-selected-text)}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day>i{visibility:hidden;opacity:1;background:var(--muted)}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day>i.has-lessons{visibility:visible}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day[aria-pressed="true"]>i{background:var(--teacher-selected-text)}
 .teacher-shell .teacher-parent-list{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:17px;background:var(--surface)}
 .teacher-shell .teacher-parent-list .teacher-student-card{border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none}
 .teacher-shell .teacher-parent-list .teacher-student-card:last-child{border-bottom:0}
