@@ -49,6 +49,7 @@ Private teacher answers remain staff-only. Active teachers can use personal tool
 The backend image installs the pinned Node dependencies and Python renderer/QA dependencies.
 `MINDCRAFTI_WORKBOOK_MODULES` points to the installed `node_modules` directory
 (default `/opt/mindcrafti-workbook/node_modules`). Jobs use isolated temporary directories and bounded execution time.
+Each backend instance admits at most two concurrent render jobs; a busy renderer returns 503 before reading the Brand Guide or creating a draft, and the unchanged request can be retried with the same idempotency key.
 For single-call server content generation configure `OPENAI_API_KEY` and `WORKBOOK_OPENAI_MODEL`
 (or reuse an explicitly configured `OPENAI_MODEL`). No model name is guessed.
 Missing configuration returns instructions for the ChatGPT-prepared JSON route; the service never substitutes a sample workbook.

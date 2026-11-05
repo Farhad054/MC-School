@@ -14,10 +14,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Semaphore;
 import javax.imageio.ImageIO;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -39,6 +42,7 @@ public class OwnerWorkbookPdfRenderService {
     private final ObjectMapper mapper;
     private final LessonPdfDraftService drafts;
     private final SchoolBrandGuideService brandGuide;
+    private final Semaphore renderSlots = new Semaphore(2);
 
     public OwnerWorkbookPdfRenderService(ObjectMapper mapper, LessonPdfDraftService drafts,
                                          SchoolBrandGuideService brandGuide) {
@@ -48,6 +52,19 @@ public class OwnerWorkbookPdfRenderService {
     }
 
     public Map<String, Object> create(AuthenticatedUser teacher, String eventId,
+                                      String lessonJson, String planSummary,
+                                      String difficultySummary) throws Exception {
+        if (!renderSlots.tryAcquire())
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Workbook renderer is busy. Retry the unchanged request with the same idempotencyKey after an active render finishes.");
+        try {
+            return render(teacher, eventId, lessonJson, planSummary, difficultySummary);
+        } finally {
+            renderSlots.release();
+        }
+    }
+
+    private Map<String, Object> render(AuthenticatedUser teacher, String eventId,
                                       String lessonJson, String planSummary,
                                       String difficultySummary) throws Exception {
         Objects.requireNonNull(teacher, "teacher");
