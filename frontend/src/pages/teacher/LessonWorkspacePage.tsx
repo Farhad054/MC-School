@@ -8,7 +8,6 @@ import type { GroupLesson, LessonPreparation } from '../../api/types';
 import { StartOnlineClassButton } from '../../features/online-classes/StartOnlineClassButton';
 import { LessonHomeworkSeriesPanel } from '../../components/LessonHomeworkSeriesPanel';
 import { PersonalWorkbooksPanel } from './PersonalWorkbooksPanel';
-import { GoogleDrivePdfPicker } from './GoogleDrivePdfPicker';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 
@@ -64,12 +63,12 @@ export function LessonWorkspacePage() {
   }
   function fileControls(kind: Kind) {
     const filename = kind === 'workbook' ? prep?.workbookFilename : kind === 'answers' ? prep?.answersFilename : prep?.transcriptFilename;
-    return <><div className="workspace-actions">
-      {filename && <button type="button" className="btn btn--secondary" disabled={busy} onClick={() => open(kind)}>{de ? 'Öffnen' : 'Открыть'}</button>}
-      <label className="btn btn--secondary">{de ? 'PDF hinzufügen' : 'Добавить PDF'}<input aria-label={`${de ? 'PDF hochladen' : 'Загрузить PDF'}: ${kind}`} type="file" accept="application/pdf,.pdf" disabled={busy} hidden onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void upload(kind, file); }} /></label>
-      {kind !== 'transcript' && <GoogleDrivePdfPicker disabled={busy} onSelect={file => upload(kind, file)} />}
-    </div><p className="muted workspace-filename">{filename || (de ? 'Noch keine Datei' : 'Файл пока не добавлен')}</p></>;
+    return <><p className="muted workspace-filename">{filename || (de?'Noch keine Datei':'Файл пока не добавлен')}</p><div className="workspace-actions">
+      <button type="button" className="btn btn--secondary" disabled={busy || !filename} onClick={()=>open(kind)}><TeacherIcon name="openFile"/>{de?'Arbeitsheft öffnen':'Открыть тетрадь'}</button>
+      <label className="btn btn--secondary"><TeacherIcon name="upload"/>{filename?(de?'Arbeitsheft ersetzen':'Заменить тетрадь'):(de?'Arbeitsheft hinzufügen':'Добавить тетрадь')}<input type="file" accept="application/pdf,.pdf" disabled={busy} hidden aria-label={de?'Arbeitsheft hochladen':'Загрузить тетрадь'} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void upload(kind,file);}}/></label>
+    </div></>;
   }
+
   async function save() {
     if (!prep) return;
     await perform(() => lessonPreparationApi.update(eventId, {
@@ -89,7 +88,7 @@ export function LessonWorkspacePage() {
     <section className="workspace-summary panel"><div><span>{de ? 'Teilnehmer' : 'Участники'}</span><strong>{lesson?.groupName || lesson?.studentName || (de ? 'Probestunde' : 'Пробный урок')}</strong></div><div><span>{de ? 'Format' : 'Формат'}</span><strong>{de ? 'Online' : 'Онлайн'} · {lesson ? Math.round((Date.parse(lesson.endsAt) - Date.parse(lesson.startsAt)) / 60000) : 60} {de ? 'Minuten' : 'минут'}</strong></div>
       {lesson && (import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true' ? <StartOnlineClassButton eventId={lesson.eventId} /> : lesson.meetUrl ? <a className="btn" href={lesson.meetUrl} target="_blank" rel="noreferrer">{de ? 'Online-Unterricht starten' : 'Начать онлайн-урок'}</a> : <Link className="btn" to={`/lesson-board/${encodeURIComponent(eventId)}`}>{de ? 'Tafel öffnen' : 'Открыть доску урока'}</Link>)}
     </section>
-    {prep && <div className="workspace-columns"><div className="workspace-materials"><WorkspaceCard title={de ? 'Gemeinsames Arbeitsheft' : 'Общая рабочая тетрадь'} symbol="workbook">{fileControls('workbook')}<details className="workspace-answers"><summary>{de ? 'Lösungen für die Lehrkraft' : 'Ответы для учителя'}</summary>{fileControls('answers')}</details></WorkspaceCard><PersonalWorkbooksPanel eventId={eventId} /></div>
+    {prep && <div className="workspace-columns"><div className="workspace-materials"><WorkspaceCard title={de ? 'Gemeinsames Arbeitsheft' : 'Общая рабочая тетрадь'} symbol="workbook">{fileControls('workbook')}</WorkspaceCard><PersonalWorkbooksPanel eventId={eventId} /></div>
       <div className="workspace-info-grid">
         <WorkspaceCard title={de ? 'Hausaufgaben' : 'Домашняя работа'} symbol="homework"><button type="button" className="btn btn--secondary" onClick={() => homeworkDialog.current?.showModal()}>{de ? 'Hausaufgaben vergeben' : 'Выдать домашку'}</button>{note('homeworkNotes')}</WorkspaceCard>
         <LessonCardsPanel lesson={lesson} />

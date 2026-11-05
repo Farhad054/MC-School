@@ -1,4 +1,24 @@
 /* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell .lesson-workspace .workspace-materials>.workspace-card{border-radius:22px;padding:20px 24px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-card-heading{gap:14px;margin-bottom:14px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-card-heading>span{width:45px;height:45px;border-radius:14px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-card-heading h2{font-size:16px}
+.teacher-shell .lesson-workspace .workspace-materials>.workspace-card .workspace-filename{font-size:13px;margin:0 0 16px}
+.teacher-shell .workspace-materials .workspace-actions .btn{min-height:44px;padding:10px 14px;font-size:13px;gap:9px}
+.teacher-shell .workspace-materials .workspace-actions .btn svg{width:19px;height:19px}
+.teacher-shell .workspace-materials .workspace-pupils{display:flex;flex-direction:column;gap:16px}
+.teacher-shell .workspace-materials .workspace-pupil-card{padding:20px 24px!important;border-radius:22px}
+.teacher-shell .workspace-pupil-heading{display:flex;align-items:center;gap:14px;margin-bottom:19px}
+.teacher-shell .workspace-pupil-heading>span{display:grid;place-items:center;width:45px;height:45px;border-radius:14px;background:var(--teacher-selected);color:var(--teacher-selected-text)}
+.teacher-shell .workspace-pupil-heading svg{width:24px;height:24px}
+.teacher-shell .workspace-pupil-heading h3{margin:0!important;font-size:16px}
+.teacher-shell .workspace-materials .workspace-pupil-halves{gap:18px}
+.teacher-shell .workspace-materials .workspace-pupil-halves>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center}
+.teacher-shell .workspace-materials .workspace-pupil-halves>div+div{padding-left:20px}
+.teacher-shell .workspace-materials .workspace-pupil-halves>div>strong{font-size:13px;overflow-wrap:normal}
+.teacher-shell .workspace-materials .workspace-pupil-halves>div>.muted{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.teacher-shell .workspace-materials .workspace-pupil-halves .btn{min-height:42px!important;padding:9px 12px!important;font-size:12px}
+@media(max-width:1000px){.teacher-shell .workspace-materials .workspace-pupil-card{padding:16px!important}.teacher-shell .workspace-materials .workspace-pupil-halves>div{display:flex;flex-direction:column;align-items:flex-start}.teacher-shell .workspace-pupil-heading{margin-bottom:12px}.teacher-shell .workspace-materials .workspace-pupil-halves{gap:12px}.teacher-shell .workspace-materials .workspace-pupil-halves>div+div{padding-left:12px}.teacher-shell .workspace-materials .workspace-actions .btn{font-size:11px;padding:8px 10px}}
 .teacher-shell .lesson-agenda-list{gap:16px}
 .teacher-shell .lesson-agenda-list .lesson-agenda-card{padding:0;border-radius:22px;overflow:visible}
 .teacher-shell .lesson-agenda-card__row{position:relative;display:block}

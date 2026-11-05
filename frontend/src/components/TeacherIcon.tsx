@@ -1,6 +1,9 @@
-export type TeacherIconName = 'students' | 'parents' | 'groups' | 'lessons' | 'video' | 'skills' | 'settings' | 'more' | 'logout' | 'search' | 'workbook' | 'homework' | 'difficulties' | 'transcript' | 'completed' | 'chevronLeft' | 'chevronRight';
+export type TeacherIconName = 'students' | 'parents' | 'groups' | 'lessons' | 'video' | 'skills' | 'settings' | 'more' | 'logout' | 'search' | 'workbook' | 'homework' | 'difficulties' | 'transcript' | 'completed' | 'chevronLeft' | 'chevronRight' | 'person' | 'openFile' | 'upload';
 
 const paths: Record<TeacherIconName, string[]> = {
+  person: ['M20 21v-2a8 8 0 0 0-16 0v2','M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8'],
+  openFile: ['M15 3h6v6','m21 3-10 10','M9 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4'],
+  upload: ['M12 16V3','m7 8 5-5 5 5','M3 16v4a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-4'],
   chevronLeft: ['m15 18-6-6 6-6'],
   chevronRight: ['m9 18 6-6-6-6'],
   workbook: ['M12 7v14', 'M3 3h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5v17h-5a4 4 0 0 0-4 1 4 4 0 0 0-4-1H3Z'],
