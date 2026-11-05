@@ -6,9 +6,12 @@ import com.mcschool.flashcard.notifications.WebPushService;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.UserRepository;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.sql.Timestamp;
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +50,7 @@ public class TrialLeadController {
             "CALENDAR_OPENED",
             "BOOKED",
             "CONTACTED",
+            "QUALIFIED_LEAD",
             "CONTRACT",
             "NO_RESPONSE",
             "DECLINED"
@@ -56,21 +60,24 @@ public class TrialLeadController {
     private final UserRepository userRepository;
     private final PushSubscriptionRepository subscriptionRepository;
     private final WebPushService webPushService;
+    private final MetaFunnelService metaFunnelService;
 
     public TrialLeadController(
             JdbcTemplate jdbc,
             UserRepository userRepository,
             PushSubscriptionRepository subscriptionRepository,
-            WebPushService webPushService) {
+            WebPushService webPushService,
+            MetaFunnelService metaFunnelService) {
         this.jdbc = jdbc;
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.webPushService = webPushService;
+        this.metaFunnelService = metaFunnelService;
     }
 
     @PostMapping("/public/trial-leads")
     @ResponseStatus(HttpStatus.CREATED)
-    public PublicLeadResponse create(@Valid @RequestBody CreateLeadRequest request) {
+    public PublicLeadResponse create(@Valid @RequestBody CreateLeadRequest request, HttpServletRequest httpRequest) {
         String phone = request.phone().strip();
         String source = clean(request.source());
         String clientId = cleanOrNull(request.clientId());
@@ -79,6 +86,8 @@ public class TrialLeadController {
             PublicLeadResponse existing = findByClientId(clientId);
             if (existing != null) {
                 syncLeadByClientId(clientId, request);
+                saveAttribution(clientId, null, request.email(), request.fbp(), request.fbc(),
+                        request.eventSourceUrl(), request.marketingConsent(), httpRequest);
                 return findByClientId(clientId);
             }
         }
@@ -108,11 +117,17 @@ public class TrialLeadController {
         } catch (DuplicateKeyException e) {
             if (clientId != null) {
                 PublicLeadResponse existing = findByClientId(clientId);
-                if (existing != null) return existing;
+                if (existing != null) {
+                    saveAttribution(clientId, null, request.email(), request.fbp(), request.fbc(),
+                            request.eventSourceUrl(), request.marketingConsent(), httpRequest);
+                    return existing;
+                }
             }
             throw e;
         }
 
+        saveAttribution(null, token, request.email(), request.fbp(), request.fbc(),
+                request.eventSourceUrl(), request.marketingConsent(), httpRequest);
         notifyAdminsAboutNewLead(phone);
         return new PublicLeadResponse(token, "NEW");
     }
@@ -128,9 +143,10 @@ public class TrialLeadController {
                     priority = COALESCE(?, priority),
                     source = COALESCE(?, source),
                     status = CASE
-                        WHEN ? IS NOT NULL THEN 'FORM_COMPLETED'
-                        WHEN ? IS NOT NULL THEN 'GOAL_SELECTED'
-                        WHEN ? IS NOT NULL THEN 'GRADE_SELECTED'
+                        WHEN status IN ('BOOKED', 'CONTACTED', 'QUALIFIED_LEAD', 'CONTRACT', 'NO_RESPONSE', 'DECLINED') THEN status
+                        WHEN CAST(? AS VARCHAR) IS NOT NULL THEN 'FORM_COMPLETED'
+                        WHEN CAST(? AS VARCHAR) IS NOT NULL THEN 'GOAL_SELECTED'
+                        WHEN CAST(? AS VARCHAR) IS NOT NULL THEN 'GRADE_SELECTED'
                         ELSE status
                     END,
                     updated_at = CURRENT_TIMESTAMP
@@ -191,7 +207,8 @@ public class TrialLeadController {
     }
 
     @PatchMapping("/public/trial-leads/{token}")
-    public PublicLeadResponse updatePublic(@PathVariable UUID token, @Valid @RequestBody UpdateLeadRequest request) {
+    public PublicLeadResponse updatePublic(@PathVariable UUID token, @Valid @RequestBody UpdateLeadRequest request,
+            HttpServletRequest httpRequest) {
         String event = request.event() == null ? "" : request.event().strip().toUpperCase();
         String status = switch (event) {
             case "GRADE_SELECTED" -> "GRADE_SELECTED";
@@ -214,7 +231,10 @@ public class TrialLeadController {
                     priority = COALESCE(?, priority),
                     teacher_id = COALESCE(?, teacher_id),
                     teacher_name = COALESCE(?, teacher_name),
-                    status = COALESCE(?, status),
+                    status = CASE
+                        WHEN status IN ('BOOKED', 'CONTACTED', 'QUALIFIED_LEAD', 'CONTRACT', 'NO_RESPONSE', 'DECLINED') THEN status
+                        ELSE COALESCE(?, status)
+                    END,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE tracking_token = ?
                 """,
@@ -222,6 +242,8 @@ public class TrialLeadController {
                 cleanOrNull(request.goal()), cleanOrNull(request.priority()), cleanOrNull(request.teacherId()),
                 cleanOrNull(request.teacherName()), status, token);
         if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lead not found");
+        saveAttribution(null, token, request.email(), request.fbp(), request.fbc(),
+                request.eventSourceUrl(), request.marketingConsent(), httpRequest);
         String currentStatus = jdbc.queryForObject(
                 "SELECT status FROM trial_leads WHERE tracking_token = ?", String.class, token);
         return new PublicLeadResponse(token, currentStatus);
@@ -232,7 +254,8 @@ public class TrialLeadController {
     public List<LeadResponse> list() {
         return jdbc.query("""
                 SELECT id, tracking_token, phone, grade, school_type, subject, goal, priority,
-                       teacher_id, teacher_name, source, status, created_at, updated_at
+                       teacher_id, teacher_name, source, status, created_at, updated_at,
+                       meta_schedule_sent_at, meta_qualified_lead_sent_at, meta_purchase_sent_at
                 FROM trial_leads
                 ORDER BY created_at DESC
                 """, (rs, rowNum) -> new LeadResponse(
@@ -249,20 +272,26 @@ public class TrialLeadController {
                 rs.getString("source"),
                 rs.getString("status"),
                 instant(rs.getTimestamp("created_at")),
-                instant(rs.getTimestamp("updated_at"))
+                instant(rs.getTimestamp("updated_at")),
+                instant(rs.getTimestamp("meta_schedule_sent_at")),
+                instant(rs.getTimestamp("meta_qualified_lead_sent_at")),
+                instant(rs.getTimestamp("meta_purchase_sent_at"))
         ));
     }
 
     @PatchMapping("/admin/trial-leads/{id}/status")
     @PreAuthorize("hasRole('ADMIN')")
     public Map<String, String> setStatus(@PathVariable UUID id, @RequestBody Map<String, String> body) {
-        String status = body.getOrDefault("status", "").strip().toUpperCase();
+        String status = clean(body.get("status")).toUpperCase(java.util.Locale.ROOT);
         if (!ALLOWED_STATUSES.contains(status)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown status");
         }
-        int changed = jdbc.update(
-                "UPDATE trial_leads SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", status, id);
-        if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lead not found");
+        // The outbox and status commit together; the worker contacts Meta only after commit.
+        int changed = metaFunnelService.updateLeadStatus(id, status);
+        if (changed == 0) {
+            Integer exists = jdbc.queryForObject("SELECT COUNT(*) FROM trial_leads WHERE id = ?", Integer.class, id);
+            if (exists == null || exists == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lead not found");
+        }
         return Map.of("status", status);
     }
 
@@ -272,6 +301,55 @@ public class TrialLeadController {
     public void delete(@PathVariable UUID id) {
         int changed = jdbc.update("DELETE FROM trial_leads WHERE id = ?", id);
         if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lead not found");
+    }
+
+    private void saveAttribution(String clientId, UUID token, String email, String fbp, String fbc,
+            String eventSourceUrl, Boolean marketingConsent, HttpServletRequest httpRequest) {
+        boolean consented = Boolean.TRUE.equals(marketingConsent);
+        // Keep the original visitor's identifiers; later CRM actions never substitute the admin's browser.
+        jdbc.update("""
+                UPDATE trial_leads SET
+                    email = COALESCE(email, ?),
+                    meta_fbp = COALESCE(meta_fbp, ?),
+                    meta_fbc = COALESCE(meta_fbc, ?),
+                    meta_event_source_url = COALESCE(meta_event_source_url, ?),
+                    meta_client_ip = COALESCE(meta_client_ip, ?),
+                    meta_user_agent = COALESCE(meta_user_agent, ?),
+                    meta_marketing_consent = COALESCE(?, meta_marketing_consent)
+                WHERE client_id = ? OR tracking_token = ?
+                """, cleanOrNull(email),
+                consented ? metaIdentifier(fbp, false) : null,
+                consented ? metaIdentifier(fbc, true) : null,
+                consented ? eventSourceUrl(eventSourceUrl) : null,
+                consented ? SiteVisitController.clientIp(httpRequest) : null,
+                consented && httpRequest != null ? limited(httpRequest.getHeader("User-Agent"), 1000) : null,
+                marketingConsent, clientId, token);
+    }
+
+    static String metaIdentifier(String value, boolean click) {
+        String cleaned = cleanOrNull(value);
+        if (cleaned == null) return null;
+        String suffix = click ? "[^\\s\\p{Cntrl}]+" : "[0-9]+";
+        return cleaned.matches("fb\\.[0-9]+\\.[0-9]{13}\\." + suffix) ? cleaned : null;
+    }
+
+    static String eventSourceUrl(String value) {
+        if (value == null) return null;
+        try {
+            URI uri = URI.create(value.strip());
+            if (!("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
+                    || uri.getHost() == null || uri.getUserInfo() != null) return null;
+            // URLs are attribution context only. Strip queries/fragments that may contain contact data.
+            String sanitized = new URI(uri.getScheme(), null, uri.getHost(), uri.getPort(), uri.getPath(), null, null).toASCIIString();
+            return sanitized.length() <= 2000 ? sanitized : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String limited(String value, int maximum) {
+        String cleaned = cleanOrNull(value);
+        return cleaned == null ? null : cleaned.substring(0, Math.min(cleaned.length(), maximum));
     }
 
     private static String clean(String value) {
@@ -296,7 +374,12 @@ public class TrialLeadController {
             @Size(max = 120) String schoolType,
             @Size(max = 120) String subject,
             @Size(max = 500) String goal,
-            @Size(max = 500) String priority
+            @Size(max = 500) String priority,
+            @Email @Size(max = 320) String email,
+            @Size(max = 500) String fbp,
+            @Size(max = 500) String fbc,
+            @Size(max = 2000) String eventSourceUrl,
+            Boolean marketingConsent
     ) {}
 
     public record UpdateLeadRequest(
@@ -307,7 +390,12 @@ public class TrialLeadController {
             @Size(max = 500) String priority,
             @Size(max = 100) String teacherId,
             @Size(max = 160) String teacherName,
-            @Size(max = 40) String event
+            @Size(max = 40) String event,
+            @Email @Size(max = 320) String email,
+            @Size(max = 500) String fbp,
+            @Size(max = 500) String fbc,
+            @Size(max = 2000) String eventSourceUrl,
+            Boolean marketingConsent
     ) {}
 
     public record PublicLeadResponse(UUID trackingToken, String status) {}
@@ -326,6 +414,9 @@ public class TrialLeadController {
             String source,
             String status,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            Instant metaScheduleSentAt,
+            Instant metaQualifiedLeadSentAt,
+            Instant metaPurchaseSentAt
     ) {}
 }

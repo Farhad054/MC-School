@@ -453,7 +453,7 @@ public class FunnelAnalyticsService {
         if (!notBlank(status)) return false;
         List<String> ordered = List.of(
                 "NEW", "GRADE_SELECTED", "SCHOOL_SELECTED", "SUBJECT_SELECTED", "GOAL_SELECTED",
-                "PRIORITY_SELECTED", "FORM_COMPLETED", "TEACHER_SELECTED", "CALENDAR_OPENED", "BOOKED", "CONTRACT"
+                "PRIORITY_SELECTED", "FORM_COMPLETED", "TEACHER_SELECTED", "CALENDAR_OPENED", "BOOKED", "QUALIFIED_LEAD", "CONTRACT"
         );
         int statusRank = ordered.indexOf(status);
         int targetRank = ordered.indexOf(target);
@@ -461,7 +461,7 @@ public class FunnelAnalyticsService {
     }
 
     private boolean isBooked(String status) {
-        return "BOOKED".equals(status) || "CONTRACT".equals(status);
+        return "BOOKED".equals(status) || "QUALIFIED_LEAD".equals(status) || "CONTRACT".equals(status);
     }
 
     private int funnelRank(String stage) {
