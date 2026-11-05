@@ -14,6 +14,7 @@ export type TrialLeadStatus =
   | 'CALENDAR_OPENED'
   | 'BOOKED'
   | 'CONTACTED'
+  | 'QUALIFIED_LEAD'
   | 'CONTRACT'
   | 'NO_RESPONSE'
   | 'DECLINED';
@@ -31,6 +32,10 @@ export type TrialLead = {
   teacherName?: string | null;
   source?: string | null;
   status: TrialLeadStatus;
+  metaScheduleSentAt?: string | null;
+  metaQualifiedLeadSentAt?: string | null;
+  // Contract completion uses ConvertedLead until a paid purchase is recorded.
+  metaPurchaseSentAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -478,7 +478,7 @@ public class SiteVisitController {
         }
     }
 
-    private static String clientIp(HttpServletRequest request) {
+    static String clientIp(HttpServletRequest request) {
         if (request == null) return null;
 
         String forwardedFor = request.getHeader("X-Forwarded-For");

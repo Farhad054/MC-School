@@ -50,3 +50,5 @@
   .funnel-source{grid-template-columns:1fr 1fr}
 }
 .site-visit-card__actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.site-visit-card__actions .trial-lead-delete{margin-left:0!important;padding:7px 10px;font-size:12px}@media(max-width:760px){.site-visit-card__actions{align-items:flex-end;flex-direction:column}}
+
+.trial-lead-status--qualified_lead{background:#eaf0ff;color:#3158a8}.trial-lead-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #e7eaf0}.trial-lead-meta>div{display:grid;gap:4px}.trial-lead-meta span,.trial-lead-meta time{font-size:11px;color:#68738a;white-space:normal}.trial-lead-meta>div>span:first-child{font-weight:700;color:#526078}@media(max-width:760px){.trial-lead-meta{grid-template-columns:1fr}}
