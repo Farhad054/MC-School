@@ -301,8 +301,8 @@ class UnassignedOnlineClassIntegrationTest {
     void migrationAllowsTeacherOnlyButRejectsBothAudienceColumns() throws Exception {
         UUID id = materialize();
         var group = groups.saveAndFlush(StudentGroup.create(teacher, "Group"));
-        assertThat(jdbc.queryForObject("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1", String.class))
-                .isEqualTo("97");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success AND version='97'", Integer.class))
+                .isEqualTo(1);
         assertThatThrownBy(() -> jdbc.update("UPDATE online_classes SET student_id=?, group_id=? WHERE id=?", pupil.getId(), group.getId(), id))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("online_classes_at_most_one_target");
