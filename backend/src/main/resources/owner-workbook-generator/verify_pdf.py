@@ -76,11 +76,17 @@ def verify_file(path, expected_count):
             assert not RAW_TEX.search(text), 'Raw LaTeX in PDF'
             assert 'MINDCRAFTI SCHOOL' in text, 'Brand text missing'
             assert page.get_images(), 'Official logo missing'
+            # PDF whitespace/line grouping depends on the installed font. Use
+            # the measured footer boundary rather than a brand-text substring
+            # to distinguish footer text from task content. The layout pass
+            # already rejects any task or main-content box crossing this line.
+            page_layout = layout['pages'][page.number]
+            footer_top = page_layout['footerTop'] * .75
             blocks = [b for b in page.get_text('blocks') if b[4].strip() and b[1] > 160
-                      and 'MINDCRAFTI SCHOOL  /' not in b[4]]
+                      and b[1] < footer_top - 1]
             for block in blocks:
                 assert block[0] >= -1 and block[2] <= rect.width + 1, f'Horizontal overflow on page {page.number + 1}'
-                assert block[3] < 789, f'Content touches footer on page {page.number + 1}'
+                assert block[3] <= footer_top + 1, f'Content touches footer on page {page.number + 1}'
             drawings = page.get_drawings()
             for drawing in drawings:
                 painted = drawing['rect']

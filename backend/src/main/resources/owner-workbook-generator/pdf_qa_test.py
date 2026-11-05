@@ -71,7 +71,7 @@ class PdfRejectionTests(unittest.TestCase):
                 page.insert_text((50, 220), body)
             pdf.save(self.path)
         self.path.with_suffix('.html').write_text(html, encoding='utf-8')
-        self.report = {'passed': True, 'pageCount': 1, 'engine': 'weasyprint-70.0',
+        self.report = {'passed': True, 'pageCount': 1, 'engine': 'weasyprint-70.0', 'pages': [{'footerTop': 1040}],
                        'pdfSha256': hashlib.sha256(self.path.read_bytes()).hexdigest()}
         self.write_report()
 
@@ -80,6 +80,15 @@ class PdfRejectionTests(unittest.TestCase):
 
     def test_complete_export_is_accepted(self):
         self.fixture()
+        self.assertTrue(verify_file(self.path, 1)['layoutPassed'])
+
+    def test_footer_detection_does_not_depend_on_font_whitespace(self):
+        self.fixture()
+        with fitz.open(self.path) as pdf:
+            pdf[0].insert_text((50, 804), 'MINDCRAFTI SCHOOL / Name', fontname='cour', fontsize=9)
+            pdf.save(self.path, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+        self.report['pdfSha256'] = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self.write_report()
         self.assertTrue(verify_file(self.path, 1)['layoutPassed'])
 
     def test_raw_tex_visible_in_html_is_rejected(self):
