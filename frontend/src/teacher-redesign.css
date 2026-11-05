@@ -1,4 +1,5 @@
 /* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell .workspace-card-heading>span .teacher-icon{width:20px;height:20px;stroke-width:1.7}
 .teacher-shell .teacher-groups-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
 .teacher-shell .teacher-group-tile{display:flex;flex-direction:column;gap:28px;padding:28px 30px;border:1px solid var(--border);border-radius:24px;background:var(--surface);color:var(--text);text-decoration:none;min-width:0}
 .teacher-shell .teacher-group-tile:hover{border-color:var(--teacher-selected-border)}
