@@ -1,0 +1,87 @@
+# Alternative deployment: private Java API, public nginx, independent Postgres.
+# Render creates paid resources when Blueprint is applied. DB is initially empty.
+services:
+  - type: pserv
+    name: mindcrafti-backup-api
+    runtime: docker
+    region: frankfurt
+    plan: standard
+    branch: integration/railway-and-ux
+    autoDeployTrigger: commit
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: mindcrafti-backup-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: mindcrafti-backup-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: mindcrafti-backup-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: mindcrafti-backup-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: mindcrafti-backup-db
+          property: password
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_FAIL_ON_INSECURE_SECRET
+        value: "true"
+      - key: FRONTEND_BASE_URL
+        fromService:
+          name: mindcrafti-backup-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: CORS_ALLOWED_ORIGINS
+        fromService:
+          name: mindcrafti-backup-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      # Do not send duplicate notifications on the standby deployment.
+      - key: MAIL_ENABLED
+        value: "false"
+      - key: REVIEW_REMINDERS_ENABLED
+        value: "false"
+      - key: PARENT_HOMEWORK_REMINDERS_ENABLED
+        value: "false"
+      - key: WEB_PUSH_REMINDERS_ENABLED
+        value: "false"
+      - key: ONLINE_CLASSES_ENABLED
+        value: "false"
+  - type: web
+    name: mindcrafti-backup-web
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    branch: integration/railway-and-ux
+    autoDeployTrigger: commit
+    dockerContext: ./frontend
+    dockerfilePath: ./frontend/Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: PORT
+        value: "80"
+      - key: API_PROXY_SCHEME
+        value: http
+      - key: API_PROXY_HOST
+        fromService:
+          name: mindcrafti-backup-api
+          type: pserv
+          property: host
+      - key: API_PROXY_PORT
+        value: "8080"
+databases:
+  - name: mindcrafti-backup-db
+    postgresMajorVersion: "18"
+    region: frankfurt
+    plan: basic-1gb
+    diskSizeGB: 5
+    ipAllowList: []

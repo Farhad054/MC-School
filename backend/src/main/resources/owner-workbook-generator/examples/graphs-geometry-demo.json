@@ -1,0 +1,484 @@
+{
+  "meta": {
+    "school": "MINDCRAFTI SCHOOL",
+    "subject": "MATHEMATIK",
+    "group": "TECHNISCHER PILOT",
+    "date": "19.10.2026",
+    "weekday": "Montag",
+    "durationMinutes": 90
+  },
+  "workbookPages": [
+    {
+      "title": "Lineare Funktionen",
+      "subtitle": "Grafik-Modul • Koordinaten und Geraden • Technischer Probelauf",
+      "time": "00–20 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "LERNZIEL",
+          "text": "Du erkennst die Steigung und den y-Achsenabschnitt direkt im Koordinatensystem."
+        },
+        {
+          "type": "graph",
+          "label": "KOORDINATENSYSTEM / ZWEI GERADEN",
+          "xRange": [
+            -5,
+            5
+          ],
+          "yRange": [
+            -4,
+            6
+          ],
+          "gridStep": 1,
+          "series": [
+            {
+              "kind": "linear",
+              "m": 1,
+              "b": 1,
+              "label": "f(x) = x + 1"
+            },
+            {
+              "kind": "linear",
+              "m": -1,
+              "b": 3,
+              "label": "g(x) = -x + 3"
+            }
+          ],
+          "points": [
+            {
+              "x": 0,
+              "y": 1,
+              "label": "P",
+              "seriesIndex": 0
+            }
+          ],
+          "caption": "Lies die Steigungen ab und bestimme den Schnittpunkt der Geraden."
+        },
+        {
+          "type": "exercise",
+          "number": "01",
+          "title": "Lies die Eigenschaften ab.",
+          "subtitle": "Beantworte in vollständigen Sätzen.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "m(f)",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "m(g)",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 1
+        }
+      ]
+    },
+    {
+      "title": "Quadratische Funktionen",
+      "subtitle": "Parabeln • Nullstellen • Symmetrieachse",
+      "time": "20–40 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "LERNZIEL",
+          "text": "Bestimme den Scheitelpunkt und lies die Nullstellen einer Parabel ab."
+        },
+        {
+          "type": "graph",
+          "label": "PARABEL / F(X) = X² - 4",
+          "xRange": [
+            -4,
+            4
+          ],
+          "yRange": [
+            -5,
+            7
+          ],
+          "gridStep": 1,
+          "series": [
+            {
+              "kind": "quadratic",
+              "a": 1,
+              "b": 0,
+              "c": -4,
+              "label": "f(x) = x² - 4"
+            }
+          ],
+          "caption": "Tipp: Die Parabel ist achsensymmetrisch zur y-Achse."
+        },
+        {
+          "type": "exercise",
+          "number": "02",
+          "title": "Was kannst du ablesen?",
+          "subtitle": "Schreibe Scheitelpunkt und beide Nullstellen auf.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "S",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "x₁, x₂",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 1
+        }
+      ]
+    },
+    {
+      "title": "Rechtwinkliges Dreieck",
+      "subtitle": "Geometrie • Pythagoras • Winkel • Seitenlängen",
+      "time": "40–60 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "LERNZIEL",
+          "text": "Die Seiten werden aus echten Koordinaten berechnet. Du nutzt den Satz des Pythagoras."
+        },
+        {
+          "type": "geometry",
+          "label": "KONSTRUIERTES DREIECK / MASSSTABSGERECHT",
+          "figure": "triangle",
+          "vertices": [
+            {
+              "label": "A",
+              "x": 0,
+              "y": 0
+            },
+            {
+              "label": "B",
+              "x": 6,
+              "y": 0
+            },
+            {
+              "label": "C",
+              "x": 0,
+              "y": 8
+            }
+          ],
+          "unit": "cm",
+          "showSides": true,
+          "showAngles": true,
+          "caption": "Die Abstände und Winkel werden direkt aus den Punktkoordinaten berechnet."
+        },
+        {
+          "type": "exercise",
+          "number": "03",
+          "title": "Berechne die fehlenden Werte.",
+          "subtitle": "Gib auch deinen Rechenweg an.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "Umfang",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "Fläche",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 1
+        }
+      ]
+    },
+    {
+      "title": "Der Kreis",
+      "subtitle": "Geometrie • Radius • Durchmesser • Umfang",
+      "time": "60–75 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "MERKE",
+          "text": "Der Durchmesser ist doppelt so lang wie der Radius. Für den Kreisumfang gilt U = 2 · π · r."
+        },
+        {
+          "type": "geometry",
+          "label": "KREIS / MITTELPUNKT UND RADIUS",
+          "figure": "circle",
+          "center": {
+            "x": 0,
+            "y": 0
+          },
+          "radius": 3,
+          "unit": "cm",
+          "centerLabel": "M",
+          "radiusAngle": 32,
+          "caption": "Zeichnung: Kreisradius 3 cm. Rechne mit π ≈ 3,14."
+        },
+        {
+          "type": "exercise",
+          "number": "04",
+          "title": "Bestimme Durchmesser und Umfang.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "d",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "U",
+                "≈",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 2
+        }
+      ]
+    },
+    {
+      "title": "Das Rechteck",
+      "subtitle": "Geometrie • Umfang • Flächeninhalt",
+      "time": "75–90 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "MERKE",
+          "text": "Beim Rechteck sind gegenüberliegende Seiten gleich lang, und jeder Innenwinkel ist 90°."
+        },
+        {
+          "type": "geometry",
+          "label": "RECHTECK / ECHTE KOORDINATEN",
+          "figure": "rectangle",
+          "vertices": [
+            {
+              "label": "A",
+              "x": 0,
+              "y": 0
+            },
+            {
+              "label": "B",
+              "x": 8,
+              "y": 0
+            },
+            {
+              "label": "C",
+              "x": 8,
+              "y": 4
+            },
+            {
+              "label": "D",
+              "x": 0,
+              "y": 4
+            }
+          ],
+          "unit": "cm",
+          "showSides": true,
+          "showAngles": false,
+          "caption": "Zeichnung: Länge 8 cm, Breite 4 cm."
+        },
+        {
+          "type": "exercise",
+          "number": "05",
+          "title": "Berechne Umfang und Fläche.",
+          "subtitle": "Verwende für die Fläche A = a · b.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "Umfang",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "Fläche",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "writeLines": 1
+        }
+      ]
+    }
+  ],
+  "teacherPages": [
+    {
+      "title": "Leitfaden · Grafik-Pilot",
+      "subtitle": "Technischer Test: Funktionen, Dreieck, Kreis, Rechteck",
+      "blocks": [
+        {
+          "type": "teacherNote",
+          "label": "TECHNISCHER PILOT",
+          "title": "Was der Generator jetzt leisten kann",
+          "paragraphs": [
+            "Funktionsgraphen entstehen aus Polynomkoeffizienten, nicht aus einem Foto. Die Koordinateneinheiten sind auf beiden Achsen gleich skaliert.",
+            "Geometrische Zeichnungen entstehen aus numerischen Punkten und Radien. Winkel und Seitenlängen werden automatisch berechnet.",
+            "Nur eine Demo. Bitte nicht an Schülerinnen und Schüler verteilen, bevor du die Aufgaben passend zum tatsächlichen Lernstand gewählt hast."
+          ]
+        },
+        {
+          "type": "schedule",
+          "label": "DEMO",
+          "title": "Beispielhafte Abfolge",
+          "rows": [
+            [
+              "00–20",
+              "Geraden und Steigungen"
+            ],
+            [
+              "20–40",
+              "Parabel und Nullstellen"
+            ],
+            [
+              "40–60",
+              "Rechtwinkliges Dreieck"
+            ],
+            [
+              "60–75",
+              "Kreis und Radius"
+            ],
+            [
+              "75–90",
+              "Rechteck und Flächenformeln"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Lösungen · Grafik & Geometrie",
+      "subtitle": "Technischer Probelauf · Seiten 1–5",
+      "blocks": [
+        {
+          "type": "solutions",
+          "section": "FUNKTIONEN",
+          "title": "Graphen ablesen",
+          "items": [
+            {
+              "label": "1a",
+              "text": "Steigung der Geraden f: m = 1."
+            },
+            {
+              "label": "1b",
+              "text": "Steigung der Geraden g: m = -1."
+            },
+            {
+              "label": "Schnitt",
+              "text": "Die Geraden schneiden sich in (1|2)."
+            },
+            {
+              "label": "2a",
+              "text": "Scheitelpunkt S(0|-4)."
+            },
+            {
+              "label": "2b",
+              "text": "Nullstellen x₁ = -2 und x₂ = 2."
+            }
+          ]
+        },
+        {
+          "type": "solutions",
+          "section": "GEOMETRIE",
+          "title": "Dreieck, Kreis und Rechteck",
+          "items": [
+            {
+              "label": "3a",
+              "text": "Dreieck: Seiten 6, 8, 10 cm; Umfang 24 cm."
+            },
+            {
+              "label": "3b",
+              "text": "Fläche des Dreiecks: 6 · 8 / 2 = 24 cm²."
+            },
+            {
+              "label": "4a",
+              "text": "Kreisdurchmesser d = 6 cm."
+            },
+            {
+              "label": "4b",
+              "text": "Kreisumfang U = 6π cm ≈ 18,85 cm."
+            },
+            {
+              "label": "5a",
+              "text": "Rechteckumfang = 2 · (8 + 4) = 24 cm."
+            },
+            {
+              "label": "5b",
+              "text": "Rechteckfläche A = 8 · 4 = 32 cm²."
+            },
+            {
+              "label": "Kontrolle 1",
+              "math": [
+                "6",
+                "+",
+                "8",
+                "+",
+                "10",
+                "=",
+                "24"
+              ],
+              "note": "Umfang Dreieck"
+            },
+            {
+              "label": "Kontrolle 2",
+              "math": [
+                "3",
+                "+",
+                "3",
+                "=",
+                "6"
+              ],
+              "note": "Kreis-Durchmesser"
+            },
+            {
+              "label": "Kontrolle 3",
+              "math": [
+                "8",
+                "+",
+                "4",
+                "+",
+                "8",
+                "+",
+                "4",
+                "=",
+                "24"
+              ],
+              "note": "Rechteck-Umfang"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

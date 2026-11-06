@@ -4,7 +4,56 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { AuthProvider } from './auth/AuthContext';
 import { I18nProvider } from './i18n/I18nContext';
+import { installLessonStartFlow } from './lesson-start-flow';
+import { phoneCameraEntryRoute } from './lib/phoneCameraRoute';
 import './index.css';
+import './teacher-groups.css';
+import './teacher-detail.css';
+import './group-detail.css';
+import './login-page.css';
+import './online-classes.css';
+import './pdf-homework.css';
+import './student-menu.css';
+import './student-today-status.css';
+import './teacher-theme.css';
+import './teacher-redesign.css';
+
+// mindcrafti.de is served by a host that can return its root document but does
+// not consistently fall back to index.html for direct client-side routes such
+// as /teacher/lessons. The Meet extension therefore returns through `/` and we
+// move to the React route before BrowserRouter is mounted.
+function restorePublicSkillProgressRoute() {
+  if (window.location.pathname !== '/') return;
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  const token = new URLSearchParams(hash).get('skillProgress');
+  if (!token) return;
+  window.history.replaceState({}, '', `/skill-progress#token=${encodeURIComponent(token)}`);
+}
+
+function restoreLessonReturnRoute() {
+  if (window.location.pathname !== '/') return;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('mindcraftiReturn') !== 'lesson') return;
+
+  params.delete('mindcraftiReturn');
+  params.set('fromMeet', '1');
+  const query = params.toString();
+  window.history.replaceState({}, '', `/teacher/lessons${query ? `?${query}` : ''}`);
+}
+
+const cameraEntryRoute = phoneCameraEntryRoute(window.location.pathname, window.location.search, window.location.hash);
+if (cameraEntryRoute) window.history.replaceState({}, '', cameraEntryRoute);
+restorePublicSkillProgressRoute();
+restoreLessonReturnRoute();
+installLessonStartFlow();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.warn('Mindcrafti service worker registration failed', error);
+    });
+  });
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

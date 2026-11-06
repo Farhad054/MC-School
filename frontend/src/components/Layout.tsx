@@ -1,56 +1,142 @@
-import { NavLink, useNavigate } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useState, type ReactNode } from 'react';
+import { TeacherShell } from './TeacherShell';
+import { StudentShell } from './StudentShell';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n/I18nContext';
+import { api, setAccessToken, setSessionAccessToken } from '../api/client';
+import { useOnlineClassesAvailable } from '../features/online-classes/useOnlineClassesAvailable';
 import type { TranslationKey } from '../i18n/translations';
+import { clearAdminImpersonation, readAdminImpersonation } from '../auth/adminImpersonation';
 
-/**
- * App shell with a role-aware top navigation. Teacher/admin screens get a wide
- * desktop layout; student screens use a narrow mobile-first column (see index.css,
- * which keys the width off the data-variant attribute).
- */
 export function Layout({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth();
-  const { t } = useI18n();
+  const { user, logout, setUser } = useAuth();
+  const { language, t } = useI18n();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isStoriesWorkspace = user?.role === 'ADMIN' && pathname === '/admin/stories';
+  const [returningToAdmin, setReturningToAdmin] = useState(false);
 
   const isStudent = user?.role === 'STUDENT';
-  const links: { to: string; label: TranslationKey }[] = isStudent
+  const isTeacher = user?.role === 'TEACHER';
+  const isParent = user?.role === 'PARENT';
+  const isAdmin = user?.role === 'ADMIN';
+  const impersonation = !isAdmin ? readAdminImpersonation() : null;
+  const isImpersonating = Boolean(user && impersonation?.adminToken);
+  // Only offered where the feature is switched on for this server and user.
+  const onlineClassesAvailable = useOnlineClassesAvailable(user?.id, Boolean(isTeacher || isStudent));
+
+  async function returnToAdmin() {
+    if (!impersonation || returningToAdmin) return;
+    const returnTo = impersonation.returnTo || '/teachers';
+    setReturningToAdmin(true);
+    try {
+      // Normal path: drop the tab-local impersonation token and reveal the
+      // persistent admin token that never left localStorage.
+      setSessionAccessToken(null);
+      let admin = await api.auth.me();
+
+      // Backward-compatible recovery for tabs that were opened before this fix.
+      if (admin.role !== 'ADMIN' && impersonation.adminToken) {
+        setAccessToken(impersonation.adminToken);
+        admin = await api.auth.me();
+      }
+      if (admin.role !== 'ADMIN') throw new Error('Admin session is unavailable');
+
+      setUser(admin);
+      clearAdminImpersonation();
+      navigate(returnTo);
+    } catch {
+      clearAdminImpersonation();
+      logout();
+      navigate('/login');
+    } finally {
+      setReturningToAdmin(false);
+    }
+  }
+
+  function fullLogout() {
+    clearAdminImpersonation();
+    logout();
+    navigate('/login');
+  }
+
+  if (isTeacher) {
+    return <TeacherShell user={user} isImpersonating={isImpersonating} returningToAdmin={returningToAdmin}
+      onlineClassesAvailable={onlineClassesAvailable}
+      onReturnToAdmin={() => void returnToAdmin()} onLogout={fullLogout}>{children}</TeacherShell>;
+  }
+
+  if (isStudent) {
+    return <StudentShell name={user.fullName} isImpersonating={isImpersonating} returningToAdmin={returningToAdmin}
+      onlineClassesAvailable={onlineClassesAvailable}
+      onReturnToAdmin={() => void returnToAdmin()} onLogout={fullLogout}>{children}</StudentShell>;
+  }
+
+  const links: { to: string; label: TranslationKey | string }[] = isStudent
     ? [
         { to: '/today', label: 'nav.today' },
         { to: '/my-cards', label: 'nav.myCards' },
+        ...(onlineClassesAvailable ? [{ to: '/online-classes', label: 'nav.onlineClasses' }] : []),
+        { to: '/student/lessons', label: language === 'DE' ? 'Mein Unterricht' : 'Мои уроки' },
         { to: '/settings', label: 'nav.settings' },
       ]
-    : user?.role === 'ADMIN'
-      ? [{ to: '/teachers', label: 'nav.teachers' }]
-      : [{ to: '/students', label: 'nav.students' }];
+    : isParent
+      ? [
+          { to: '/parent', label: language === 'DE' ? 'Mein Kind' : 'Мой ребёнок' },
+          { to: '/parent/settings', label: language === 'DE' ? 'Einstellungen' : 'Настройки' },
+        ]
+      : isAdmin
+        ? [
+            { to: '/teachers', label: language === 'DE' ? 'Lehrer' : 'Учителя' },
+            { to: '/admin/accounts', label: language === 'DE' ? 'Konten' : 'Ученики и родители' },
+            { to: '/admin/learning-time', label: language === 'DE' ? 'Lernzeit' : 'Время обучения' },
+            { to: '/admin/lessons', label: language === 'DE' ? 'Unterricht' : 'Уроки школы' },
+            { to: '/admin/trial-lessons', label: language === 'DE' ? 'Probestunden' : 'Пробные уроки' },
+            { to: '/admin/leads', label: language === 'DE' ? 'Anfragen' : 'Заявки' },
+            { to: '/admin/site-visits', label: language === 'DE' ? 'Besuche' : 'Попытки посетителей' },
+            { to: '/admin/stories', label: 'Шаблоны Stories' },
+            { to: '/admin/prompts', label: language === 'DE' ? 'Prompts' : 'Промты школы' },
+            { to: '/skills', label: language === 'DE' ? 'Kompetenzen' : 'Навыки' },
+          ]
+        : [{ to: '/teachers', label: 'nav.teachers' }];
 
   return (
     <div className="app" data-variant={isStudent ? 'student' : 'staff'}>
+      {isImpersonating && (
+        <div style={{ background: '#fff3ec', borderBottom: '1px solid #ffd5bd', padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 750, color: '#9a3e00' }}>
+            Режим администратора: вы вошли как {impersonation?.userName || user?.fullName}.
+          </div>
+          <button className="btn" type="button" disabled={returningToAdmin} onClick={() => void returnToAdmin()}>
+            {returningToAdmin ? 'Возвращаемся…' : 'Вернуться в админку'}
+          </button>
+        </div>
+      )}
       <header className="topbar">
         <div className="topbar__brand">{t('app.name')}</div>
         <nav className="topbar__nav">
           {links.map((link) => (
             <NavLink key={link.to} to={link.to} className="topbar__link">
-              {t(link.label)}
+              {typeof link.label === 'string' && link.label.startsWith('nav.')
+                ? t(link.label as TranslationKey)
+                : link.label}
             </NavLink>
           ))}
+          {isStudent && (
+            <NavLink to="/student/homeworks" end className="topbar__link">
+              {language === 'DE' ? 'Hausaufgaben' : 'Домашка'}
+            </NavLink>
+          )}
         </nav>
         <div className="topbar__spacer" />
         {user && (
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => {
-              logout();
-              navigate('/login');
-            }}
-          >
+          <button type="button" className="btn btn--ghost" onClick={fullLogout}>
             {t('common.logout')}
           </button>
         )}
       </header>
-      <main className="content">{children}</main>
+      <main className={`content${isStoriesWorkspace ? ' content--stories-workspace' : ''}`}>{children}</main>
     </div>
   );
 }

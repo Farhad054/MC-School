@@ -1,0 +1,970 @@
+{
+  "meta": {
+    "school": "MINDCRAFTI SCHOOL",
+    "subject": "MATHEMATIK",
+    "group": "MUSTERGRUPPE A",
+    "date": "19.10.2026",
+    "weekday": "Montag",
+    "durationMinutes": 90,
+    "studentsForTeacher": "Schuelerin A & Schuelerin B"
+  },
+  "workbookPages": [
+    {
+      "title": "Brüche vergleichen & rechnen",
+      "subtitle": "Mustergruppe A • Montag, 19.10.2026 • Arbeitsheft • 90 Minuten",
+      "time": "00–10 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "HEUTE KANN ICH ...",
+          "text": "Brüche vergleichen, gleichnamig machen und dann addieren oder subtrahieren. Ich kürze mein Ergebnis, wenn es möglich ist."
+        },
+        {
+          "type": "exercise",
+          "number": "01",
+          "title": "Wiederholung: Kürze vollständig.",
+          "subtitle": "Teile Zähler und Nenner durch dieselbe Zahl. Notiere den Rechenweg.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "6/8",
+                "=",
+                "_____"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "10/15",
+                "=",
+                "_____"
+              ],
+              "work": true
+            }
+          ],
+          "size": "relaxed"
+        },
+        {
+          "type": "exercise",
+          "number": "02",
+          "title": "Schnell entscheiden: größer, kleiner oder gleich?",
+          "subtitle": "Setze <, > oder = ein und erkläre deinem Partner kurz warum.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "3/6",
+                "□",
+                "1/2"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "2/5",
+                "□",
+                "4/5"
+              ],
+              "work": true
+            }
+          ],
+          "extra": {
+            "label": "MINI-CHECK",
+            "math": [
+              "-3",
+              "+",
+              "8",
+              "=",
+              "_____"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Brüche vergleichen",
+      "subtitle": "Denke zuerst an das Bild. Danach entscheide mit Zahlen.",
+      "time": "10–25 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "REGEL",
+          "text": "Bei gleichem Nenner ist der größere Zähler entscheidend. Bei verschiedenem Nenner zuerst passend umformen."
+        },
+        {
+          "type": "strips",
+          "label": "BEISPIEL  •  zwei gleich große Tafeln",
+          "left": {
+            "numerator": 2,
+            "denominator": 5
+          },
+          "right": {
+            "numerator": 4,
+            "denominator": 5
+          },
+          "relation": "<"
+        },
+        {
+          "type": "exercise",
+          "number": "03",
+          "title": "Setze <, > oder = ein.",
+          "subtitle": "Wenn nötig: erweitere beide Brüche auf denselben Nenner.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "5/8",
+                "□",
+                "3/8"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "3/8",
+                "□",
+                "3/4"
+              ],
+              "work": true
+            },
+            {
+              "label": "c.",
+              "math": [
+                "1/2",
+                "□",
+                "2/4"
+              ],
+              "work": true
+            },
+            {
+              "label": "d.",
+              "math": [
+                "2/3",
+                "□",
+                "3/6"
+              ],
+              "work": true
+            }
+          ]
+        },
+        {
+          "type": "exercise",
+          "number": "04",
+          "title": "Erkläre deinem Partner.",
+          "subtitle": "Warum ist 3/4 größer als 3/8? Schreibe einen vollständigen Satz.",
+          "writeLines": 2
+        }
+      ]
+    },
+    {
+      "title": "Gemeinsamer Nenner",
+      "subtitle": "Erweitere beide Brüche - verändere dabei niemals ihren Wert.",
+      "time": "25–40 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "MERKE",
+          "text": "Gemeinsamer Nenner bedeutet: Beide Brüche sind in gleich große Teile eingeteilt. Zähler UND Nenner werden mit derselben Zahl multipliziert."
+        },
+        {
+          "type": "example",
+          "label": "BEISPIEL",
+          "expressions": [
+            [
+              "1/2",
+              "=",
+              "3/6"
+            ],
+            [
+              "1/3",
+              "=",
+              "2/6"
+            ]
+          ]
+        },
+        {
+          "type": "exercise",
+          "number": "05",
+          "title": "Erweitere bis zum angegebenen Nenner.",
+          "subtitle": "Welche Zahl wird mit Zähler und Nenner multipliziert?",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "2/3",
+                "=",
+                "?/6"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "3/4",
+                "=",
+                "?/12"
+              ],
+              "work": true
+            },
+            {
+              "label": "c.",
+              "math": [
+                "1/6",
+                "=",
+                "?/12"
+              ],
+              "work": true
+            }
+          ]
+        },
+        {
+          "type": "exercise",
+          "number": "06",
+          "title": "Vergleiche mit gemeinsamem Nenner.",
+          "subtitle": "Basis: a) / Plus: b) • Schreibe beide umgeformten Brüche hin.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "3/4",
+                "□",
+                "5/6"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "3/5",
+                "□",
+                "7/10"
+              ],
+              "work": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Addieren & subtrahieren",
+      "subtitle": "Jetzt sind die Nenner schon gleich. Rechne im Zähler.",
+      "time": "40–53 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "REGEL",
+          "text": "Gleicher Nenner? Addiere oder subtrahiere nur die Zähler. Der Nenner bleibt stehen. Kürze danach, wenn es möglich ist."
+        },
+        {
+          "type": "example",
+          "label": "BEISPIEL",
+          "expressions": [
+            [
+              "2/8",
+              "+",
+              "3/8",
+              "=",
+              "5/8"
+            ]
+          ]
+        },
+        {
+          "type": "exercise",
+          "number": "07",
+          "title": "Rechne und kürze dein Ergebnis.",
+          "subtitle": "Zeige bei jeder Aufgabe, welchen Zähler du gerechnet hast.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "2/7",
+                "+",
+                "3/7",
+                "="
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "7/10",
+                "-",
+                "3/10",
+                "="
+              ],
+              "work": true
+            },
+            {
+              "label": "c.",
+              "math": [
+                "5/12",
+                "+",
+                "1/12",
+                "="
+              ],
+              "work": true
+            },
+            {
+              "label": "d.",
+              "math": [
+                "9/14",
+                "-",
+                "5/14",
+                "="
+              ],
+              "work": true
+            }
+          ]
+        },
+        {
+          "type": "exercise",
+          "number": "08",
+          "title": "Schreibe die Rechenregel in eigenen Worten.",
+          "writeLines": 1
+        }
+      ]
+    },
+    {
+      "title": "Mit verschiedenen Nennern",
+      "subtitle": "Zuerst gleichnamig machen. Dann rechnen. Am Ende kürzen.",
+      "time": "53–75 MIN",
+      "blocks": [
+        {
+          "type": "example",
+          "label": "BEISPIEL: ZUERST ERWEITERN",
+          "text": "Halbe und Viertel kann man nicht direkt im Zähler addieren. Schreibe 1/2 zuerst als 2/4.",
+          "expressions": [
+            [
+              "1/2",
+              "+",
+              "1/4",
+              "=",
+              "2/4",
+              "+",
+              "1/4",
+              "=",
+              "3/4"
+            ]
+          ]
+        },
+        {
+          "type": "exercise",
+          "number": "09",
+          "title": "Rechne Schritt für Schritt.",
+          "subtitle": "a-c: Basis für alle / d: Plus, wenn du früher fertig bist.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "1/3",
+                "+",
+                "1/6",
+                "="
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "3/4",
+                "-",
+                "1/2",
+                "="
+              ],
+              "work": true
+            },
+            {
+              "label": "c.",
+              "math": [
+                "1/2",
+                "+",
+                "1/3",
+                "="
+              ],
+              "work": true
+            },
+            {
+              "label": "d.",
+              "math": [
+                "5/6",
+                "-",
+                "1/4",
+                "="
+              ],
+              "work": true
+            }
+          ]
+        },
+        {
+          "type": "exercise",
+          "number": "10",
+          "title": "Fehlerdetektiv: Was ist falsch?",
+          "subtitle": "Markiere den Fehler und verbessere eine Rechnung zusammen.",
+          "rows": [
+            {
+              "label": "a.",
+              "math": [
+                "1/2",
+                "+",
+                "1/4",
+                "=",
+                "2/6"
+              ],
+              "work": true
+            },
+            {
+              "label": "b.",
+              "math": [
+                "3/4",
+                "-",
+                "1/2",
+                "=",
+                "2/2"
+              ],
+              "work": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Exit-Check · allein",
+      "subtitle": "15 Minuten • ohne Hilfe • jeder Rechenweg zählt",
+      "time": "75–90 MIN",
+      "blocks": [
+        {
+          "type": "callout",
+          "label": "DEIN EIGENER CHECK",
+          "text": "Vergleiche oder rechne. Erweitere, wenn nötig. Schreibe den Rechenweg auf und kürze das Ergebnis."
+        },
+        {
+          "type": "exercise",
+          "variant": "exit",
+          "rows": [
+            {
+              "label": "E1",
+              "math": [
+                "3/8",
+                "□",
+                "5/8"
+              ],
+              "work": true
+            },
+            {
+              "label": "E2",
+              "math": [
+                "2/3",
+                "□",
+                "3/4"
+              ],
+              "work": true
+            },
+            {
+              "label": "E3",
+              "math": [
+                "2/7",
+                "+",
+                "3/7",
+                "="
+              ],
+              "work": true
+            },
+            {
+              "label": "E4",
+              "math": [
+                "1/2",
+                "+",
+                "1/6",
+                "="
+              ],
+              "work": true
+            },
+            {
+              "label": "E5",
+              "math": [
+                "3/4",
+                "-",
+                "1/3",
+                "="
+              ],
+              "work": true
+            }
+          ],
+          "extra": {
+            "label": "EXTRA / PLUS",
+            "math": [
+              "5/6",
+              "-",
+              "1/4",
+              "="
+            ]
+          },
+          "selfRating": "Ich kann es:   □ sicher     □ teilweise     □ ich brauche noch Übung"
+        }
+      ]
+    }
+  ],
+  "teacherPages": [
+    {
+      "title": "Leitfaden · 90 Minuten",
+      "subtitle": "Mustergruppe A • Schuelerin A & Schuelerin B • 19.10.2026 • Arbeitsheft Seite 1–6",
+      "blocks": [
+        {
+          "type": "teacherNote",
+          "label": "ZIEL / SCHULISCHER MONATSPLAN",
+          "text": "Vergleichen, gemeinsamen Nenner finden und Brüche mit gleichen/verschiedenen Nennern addieren oder subtrahieren. Ergebnisse vollständig kürzen; am Ende einzeln ohne Hilfe prüfen."
+        },
+        {
+          "type": "schedule",
+          "label": "ABLAUF",
+          "title": "90-Minuten-Struktur",
+          "rows": [
+            [
+              "00–10",
+              "Einstieg / Wiederholung: kürzen, vergleichen, ein Vorzeichen-Check"
+            ],
+            [
+              "10–25",
+              "Brüche mit Streifen darstellen; Vergleich laut begründen"
+            ],
+            [
+              "25–40",
+              "Gemeinsame Nenner finden; Basis und Plus differenzieren"
+            ],
+            [
+              "40–53",
+              "Gleichnamige Brüche addieren und subtrahieren"
+            ],
+            [
+              "53–69",
+              "Ungleichnamige Brüche rechnen; Aufgaben 9a–c, optional 9d"
+            ],
+            [
+              "69–75",
+              "Partner-Check / Fehlerdetektiv"
+            ],
+            [
+              "75–90",
+              "Exit-Check: jeder löst E1–E5 allein (optional Extra)"
+            ]
+          ]
+        },
+        {
+          "type": "teacherNote",
+          "label": "BESONDERHEITEN",
+          "title": "Binnendifferenzierung & Hinweise",
+          "paragraphs": [
+            "Schuelerin A: Bei Bruchvergleichen helfen Zeichnungen und konkrete Streifen. Zwischenschritt beim Erweitern abfragen.",
+            "Schuelerin B: Plus-Aufgaben zu gemeinsamen Nennern nutzen. Sicheres Kuerzen und Erweitern pruefen, ohne Vorwissen vorauszusetzen."
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Lösungen · Teil 1",
+      "subtitle": "Arbeitsheft Seiten 1–3 • Einstieg, Vergleich, gemeinsamer Nenner",
+      "blocks": [
+        {
+          "type": "solutions",
+          "section": "SEITE 1",
+          "title": "Einstieg & Wiederholung",
+          "items": [
+            {
+              "label": "1a",
+              "math": [
+                "6/8",
+                "=",
+                "3/4"
+              ],
+              "note": "Beide Zahlen ÷ 2."
+            },
+            {
+              "label": "1b",
+              "math": [
+                "10/15",
+                "=",
+                "2/3"
+              ],
+              "note": "Beide Zahlen ÷ 5."
+            },
+            {
+              "label": "2a",
+              "math": [
+                "3/6",
+                "=",
+                "1/2"
+              ]
+            },
+            {
+              "label": "2b",
+              "math": [
+                "2/5",
+                "<",
+                "4/5"
+              ]
+            },
+            {
+              "label": "Mini-Check",
+              "math": [
+                "-3",
+                "+",
+                "8",
+                "=",
+                "5"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "solutions",
+          "section": "SEITE 2",
+          "title": "Brüche vergleichen",
+          "items": [
+            {
+              "label": "3a",
+              "math": [
+                "5/8",
+                ">",
+                "3/8"
+              ],
+              "note": "Gleicher Nenner; 5 > 3."
+            },
+            {
+              "label": "3b",
+              "math": [
+                "3/8",
+                "<",
+                "3/4"
+              ],
+              "note": "3/4 = 6/8."
+            },
+            {
+              "label": "3c",
+              "math": [
+                "1/2",
+                "=",
+                "2/4"
+              ],
+              "note": "Erweitern mit 2."
+            },
+            {
+              "label": "3d",
+              "math": [
+                "2/3",
+                ">",
+                "3/6"
+              ],
+              "note": "2/3 = 4/6."
+            },
+            {
+              "label": "4",
+              "text": "3/4 = 6/8 und damit > 3/8."
+            }
+          ]
+        },
+        {
+          "type": "solutions",
+          "section": "SEITE 3",
+          "title": "Gemeinsamer Nenner",
+          "items": [
+            {
+              "label": "5a",
+              "math": [
+                "2/3",
+                "=",
+                "4/6"
+              ],
+              "note": "× 2"
+            },
+            {
+              "label": "5b",
+              "math": [
+                "3/4",
+                "=",
+                "9/12"
+              ],
+              "note": "× 3"
+            },
+            {
+              "label": "5c",
+              "math": [
+                "1/6",
+                "=",
+                "2/12"
+              ],
+              "note": "× 2"
+            },
+            {
+              "label": "6a",
+              "math": [
+                "3/4",
+                "=",
+                "9/12",
+                "<",
+                "10/12",
+                "=",
+                "5/6"
+              ]
+            },
+            {
+              "label": "6b",
+              "math": [
+                "3/5",
+                "=",
+                "6/10",
+                "<",
+                "7/10"
+              ],
+              "note": "Plus"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Lösungen · Teil 2",
+      "subtitle": "Arbeitsheft Seiten 4–6 • Rechnen, Fehleranalyse, Exit-Check",
+      "blocks": [
+        {
+          "type": "solutions",
+          "section": "SEITE 4",
+          "title": "Gleichnamige Brüche",
+          "items": [
+            {
+              "label": "7a",
+              "math": [
+                "2/7",
+                "+",
+                "3/7",
+                "=",
+                "5/7"
+              ]
+            },
+            {
+              "label": "7b",
+              "math": [
+                "7/10",
+                "-",
+                "3/10",
+                "=",
+                "4/10",
+                "=",
+                "2/5"
+              ]
+            },
+            {
+              "label": "7c",
+              "math": [
+                "5/12",
+                "+",
+                "1/12",
+                "=",
+                "6/12",
+                "=",
+                "1/2"
+              ]
+            },
+            {
+              "label": "7d",
+              "math": [
+                "9/14",
+                "-",
+                "5/14",
+                "=",
+                "4/14",
+                "=",
+                "2/7"
+              ],
+              "note": "Plus"
+            },
+            {
+              "label": "8",
+              "text": "Nur die Zähler verrechnen; Nenner bleibt. Danach kürzen."
+            }
+          ]
+        },
+        {
+          "type": "solutions",
+          "section": "SEITE 5",
+          "title": "Ungleichnamige Brüche / Fehlerdetektiv",
+          "items": [
+            {
+              "label": "9a",
+              "math": [
+                "1/3",
+                "+",
+                "1/6",
+                "=",
+                "2/6",
+                "+",
+                "1/6",
+                "=",
+                "3/6",
+                "=",
+                "1/2"
+              ]
+            },
+            {
+              "label": "9b",
+              "math": [
+                "3/4",
+                "-",
+                "1/2",
+                "=",
+                "3/4",
+                "-",
+                "2/4",
+                "=",
+                "1/4"
+              ]
+            },
+            {
+              "label": "9c",
+              "math": [
+                "1/2",
+                "+",
+                "1/3",
+                "=",
+                "3/6",
+                "+",
+                "2/6",
+                "=",
+                "5/6"
+              ]
+            },
+            {
+              "label": "9d",
+              "math": [
+                "5/6",
+                "-",
+                "1/4",
+                "=",
+                "10/12",
+                "-",
+                "3/12",
+                "=",
+                "7/12"
+              ]
+            },
+            {
+              "label": "10a",
+              "math": [
+                "1/2",
+                "+",
+                "1/4",
+                "=",
+                "2/4",
+                "+",
+                "1/4",
+                "=",
+                "3/4"
+              ],
+              "note": "Nenner nie addieren."
+            },
+            {
+              "label": "10b",
+              "math": [
+                "3/4",
+                "-",
+                "1/2",
+                "=",
+                "3/4",
+                "-",
+                "2/4",
+                "=",
+                "1/4"
+              ],
+              "note": "Erst erweitern."
+            }
+          ]
+        },
+        {
+          "type": "solutions",
+          "section": "SEITE 6",
+          "title": "Exit-Check: selbständig, ohne Hilfe",
+          "items": [
+            {
+              "label": "E1",
+              "math": [
+                "3/8",
+                "<",
+                "5/8"
+              ]
+            },
+            {
+              "label": "E2",
+              "math": [
+                "2/3",
+                "=",
+                "8/12",
+                "<",
+                "9/12",
+                "=",
+                "3/4"
+              ]
+            },
+            {
+              "label": "E3",
+              "math": [
+                "2/7",
+                "+",
+                "3/7",
+                "=",
+                "5/7"
+              ]
+            },
+            {
+              "label": "E4",
+              "math": [
+                "1/2",
+                "+",
+                "1/6",
+                "=",
+                "3/6",
+                "+",
+                "1/6",
+                "=",
+                "4/6",
+                "=",
+                "2/3"
+              ]
+            },
+            {
+              "label": "E5",
+              "math": [
+                "3/4",
+                "-",
+                "1/3",
+                "=",
+                "9/12",
+                "-",
+                "4/12",
+                "=",
+                "5/12"
+              ]
+            },
+            {
+              "label": "Extra",
+              "math": [
+                "5/6",
+                "-",
+                "1/4",
+                "=",
+                "10/12",
+                "-",
+                "3/12",
+                "=",
+                "7/12"
+              ]
+            }
+          ],
+          "footerNote": "Bewertung: pro Aufgabe korrekter Weg + Ergebnis; Fehler getrennt je Teilkompetenz notieren."
+        }
+      ]
+    }
+  ]
+}
