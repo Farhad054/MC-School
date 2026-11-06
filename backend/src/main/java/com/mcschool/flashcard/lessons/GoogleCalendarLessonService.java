@@ -186,6 +186,12 @@ public class GoogleCalendarLessonService {
         return archivedLessons(teacher.id());
     }
 
+    /** Fast, teacher-scoped timetable read, independent of Google or Meet availability. */
+    @Transactional(readOnly = true)
+    public List<GroupLessonResponse> listSavedGroupLessons(AuthenticatedUser teacher) {
+        return archivedLessons(teacher.id());
+    }
+
     private List<GroupLessonResponse> archivedLessons(UUID teacherId) {
         return historyRepository.findAllByTeacherIdAndDeletedAtIsNullOrderByStartsAtAsc(teacherId).stream()
                 .map(LessonHistoryEntry::toResponse)

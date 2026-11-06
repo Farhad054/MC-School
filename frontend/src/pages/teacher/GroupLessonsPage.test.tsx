@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,9 +12,11 @@ vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
   return { ...actual, api: { ...actual.api,
     auth: { ...actual.api.auth, me: vi.fn() },
-    lessons: { ...actual.api.lessons, groupLessons: vi.fn(), googleCalendarConnection: vi.fn(), create: vi.fn(), createSeries: vi.fn(), deleteLesson: vi.fn() },
-    students: { ...actual.api.students, list: vi.fn() },
-    groups: { ...actual.api.groups, list: vi.fn() },
+    lessons: { ...actual.api.lessons, groupLessons: vi.fn(), savedGroupLessons: vi.fn(), googleCalendarConnection: vi.fn(), create: vi.fn(), createSeries: vi.fn(), deleteLesson: vi.fn() },
+    students: { ...actual.api.students, list: vi.fn(), reviewHistory: vi.fn() },
+    homeworks: { ...actual.api.homeworks, listForStudent: vi.fn() },
+    cards: { ...actual.api.cards, summaryForStudent: vi.fn() },
+    groups: { ...actual.api.groups, list: vi.fn(), get: vi.fn() },
   } };
 });
 
@@ -55,11 +57,94 @@ describe('native lesson schedule', () => {
     vi.mocked(api.auth.me).mockResolvedValue({ id: 'teacher', fullName: 'Teacher' } as User);
     vi.mocked(api.students.list).mockResolvedValue([]);
     vi.mocked(api.groups.list).mockResolvedValue([]);
+    vi.mocked(api.students.reviewHistory).mockResolvedValue([]);
+    vi.mocked(api.homeworks.listForStudent).mockResolvedValue([]);
+    vi.mocked(api.cards.summaryForStudent).mockResolvedValue({ dueNow: 0, awaitingRepetition: 0 } as never);
     lessonApi.googleCalendarConnection.mockResolvedValue({ connected: false, authorizationUrl: null });
     lessonApi.groupLessons.mockResolvedValue([]);
+    lessonApi.savedGroupLessons.mockResolvedValue([]);
     lessonApi.create.mockResolvedValue(lesson());
     lessonApi.createSeries.mockResolvedValue([lesson()]);
     lessonApi.deleteLesson.mockResolvedValue(undefined);
+  });
+
+  it('shows the saved schedule before Google refresh and optional page data finish', async () => {
+    let finishRefresh!: (rows: GroupLesson[]) => void;
+    lessonApi.savedGroupLessons.mockResolvedValue([lesson('Saved lesson')]);
+    lessonApi.groupLessons.mockReturnValue(new Promise(resolve => { finishRefresh = resolve; }));
+    vi.mocked(api.students.list).mockReturnValue(new Promise(() => {}));
+    renderPage();
+    expect(await screen.findByText('Saved lesson')).toBeInTheDocument();
+    expect(screen.queryByText('Загрузка…')).not.toBeInTheDocument();
+    expect(screen.getByText('Обновляем расписание…')).toBeInTheDocument();
+    expect(api.homeworks.listForStudent).not.toHaveBeenCalled();
+    await act(async () => { finishRefresh([lesson('Updated lesson')]); });
+    expect(await screen.findByText('Updated lesson')).toBeInTheDocument();
+    expect(screen.queryByText('Saved lesson')).not.toBeInTheDocument();
+  });
+
+  it('keeps saved lessons usable if the background calendar refresh fails', async () => {
+    lessonApi.savedGroupLessons.mockResolvedValue([lesson('Saved lesson')]);
+    lessonApi.groupLessons.mockRejectedValue(new Error('Google offline'));
+    renderPage();
+    expect(await screen.findByText('Saved lesson')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Открыть урок: Saved lesson' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Обновляем расписание…')).not.toBeInTheDocument());
+  });
+
+  it('does not replace a fresh schedule with a late older saved snapshot', async () => {
+    let finishSaved!: (rows: GroupLesson[]) => void;
+    lessonApi.savedGroupLessons.mockReturnValue(new Promise(resolve => { finishSaved = resolve; }));
+    lessonApi.groupLessons.mockResolvedValue([lesson('Fresh lesson')]);
+    renderPage();
+    await screen.findByText('Fresh lesson');
+    await act(async () => { finishSaved([lesson('Older lesson')]); });
+    expect(screen.getByText('Fresh lesson')).toBeInTheDocument();
+    expect(screen.queryByText('Older lesson')).not.toBeInTheDocument();
+  });
+
+  it('loads student details only when the group card opens and fetches homework once', async () => {
+    const group = { id: 'g1', name: 'Group', students: [{ id: 's1', fullName: 'Student' }] } as StudentGroup;
+    vi.mocked(api.groups.list).mockResolvedValue([group]);
+    lessonApi.groupLessons.mockResolvedValue([{ ...lesson(), groupId: group.id, groupName: group.name }]);
+    renderPage();
+    await screen.findByText('Математика без Google');
+    expect(api.homeworks.listForStudent).not.toHaveBeenCalled();
+    expect(api.students.reviewHistory).not.toHaveBeenCalled();
+    expect(api.cards.summaryForStudent).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /Настройки урока/ }));
+    await screen.findByText('Кратко перед уроком');
+    expect(api.homeworks.listForStudent).toHaveBeenCalledExactlyOnceWith('s1');
+    expect(api.students.reviewHistory).toHaveBeenCalledExactlyOnceWith('s1');
+    await userEvent.click(screen.getByRole('button', { name: /Настройки урока/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Настройки урока/ }));
+    expect(api.homeworks.listForStudent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restore a deleted lesson when an older background refresh finishes later', async () => {
+    let finishOldRefresh!: (rows: GroupLesson[]) => void;
+    lessonApi.savedGroupLessons.mockResolvedValueOnce([lesson()]).mockResolvedValue([]);
+    lessonApi.groupLessons.mockReturnValueOnce(new Promise(resolve => { finishOldRefresh = resolve; })).mockResolvedValue([]);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    try {
+      renderPage();
+      await screen.findByText('Математика без Google');
+      await userEvent.click(screen.getByRole('button', { name: /Настройки урока/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Удалить урок' }));
+      await waitFor(() => expect(screen.queryByText('Математика без Google')).not.toBeInTheDocument());
+      await act(async () => { finishOldRefresh([lesson()]); });
+      expect(screen.queryByText('Математика без Google')).not.toBeInTheDocument();
+    } finally { confirm.mockRestore(); }
+  });
+
+  it('waits for the first refresh before declaring an empty saved schedule empty', async () => {
+    let finishRefresh!: (rows: GroupLesson[]) => void;
+    lessonApi.groupLessons.mockReturnValue(new Promise(resolve => { finishRefresh = resolve; }));
+    renderPage();
+    await waitFor(() => expect(lessonApi.savedGroupLessons).toHaveBeenCalled());
+    expect(screen.queryByText('На этот день уроков нет')).not.toBeInTheDocument();
+    await act(async () => { finishRefresh([lesson()]); });
+    expect(await screen.findByText('Математика без Google')).toBeInTheDocument();
   });
 
   it('deletes a test lesson only after confirmation and refreshes the timetable', async () => {
