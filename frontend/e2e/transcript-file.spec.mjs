@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 
 const eventId = 'local-transcript:browser-fixture';
@@ -33,30 +32,19 @@ async function openLesson(page, transcript) {
     return route.fulfill({ json: [] });
   });
   await page.goto(`/teacher/lessons/${encodeURIComponent(eventId)}`);
-  const card = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: 'Транскрипция урока', exact: true }) });
+  const card = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: 'Транскрипция', exact: true }) });
   await expect(card).toBeVisible();
   return card;
 }
 
-test('automatic transcript opens as a separate UTF-8 text file and downloads exact content', async ({ page }) => {
+test('automatic transcript opens from the workspace as a separate safe UTF-8 file', async ({ page, context }) => {
   const card = await openLesson(page, automaticTranscript);
-  const open = card.getByRole('link', { name: 'Открыть файл ↗', exact: true });
-  const downloadLink = card.getByRole('link', { name: 'Скачать TXT', exact: true });
-  await expect(open).toHaveAttribute('target', '_blank');
-  await expect(open).toHaveAttribute('rel', /\bnoopener\b/);
-  await expect(open).toHaveAttribute('rel', /\bnoreferrer\b/);
-  const transcriptFilename = await downloadLink.getAttribute('download');
-  expect(transcriptFilename).toMatch(/^transcript-.*\.txt$/);
-  expect(transcriptFilename).toContain('2026-11-03');
-  expect(transcriptFilename).toContain('Транскрипция');
-  expect(transcriptFilename).not.toMatch(/[\\/:*?"<>|\u0000-\u001f]/);
-  await expect(page.getByRole('region', { name: 'Текст транскрипции урока' })).toHaveCount(0);
-  await expect(card.getByRole('button', { name: 'Открыть транскрипцию', exact: true })).toHaveCount(0);
-  await expect(page.getByText(/Ученица: Привет! Grüße/)).toHaveCount(0);
-
   const originalUrl = page.url();
-  const popupPromise = page.waitForEvent('popup');
-  await open.click();
+  await expect(card.getByRole('button', { name: 'Открыть транскрипцию', exact: true })).toBeEnabled();
+  await expect(page.getByRole('region', { name: 'Текст транскрипции урока' })).toHaveCount(0);
+  await expect(page.getByText(/Ученица: Привет! Grüße/)).toHaveCount(0);
+  const popupPromise = context.waitForEvent('page');
+  await card.getByRole('button', { name: 'Открыть транскрипцию', exact: true }).click();
   const popup = await popupPromise;
   await expect.poll(() => popup.locator('body').textContent()).toBe(automaticTranscript);
   expect(await popup.evaluate(() => document.contentType)).toBe('text/plain');
@@ -64,15 +52,7 @@ test('automatic transcript opens as a separate UTF-8 text file and downloads exa
   expect(await popup.evaluate(() => window.__transcriptExecuted)).toBeUndefined();
   await expect(popup.locator('script, img')).toHaveCount(0);
   await expect(page).toHaveURL(originalUrl);
-  await expect(card.getByRole('link', { name: 'Открыть файл ↗', exact: true })).toBeVisible();
-
-  const downloadPromise = page.waitForEvent('download');
-  await downloadLink.click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe(transcriptFilename);
-  expect(await download.failure()).toBeNull();
-  expect(await readFile(await download.path())).toEqual(Buffer.from(automaticTranscript, 'utf8'));
-  await expect(page.getByRole('region', { name: 'Текст транскрипции урока' })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Открыть транскрипцию', exact: true })).toBeVisible();
   await popup.close();
 });
 
@@ -82,7 +62,7 @@ for (const [label, transcript] of [['missing', null], ['blank', ' \n\t ']]) {
     await expect(card.getByRole('link', { name: 'Открыть файл ↗', exact: true })).toHaveCount(0);
     await expect(card.getByRole('link', { name: 'Скачать TXT', exact: true })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Текст транскрипции урока' })).toHaveCount(0);
-    await expect(card.getByRole('button', { name: 'Открыть транскрипцию', exact: true })).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Открыть транскрипцию', exact: true })).toBeDisabled();
     await expect(card.getByText('готово', { exact: true })).toHaveCount(0);
   });
 }
