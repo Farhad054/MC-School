@@ -60,7 +60,7 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 1024, height: 768
     await expect(drawer).toHaveAttribute('aria-hidden', 'true');
     await expect(drawer).toHaveAttribute('inert', '');
     await expect.poll(() => geometry(page)).toEqual(before);
-    await page.getByRole('button', { name: 'Все ученики', exact: true }).click();
+    await page.getByRole('button', { name: 'Все ученики (2×2)', exact: true }).click();
     const overview = await geometry(page);
     await toggle.click();
     await expect.poll(() => geometry(page)).toEqual(overview);
@@ -87,3 +87,38 @@ test('answer panel width and drawing survive showing and hiding camera islands',
   await expect.poll(() => page.evaluate(() => window.cameraFixture.operations.length)).toBe(count);
   expect(errors).toEqual([]);
 });
+
+for (const viewport of [{ width: 1366, height: 900 }, { width: 1024, height: 768 },
+  { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
+  test(`teacher uses named board buttons without hiding Video or transcription at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const errors = await openRoom(page);
+    const switcher = page.getByRole('group', { name: 'Доска', exact: true });
+    await expect(switcher).toBeVisible();
+    await expect(page.getByRole('combobox')).toHaveCount(0);
+    await expect(switcher.getByRole('button')).toHaveText(['Общая группа', 'Ученица 1', 'Ученица 2', 'Ученица 3', 'Ученица 4', 'Все']);
+    const video = page.getByRole('button', { name: 'Видео', exact: true });
+    const videoBox = await video.boundingBox();
+    expect(videoBox.x + videoBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(await video.evaluate(node => {
+      const box = node.getBoundingClientRect();
+      return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('button') === node;
+    })).toBe(true);
+    const transcription = page.locator('.transcription [role="status"]');
+    await expect(transcription).toBeVisible();
+    await expect(transcription).toContainText('Транскрипция включена');
+    const topbar = await page.locator('.online-class-room__topbar').boundingBox();
+    const tools = await page.locator('.whiteboard__topline').boundingBox();
+    expect(tools.y).toBeGreaterThanOrEqual(topbar.y + topbar.height);
+    await switcher.getByRole('button', { name: 'Доска ученика: Ученица 4', exact: true }).click();
+    await expect(switcher.getByRole('button', { name: 'Доска ученика: Ученица 4', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await switcher.getByRole('button', { name: 'Все ученики (2×2)', exact: true }).click();
+    await expect(switcher.getByRole('button', { name: 'Все ученики (2×2)', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await switcher.getByRole('button', { name: 'Общая группа', exact: true }).click();
+    await expect(switcher.getByRole('button', { name: 'Общая группа', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await video.click();
+    await expect(video).toHaveAttribute('aria-expanded', 'true');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+    expect(errors).toEqual([]);
+  });
+}

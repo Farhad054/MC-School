@@ -265,14 +265,14 @@ describe('PDF upload contract', () => {
     vi.mocked(lessonPreparationApi.uploadPersonalWorkbook).mockResolvedValue({ studentId: 'alice', studentName: 'Анна', hasWorkbook: true, filename: 'anna.pdf', version: 1 });
     vi.mocked(onlineClassesApi.documentBytes).mockResolvedValue(new ArrayBuffer(8));
     const view = mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Анна' });
-    expect(screen.getAllByRole('option', { name: 'Доска ученика: Анна' })).toHaveLength(1);
-    expect(screen.getByRole('option', { name: 'Доска ученика: Борис' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: /Персональный лист/ })).not.toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-alice');
+    await screen.findByRole('button', { name: 'Доска ученика: Анна' });
+    expect(screen.getAllByRole('button', { name: 'Доска ученика: Анна' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Доска ученика: Борис' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Персональный лист/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Анна' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Загрузить лист для Анна' }));
     // The native picker can stay open while the teacher changes the board.
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-bob');
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Борис' }));
     const input = view.container.querySelector('input[type="file"]:not([multiple])') as HTMLInputElement;
     expect(input.multiple).toBe(false);
     const file = new File(['%PDF-1.7'], 'anna.pdf', { type: 'application/pdf' });
@@ -290,8 +290,8 @@ describe('PDF upload contract', () => {
     vi.mocked(lessonPreparationApi.appendWorkbook).mockResolvedValue({ hasWorkbook: true } as never);
     vi.mocked(onlineClassesApi.documentBytes).mockResolvedValue(new ArrayBuffer(8));
     const view = mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Анна' });
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-alice');
+    await screen.findByRole('button', { name: 'Доска ученика: Анна' });
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Анна' }));
     const board = await screen.findByTestId('board-personal-workbook-alice');
     expect(within(board).getByRole('menuitem', { name: 'Загрузить лист для Анна' })).toBeInTheDocument();
     await userEvent.click(within(board).getByRole('menuitem', { name: 'Добавить общий документ для всех' }));
@@ -319,7 +319,7 @@ describe('PDF upload contract', () => {
       id: boardId, classId: 'c1', boardId, filename: 'board.pdf', savedAt: '',
     })));
     mount(true);
-    await screen.findByRole('option', { name: /Анна/ });
+    await screen.findByRole('button', { name: /Анна/ });
     await act(async () => boardProps.filter(props => props.targetId === 'board-1').at(-1)!.onSaveLessonDocuments());
     expect(exportBoardPdf).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'board-1', pageCount: 3, pdfDocument: sharedDocument }));
     expect(exportBoardPdf).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'personal-alice', pageCount: 3, pdfDocument: sharedDocument }));
@@ -340,7 +340,7 @@ describe('PDF upload contract', () => {
     vi.mocked(completedLessonApi.save).mockImplementation(async (_eventId, classId, boardId) => ({ id: boardId, classId, boardId, filename: 'board.pdf', savedAt: '' }));
     vi.mocked(completedLessonApi.list).mockResolvedValue(['board-1', 'personal-workbook-bob'].map(boardId => ({ id: boardId, classId: 'c1', boardId, filename: 'board.pdf', savedAt: '' })));
     mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Борис' });
+    await screen.findByRole('button', { name: 'Доска ученика: Борис' });
     vi.mocked(lessonPreparationApi.personalWorkbooks).mockResolvedValue({ enabled: true, students: [{ ...student, hasWorkbook: true, filename: 'bob.pdf', version: 1 }] });
     await act(async () => boardProps.filter(props => props.targetId === 'board-1').at(-1)!.onSaveLessonDocuments());
     expect(exportBoardPdf).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'personal-workbook-bob', pageCount: 1, pdfDocument: personalDocument }));
@@ -396,7 +396,7 @@ describe('lesson PDF save notifications', () => {
       { targetType: 'WHITEBOARD', targetId: 'personal-alice', pageIndex: 10_000 },
     ] as never);
     mount(true);
-    await screen.findByRole('option', { name: /Анна/ });
+    await screen.findByRole('button', { name: /Анна/ });
     await act(async () => { expect(await saveBoards()).toBe(true); });
     expect(exportBoardPdf).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'board-1', pageCount: 3 }));
     expect(exportBoardPdf).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'personal-alice', pageCount: 1 }));
@@ -404,7 +404,7 @@ describe('lesson PDF save notifications', () => {
 
   it('shows one confirmation across the room and mounted boards, then clears it after five seconds', async () => {
     mount(true);
-    await screen.findByRole('option', { name: /Анна/ });
+    await screen.findByRole('button', { name: /Анна/ });
     vi.useFakeTimers();
     await act(async () => { await saveBoards(); });
     expect(screen.getAllByText(/PDF сохранены в разделе/)).toHaveLength(1);
@@ -418,7 +418,7 @@ describe('lesson PDF save notifications', () => {
 
   it('keeps a new save visible past the old timeout and starts dismissal only after verification', async () => {
     mount(true);
-    await screen.findByRole('option', { name: /Анна/ });
+    await screen.findByRole('button', { name: /Анна/ });
     vi.useFakeTimers();
     await act(async () => { await saveBoards(); });
     await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
@@ -442,7 +442,7 @@ describe('lesson PDF save notifications', () => {
   it('keeps a failed verification visible until the teacher dismisses it', async () => {
     vi.mocked(completedLessonApi.list).mockRejectedValueOnce(new Error('Проверка недоступна'));
     mount(true);
-    await screen.findByRole('option', { name: /Анна/ });
+    await screen.findByRole('button', { name: /Анна/ });
     vi.useFakeTimers();
     await act(async () => { await saveBoards(); });
     expect(screen.getByRole('alert')).toHaveTextContent('Проверка недоступна');
@@ -461,7 +461,7 @@ describe('lesson PDF save notifications', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     try {
       mount(true, { onLeave, onEndForAll });
-      await screen.findByRole('option', { name: /Анна/ });
+      await screen.findByRole('button', { name: /Анна/ });
       fireEvent.click(screen.getByRole('button', { name: action === 'leave' ? 'Выйти' : 'Завершить урок для всех' }));
       expect(flushClassAnnotations).toHaveBeenCalledExactlyOnceWith('c1', 'me', expect.any(Function));
       expect(exportBoardPdf).not.toHaveBeenCalled();
@@ -489,7 +489,7 @@ describe('lesson PDF save notifications', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     try {
       mount(true, { onEndForAll });
-      await screen.findByRole('option', { name: /Анна/ });
+      await screen.findByRole('button', { name: /Анна/ });
       fireEvent.click(screen.getByRole('button', { name: 'Завершить урок для всех' }));
       await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Выход отложен'));
       expect(onEndForAll).not.toHaveBeenCalled();
@@ -507,7 +507,7 @@ describe('lesson PDF save notifications', () => {
     vi.mocked(completedLessonApi.list).mockImplementationOnce(() => new Promise(resolve => { verify = resolve; }));
     const onLeave = vi.fn(), onEndForAll = vi.fn();
     mount(true, { onLeave, onEndForAll });
-    await screen.findByRole('option', { name: /Анна/ });
+    await screen.findByRole('button', { name: /Анна/ });
     let saving!: Promise<boolean>;
     await act(async () => { saving = saveBoards(); expect(saveBoards()).toBe(saving); });
     expect(screen.getByTestId('board-board-1').closest('.online-class-room__main')).toHaveProperty('inert', true);
@@ -534,7 +534,7 @@ describe('lesson PDF save notifications', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     try {
       mount(true, { onEndForAll });
-      await screen.findByRole('option', { name: /Анна/ });
+      await screen.findByRole('button', { name: /Анна/ });
       fireEvent.click(screen.getByRole('button', { name: 'Завершить урок для всех' }));
       await waitFor(() => expect(onEndForAll).toHaveBeenCalledOnce());
       expect(completedLessonApi.list).toHaveBeenCalledOnce();
@@ -566,7 +566,7 @@ describe('lesson PDF save notifications', () => {
     vi.mocked(completedLessonApi.list).mockImplementationOnce(() => new Promise(resolve => { verify = resolve; }));
     const onLeave = vi.fn();
     const view = mount(true, { onLeave });
-    await screen.findByRole('option', { name: /Анна/ });
+    await screen.findByRole('button', { name: /Анна/ });
     fireEvent.click(screen.getByRole('button', { name: 'Выйти' }));
     await waitFor(() => expect(completedLessonApi.list).toHaveBeenCalledOnce());
     view.rerender(classroom(true, { classId: 'c2', eventId: 'e2', onLeave }));
@@ -899,14 +899,23 @@ describe('OnlineClassRoom', () => {
     vi.mocked(lessonPreparationApi.answersMetadata).mockResolvedValue({ hasAnswers: true, answersFilename: 'a.pdf' } as never);
   });
 
-  it('switches listening with the existing Open and All pupils controls', async () => {
+  it('puts named board buttons before Video and switches listening with names, Open and All pupils', async () => {
     vi.mocked(onlineClassesApi.listParticipants).mockResolvedValue([
       { userId: 'u1', displayName: 'Alice', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
       { userId: 'u2', displayName: 'Boris', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
     ]);
     mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Boris' });
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    await screen.findByRole('button', { name: 'Доска ученика: Boris' });
+    const switcher = screen.getByRole('group', { name: 'Доска' });
+    expect(within(switcher).getAllByRole('button').map(button => button.textContent)).toEqual(['Общая группа', 'Alice', 'Boris', 'Все']);
+    const controls = switcher.parentElement!;
+    expect(controls.firstElementChild).toBe(switcher);
+    expect(within(controls).getByRole('button', { name: /Видео/ })).toBe(controls.lastElementChild);
+    await userEvent.click(within(switcher).getByRole('button', { name: 'Доска ученика: Boris' }));
+    expect(audioFixture.change).toHaveBeenLastCalledWith('u2');
+    await userEvent.click(within(switcher).getByRole('button', { name: 'Общая группа' }));
+    expect(audioFixture.change).toHaveBeenLastCalledWith(null);
+    await userEvent.click(screen.getByRole('button', { name: 'Все ученики (2×2)' }));
     audioFixture.change.mockClear();
     await userEvent.click(within(screen.getByRole('region', { name: 'Работа ученика: Alice' })).getByRole('button', { name: 'Открыть' }));
     expect(audioFixture.change).toHaveBeenLastCalledWith('u1');
@@ -1017,17 +1026,17 @@ describe('OnlineClassRoom', () => {
     await waitFor(() => expect(button).toBeEnabled());
     await userEvent.click(button);
     expect(screen.getByText('Решения для учителя')).toBeInTheDocument();
-    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    await screen.findByRole('button', { name: 'Доска ученика: Alice' });
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Alice' }));
     await waitFor(() => expect(lessonPreparationApi.personalAnswersMetadata).toHaveBeenCalledWith('e1', 'u1'));
     expect(await screen.findByText('Решения: Alice')).toBeInTheDocument();
     expect(screen.getByTestId('answers-panel-resizer')).toBeInTheDocument();
     expect(screen.getByText('Решения: Alice')).toBeInTheDocument();
     expect(lessonPreparationApi.personalAnswersMetadata).toHaveBeenCalledTimes(1);
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u2');
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Bob' }));
     expect(await screen.findByText('Решения: Bob')).toBeInTheDocument();
     expect(screen.getByText(/Для этого ученика решения ещё не загружены/)).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    await userEvent.click(screen.getByRole('button', { name: 'Все ученики (2×2)' }));
     expect(await screen.findByText('Решения для учителя')).toBeInTheDocument();
     expect(lessonPreparationApi.answersMetadata).toHaveBeenCalledWith('e1');
     } finally {
@@ -1040,8 +1049,8 @@ describe('OnlineClassRoom', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} });
     try {
     mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    await screen.findByRole('button', { name: 'Доска ученика: Alice' });
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Alice' }));
     const board = await screen.findByTestId('board-personal-u1');
     const button = await within(board).findByRole('button', { name: 'Ответы' });
     await waitFor(() => expect(button).toBeEnabled());
@@ -1214,11 +1223,11 @@ describe('OnlineClassRoom', () => {
 
   it('uses the existing pupil board picker instead of a separate teacher notebook workspace', async () => {
     mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
+    await screen.findByRole('button', { name: 'Доска ученика: Alice' });
     expect(screen.queryByRole('button', { name: 'Тетради учеников' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Настройки тетради' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('notebook-session')).not.toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Alice' }));
     expect(screen.getByTestId('board-personal-u1')).toHaveAttribute('data-active', 'true');
     expect(boardProps.filter(p => p.targetId === 'personal-u1').at(-1)).toMatchObject({ compactPreview: false });
     expect(screen.queryByRole('region', { name: 'Встроенная тетрадь' })).not.toBeInTheDocument();
@@ -1231,8 +1240,8 @@ describe('OnlineClassRoom', () => {
       { userId: 'u2', displayName: 'Boris', classRole: 'STUDENT', admissionState: 'ADMITTED' } as never,
     ]);
     mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Boris' });
-    await user.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    await screen.findByRole('button', { name: 'Доска ученика: Boris' });
+    await user.click(screen.getByRole('button', { name: 'Все ученики (2×2)' }));
     const alice = await screen.findByTestId('board-personal-u1');
     const boris = await screen.findByTestId('board-personal-u2');
     const latest = (targetId: string) => boardProps.filter(props => props.targetId === targetId && !props.targetType).at(-1);
@@ -1265,8 +1274,8 @@ describe('OnlineClassRoom', () => {
     ]);
     for (const id of ['u1', 'u2']) notebookFixture.camerasByOwner.set(id, { cameraId: `camera-${id}`, ownerId: id, status: 'CONNECTED' });
     mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Boris' });
-    await user.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    await screen.findByRole('button', { name: 'Доска ученика: Boris' });
+    await user.click(screen.getByRole('button', { name: 'Все ученики (2×2)' }));
     const paper = await screen.findByTestId('board-personal-u1');
     await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Alice' }));
     const aliceSource = pupilCameraSource(), borisSource = pupilCameraSource();
@@ -1319,8 +1328,8 @@ describe('OnlineClassRoom', () => {
   it('starts a new lesson with pupil follow disabled even when the same pupil remains selected', async () => {
     const user = userEvent.setup();
     const view = mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
-    await user.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    await screen.findByRole('button', { name: 'Доска ученика: Alice' });
+    await user.click(screen.getByRole('button', { name: 'Доска ученика: Alice' }));
     await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Alice' }));
     expect(boardProps.filter(props => props.targetId === 'personal-u1').at(-1)).toMatchObject({ classId: 'c1', followStudent: true });
     view.rerender(classroom(true, { classId: 'c2', eventId: 'e2' }));
@@ -1331,8 +1340,8 @@ describe('OnlineClassRoom', () => {
   it('uses the ordinary drawing panel with a private camera target and live video, without the pupil PDF', async () => {
     notebookFixture.camerasByOwner.set('u1', { cameraId: 'camera-u1', ownerId: 'u1', status: 'CONNECTED' });
     mount(true);
-    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    await screen.findByRole('button', { name: 'Доска ученика: Alice' });
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Alice' }));
     const paper = await screen.findByTestId('board-personal-u1');
     const video = document.createElement('video');
     const view = { type: 'document-view', version: 1, corners: null, ratio: null, turn: 2, sourceAspect: 16 / 9 };
@@ -1352,7 +1361,7 @@ describe('OnlineClassRoom', () => {
     expect(notebookFixture.viewerProps.get('camera-u1').presentation).toBe('board');
     expect(paper).toHaveAttribute('data-active', 'false');
     expect(await within(camera).findByRole('button', { name: 'Ответы' })).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'all-student-boards');
+    await userEvent.click(screen.getByRole('button', { name: 'Все ученики (2×2)' }));
     expect(screen.getByTestId('board-personal-u1-camera')).toBe(camera);
     expect(boardProps.filter(p => p.targetType === 'NOTEBOOK_CAMERA').at(-1)).toMatchObject({ canAnnotate: false, active: true, compactPreview: true });
   });
@@ -1502,8 +1511,8 @@ describe('OnlineClassRoom', () => {
   it('moves the answers button to the student board the teacher opens', async () => {
     mount(true);
     await screen.findByTestId('board-board-1');
-    await screen.findByRole('option', { name: 'Доска ученика: Alice' });
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'personal-u1');
+    await screen.findByRole('button', { name: 'Доска ученика: Alice' });
+    await userEvent.click(screen.getByRole('button', { name: 'Доска ученика: Alice' }));
 
     const personal = screen.getByTestId('board-personal-u1');
     expect(await within(personal).findByRole('button', { name: 'Ответы' })).toBeInTheDocument();

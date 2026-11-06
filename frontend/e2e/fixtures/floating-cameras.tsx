@@ -1,11 +1,13 @@
 import { createRoot } from 'react-dom/client';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { RoomContext } from '@livekit/components-react';
 import { ParticipantKind, RemoteParticipant, Room } from 'livekit-client';
 import { I18nProvider } from '../../src/i18n/I18nContext';
 import { CameraColumn } from '../../src/features/online-classes/CameraColumn';
 import { WhiteboardPanel } from '../../src/features/online-classes/WhiteboardPanel';
 import { AnswersPanelResizer } from '../../src/features/online-classes/AnswersPanelResizer';
+import { ALL_STUDENT_BOARDS_ID, BoardSwitcher } from '../../src/features/online-classes/BoardSwitcher';
+import { TranscriptionControls } from '../../src/features/online-classes/TranscriptionControls';
 import { onlineClassesApi } from '../../src/api/onlineClasses';
 import type { PdfDoc } from '../../src/features/online-classes/pdfDocument';
 import '../../src/index.css';
@@ -48,13 +50,26 @@ const document: PdfDoc = { pageCount: 2, destroy() {}, async renderPage(index, w
 } };
 
 function App() {
-  const [videos, setVideos] = useState(false), [overview, setOverview] = useState(false);
+  const [videos, setVideos] = useState(false), [activeBoard, setActiveBoard] = useState('board-1');
+  const overview = activeBoard === ALL_STUDENT_BOARDS_ID;
+  const topbar = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = topbar.current!;
+    const measure = () => element.parentElement!.style.setProperty('--classroom-header-height', `${element.offsetHeight}px`);
+    const observer = new ResizeObserver(measure); observer.observe(element); measure();
+    return () => observer.disconnect();
+  }, []);
+  const students = Array.from({ length: 4 }, (_, index) => ({ userId: `pupil-${index + 1}`, displayName: `Ученица ${index + 1}` }));
   const answers = new URLSearchParams(location.search).get('answers') === '1';
   return <div className="online-class-room online-class-room--original-v3 lk-room-container">
-    <header className="online-class-room__topbar">
-      <div className="online-class-room__lesson-island">Тестовый урок</div>
+    <header className="online-class-room__topbar" ref={topbar}>
+      <div className="online-class-room__lesson-island"><strong>Тестовый урок</strong><span className="online-class-room__status">В сети</span></div>
+      <div className="online-class-room__lesson-actions">
+        <div className="online-class-room__audio-focus"><span role="status">Вас слышит вся группа</span></div>
+        <TranscriptionControls classId="floating-camera-fixture" isHost transcriptionState="ACTIVE" available />
+      </div>
       <div className="online-class-room__board-controls">
-        <button onClick={() => setOverview(value => !value)}>Все ученики</button>
+        <BoardSwitcher isHost currentUserId={teacher} students={students} activeId={activeBoard} onChange={setActiveBoard} />
         <button className="online-class-room__videos-toggle" aria-expanded={videos} aria-controls="online-class-videos"
           onClick={() => setVideos(value => !value)}>Видео</button>
       </div>
