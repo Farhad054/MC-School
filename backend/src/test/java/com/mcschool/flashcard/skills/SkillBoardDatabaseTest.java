@@ -14,7 +14,7 @@ class SkillBoardDatabaseTest {
         String url=System.getenv("SKILLS_TEST_DATABASE_URL");
         Assumptions.assumeTrue(url!=null && url.startsWith("jdbc:postgresql://localhost:"),"Only runs against the explicitly configured local CI test database");
         jdbc=new JdbcTemplate(new DriverManagerDataSource(url,"skills_test","skills_test"));
-        jdbc.execute("DROP TABLE IF EXISTS skill_board_revisions; DROP TABLE IF EXISTS skill_boards");
+        jdbc.execute("DROP TABLE IF EXISTS skill_progress_shares; DROP TABLE IF EXISTS skill_board_revisions; DROP TABLE IF EXISTS skill_boards");
         jdbc.execute(Files.readString(Path.of("src/main/resources/db/migration/V65__add_skill_boards.sql")));
         service=new SkillBoardService(jdbc,JsonMapper.builder().build());
     }
