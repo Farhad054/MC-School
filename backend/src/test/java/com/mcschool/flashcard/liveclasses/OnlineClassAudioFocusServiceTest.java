@@ -35,10 +35,11 @@ class OnlineClassAudioFocusServiceTest {
     }
 
     @Test
-    void ownerCanFocusAnAdmittedPupilAndReturnToTheGroup() {
+    void ownerCanFocusAnAssignedPupilBeforeAdmissionAndReturnToTheGroup() {
         var request = new OnlineClassAudioFocusService.Request(studentId, false);
         assertThat(service.update(teacher, classId, request).studentId()).isEqualTo(studentId);
-        verify(access).requireAdmitted(new AuthenticatedUser(studentId, null, Role.STUDENT), classId);
+        verify(access).requireParticipant(new AuthenticatedUser(studentId, null, Role.STUDENT), classId);
+        verify(access, never()).requireAdmitted(any(), any());
         var json = ArgumentCaptor.forClass(String.class);
         verify(media).updateRoomAudioFocus(eq("test-audio-room"), json.capture());
         var value = new tools.jackson.databind.ObjectMapper().readTree(json.getValue());
@@ -63,8 +64,8 @@ class OnlineClassAudioFocusServiceTest {
     }
 
     @Test
-    void outsidersAndNonAdmittedPupilsCannotBeSelected() {
-        when(access.requireAdmitted(any(), eq(classId))).thenThrow(new ResourceNotFoundException("not found"));
+    void outsidersCannotBeSelectedEvenBeforeAdmission() {
+        when(access.requireParticipant(any(), eq(classId))).thenThrow(new ResourceNotFoundException("not found"));
         assertThatThrownBy(() -> service.update(teacher, classId, new OnlineClassAudioFocusService.Request(studentId, false)))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(media, never()).updateRoomAudioFocus(anyString(), anyString());

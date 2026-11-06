@@ -35,7 +35,9 @@ public class OnlineClassAudioFocusService {
             throw new IllegalArgumentException("An announcement requires a selected student");
         }
         if (request.studentId() != null) {
-            access.requireAdmitted(new AuthenticatedUser(request.studentId(), null, Role.STUDENT), classId);
+            // Teachers can open an assigned pupil's work before that pupil joins.
+            // Selecting a listening layout must not grant admission or issue a token.
+            access.requireParticipant(new AuthenticatedUser(request.studentId(), null, Role.STUDENT), classId);
         }
         var focus = new Focus(1, classId, lesson.getTeacher().getId(), request.studentId(), request.announceAll());
         media.updateRoomAudioFocus(lesson.getRoomName(), new tools.jackson.databind.ObjectMapper().writeValueAsString(focus));

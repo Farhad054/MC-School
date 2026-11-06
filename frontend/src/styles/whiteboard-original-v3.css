@@ -68,7 +68,37 @@
 .online-class-room--original-v3 .online-class-room__status { font-size:10px; color:var(--v3-muted); }
 .online-class-room--original-v3 .online-class-room__stage { position:absolute; inset:0; min-width:0; min-height:0; background:var(--v3-bg); }
 .online-class-room--original-v3 .online-class-room__main { min-width:0; min-height:0; }
-.online-class-room--original-v3 .online-class-room__videos-drawer { padding-top:var(--classroom-header-height); padding-bottom:var(--classroom-dock-height); background:#202427; border-left:1px solid #3b4348; }
+.online-class-room--original-v3 .online-class-room__stage > .online-class-room__videos-drawer,
+.online-class-room--original-v3 .online-class-room__stage > .online-class-room__videos-drawer.is-open {
+  position:absolute; flex:none; z-index:14;
+  top:calc(var(--classroom-header-height) + 68px);
+  right:max(12px,env(safe-area-inset-right));
+  bottom:calc(var(--classroom-dock-height) + 64px);
+  width:clamp(112px,14vw,190px); padding:0;
+  background:transparent; border:0; overflow:visible; pointer-events:none;
+}
+.online-class-room--original-v3 .online-class-room__videos-drawer .camera-column {
+  height:auto; max-height:100%; padding:0; gap:10px;
+  background:transparent; overflow-y:auto; scrollbar-width:none; pointer-events:none;
+}
+.online-class-room--original-v3 .online-class-room__videos-drawer .camera-column::-webkit-scrollbar { display:none; }
+.online-class-room--original-v3 .online-class-room__videos-drawer .camera-card {
+  flex:0 0 auto; aspect-ratio:16 / 10; min-height:64px;
+  border:1px solid #4b5359; border-radius:14px;
+  box-shadow:0 6px 20px #0005,inset 0 0 0 3px transparent;
+}
+.online-class-room--original-v3 .online-class-room__videos-drawer.is-open .camera-card { pointer-events:auto; }
+.online-class-room--original-v3 .online-class-room__videos-drawer .camera-card[data-speaking='true'] {
+  box-shadow:0 6px 20px #0005,inset 0 0 0 3px #34d399;
+}
+@media (max-height:500px) and (orientation:landscape) {
+  .online-class-room--original-v3 .online-class-room__stage > .online-class-room__videos-drawer,
+  .online-class-room--original-v3 .online-class-room__stage > .online-class-room__videos-drawer.is-open {
+    width:min(calc(100vw - 24px),610px); bottom:auto;
+  }
+  .online-class-room--original-v3 .online-class-room__videos-drawer .camera-column { flex-direction:row; overflow-x:auto; overflow-y:hidden; }
+  .online-class-room--original-v3 .online-class-room__videos-drawer .camera-card { flex-basis:112px; }
+}
 .online-class-room--original-v3 .online-class-room__drawer { top:calc(var(--classroom-header-height) + 8px); bottom:calc(var(--classroom-dock-height) + 8px); border:1px solid var(--v3-edge); border-radius:13px; background:var(--v3-panel); color:var(--v3-text); }
 .online-class-room--original-v3 .online-class-room__controls {
   position:absolute; inset:auto 0 0; z-index:25; min-height:0; width:100%;
@@ -275,9 +305,6 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
 .online-class-room--original-v3 .classroom-solutions__scroller { flex:1 1 0%; min-height:0; padding:0; background:var(--v3-paper); }
 .online-class-room--original-v3 .classroom-solutions__sheet { padding:0; color:#29333c; }
 
-@media(min-width:901px) {
-  .online-class-room--original-v3 .online-class-room__videos-drawer.is-open { position:relative; flex:0 0 clamp(160px,23vw,250px); }
-}
 @media(max-width:1100px) {
   .online-class-room--original-v3 .online-class-room__topbar { padding-left:max(14px,env(safe-area-inset-left)); padding-right:max(14px,env(safe-area-inset-right)); }
   .online-class-room--original-v3 .online-class-room__stage > .answers-panel,

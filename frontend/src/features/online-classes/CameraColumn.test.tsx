@@ -1,5 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
-import { ConnectionQuality, ConnectionState } from 'livekit-client';
+import { ConnectionQuality, ConnectionState, ParticipantKind } from 'livekit-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n/I18nContext';
 
@@ -11,6 +11,8 @@ interface Fake {
   micMuted?: boolean;
   cameraOn?: boolean;
   quality?: ConnectionQuality;
+  kind?: ParticipantKind;
+  isAgent?: boolean;
 }
 
 let fakes: Fake[] = [];
@@ -21,7 +23,7 @@ const find = (participant: { identity: string }) => fakes.find((fake) => fake.id
 vi.mock('@livekit/components-react', () => ({
   useTracks: () =>
     fakes.map((fake) => ({
-      participant: { identity: fake.identity, name: fake.name, isLocal: !!fake.isLocal },
+      participant: { identity: fake.identity, name: fake.name, isLocal: !!fake.isLocal, kind: fake.kind, isAgent: fake.isAgent },
       source: 'camera',
       ...(fake.cameraOn ? { publication: { isMuted: false } } : {}),
     })),
@@ -69,6 +71,20 @@ describe('CameraColumn', () => {
     fakes = [student('a'), student('b'), teacher];
     renderColumn();
     expect(names()).toEqual(['Mr Teacher', 'Student a', 'Student b']);
+  });
+
+  it('excludes technical participants without hiding real camera-off or unnamed pupils', () => {
+    fakes = [teacher, student('a', { cameraOn: false, name: '' }),
+      { identity: 'agent-transcription', name: '', kind: ParticipantKind.AGENT },
+      { identity: 'legacy-agent', name: '', isAgent: true },
+      { identity: 'egress', name: '', kind: ParticipantKind.EGRESS },
+      { identity: 'notebook-phone:device', name: 'Student phone', kind: ParticipantKind.STANDARD },
+      { identity: 'notebook-viewer:device:teacher', name: 'Teacher', kind: ParticipantKind.STANDARD }];
+    renderColumn();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getByText('?')).toBeInTheDocument();
+    expect(screen.getByText('Mr Teacher')).toBeInTheDocument();
+    expect(screen.queryByText('Student phone')).not.toBeInTheDocument();
   });
 
   it('does not move the active speaker — it only highlights their card', () => {

@@ -78,6 +78,9 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     private OnlineClassService service;
 
     @Autowired
+    private OnlineClassAudioFocusService audioFocus;
+
+    @Autowired
     private OnlineClassRepository classRepository;
 
     @Autowired
@@ -149,6 +152,20 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     private OnlineClass materialize() {
         OnlineClassResponse response = service.materializeFromCalendar(teacherPrincipal, "event-1");
         return classRepository.findById(response.id()).orElseThrow();
+    }
+
+    @Test
+    void teacherCanFocusAssignedWorkBeforeThePupilJoinsWithoutGrantingAdmission() {
+        var room = materialize();
+        room.start(NOW);
+        classRepository.saveAndFlush(room);
+        assertThat(participantRepository.findByOnlineClassIdAndUserId(room.getId(), student.getId())).isEmpty();
+        assertThat(audioFocus.update(teacherPrincipal, room.getId(),
+                new OnlineClassAudioFocusService.Request(student.getId(), false)).studentId()).isEqualTo(student.getId());
+        assertThat(participantRepository.findByOnlineClassIdAndUserId(room.getId(), student.getId())).isEmpty();
+        assertThatThrownBy(() -> audioFocus.update(teacherPrincipal, room.getId(),
+                new OnlineClassAudioFocusService.Request(otherTeacher.getId(), false)))
+                .isInstanceOf(ResourceNotFoundException.class);
     }
 
     // --- Materialization -----------------------------------------------------
