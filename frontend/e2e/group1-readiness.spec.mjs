@@ -165,11 +165,11 @@ test('three isolated pupils receive separate PDFs, solve concurrently and restor
       await expect.poll(() => server.rows(role).length).toBe(1);
       expect(server.rows(role)[0].actorId).toBe(ids[role]);
       await expect.poll(() => ink(pupils[index])).toBe(1);
-      await teacher.locator('#source-switcher select').selectOption(`personal-${ids[role]}`);
+      await teacher.getByRole('button', { name: `Доска ученика: ${names[role]}`, exact: true }).click();
       await expect.poll(() => background(teacher)).toEqual(colors[role]);
       await expect.poll(() => ink(teacher)).toBe(1);
     }
-    await teacher.locator('#source-switcher select').selectOption(`personal-${ids.owner}`);
+    await teacher.getByRole('button', { name: `Доска ученика: ${names.owner}`, exact: true }).click();
     await expect.poll(() => background(teacher)).toEqual(colors.owner);
     await write(teacher, .1);
     await expect.poll(() => server.rows('owner').length).toBe(2);
@@ -183,7 +183,7 @@ test('three isolated pupils receive separate PDFs, solve concurrently and restor
       await expect.poll(() => background(pupils[index]), { timeout: 10000 }).toEqual(colors[role]);
       await expect.poll(() => ink(pupils[index])).toBe(role === 'owner' ? 2 : 1);
     }
-    await teacher.locator('#source-switcher select').selectOption(`personal-${ids.peer}`);
+    await teacher.getByRole('button', { name: `Доска ученика: ${names.peer}`, exact: true }).click();
     await expect.poll(() => background(teacher)).toEqual(colors.peer);
     await teacher.getByRole('button', { name: 'Добавить страницу', exact: true }).first().click();
     await expect(navigation(pupils[1])).toHaveText('1 / 2', { timeout: 10000 });
@@ -228,7 +228,7 @@ test('three isolated pupils receive separate PDFs, solve concurrently and restor
     const output = process.env.GROUP1_QA_OUTPUT_DIR || testInfo.outputPath('proof');
     await mkdir(output, { recursive: true });
     for (const [index, page] of pupils.entries()) await page.screenshot({ path: join(output, `group1-pupil-${index + 1}.png`) });
-    await teacher.locator('#source-switcher select').selectOption('board-1');
+    await teacher.getByRole('button', { name: 'Общая группа', exact: true }).click();
     await expect.poll(() => background(teacher)).toEqual(blue);
     await teacher.screenshot({ path: join(output, 'group1-teacher-shared.png') });
   } finally {
