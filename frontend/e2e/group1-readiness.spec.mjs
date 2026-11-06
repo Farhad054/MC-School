@@ -150,12 +150,12 @@ test('three isolated pupils receive separate PDFs, solve concurrently and restor
     const pupils = clients.slice(1).map(client => client.page);
     const preparation = await clients[0].context.newPage();
     await preparation.goto('http://127.0.0.1:4175/e2e/fixtures/board-pages.html?trio=1&role=teacher&prep=1');
-    await expect(preparation.getByRole('heading', { name: 'Листы учеников', exact: true })).toBeVisible();
+    await expect(preparation.getByRole('region', { name: 'Личные рабочие тетради', exact: true })).toBeVisible();
     for (const [index, role] of pupilRoles.entries()) {
       await preparation.getByLabel(`Лист для ${names[role]}`, { exact: true }).setInputFiles({
         name: `worksheet-${index + 1}.pdf`, mimeType: 'application/pdf', buffer: worksheetPdf(String(index + 1), colors[role]),
       });
-      await expect(preparation.getByRole('group', { name: names[role], exact: true })).toContainText(`worksheet-${index + 1}.pdf`);
+      await expect(preparation.getByRole('region', { name: names[role], exact: true })).toContainText(`worksheet-${index + 1}.pdf`);
       await expect(preparation.getByLabel(`Лист для ${names[role]}`, { exact: true })).toBeEnabled();
     }
     await Promise.all(pupils.map((page, index) => expect.poll(() => background(page), { timeout: 10000 }).toEqual(colors[pupilRoles[index]])));
