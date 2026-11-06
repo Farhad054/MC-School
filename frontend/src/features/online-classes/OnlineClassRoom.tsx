@@ -699,9 +699,6 @@ function RoomBody({
         />
         </div>
         <div className="online-class-room__board-controls">
-        <button type="button" className="online-class-room__videos-toggle" aria-expanded={videosOpen} aria-controls="online-class-videos" onClick={() => setVideosOpen((open) => !open)} title={videosOpen ? 'Скрыть видео участников' : 'Показать видео участников'}>
-          {videosOpen ? 'Видео ›' : '‹ Видео'}
-        </button>
         <BoardSwitcher
           isHost={connection.host}
           currentUserId={currentUserId}
@@ -709,6 +706,9 @@ function RoomBody({
           activeId={activeBoard}
           onChange={selectBoard}
         />
+        <button type="button" className="online-class-room__videos-toggle" aria-expanded={videosOpen} aria-controls="online-class-videos" onClick={() => setVideosOpen((open) => !open)} title={videosOpen ? 'Скрыть видео участников' : 'Показать видео участников'}>
+          {videosOpen ? 'Видео ›' : '‹ Видео'}
+        </button>
         </div>
       </div>
       {connection.host && <input ref={materialInput} type="file" multiple accept=".pdf,application/pdf,image/png,image/jpeg,image/webp"

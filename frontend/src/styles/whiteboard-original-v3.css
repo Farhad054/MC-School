@@ -52,7 +52,7 @@
 .online-class-room--original-v3 .online-class-room__lesson-actions > * { pointer-events:auto; }
 .online-class-room--original-v3 .online-class-room__archive-notice { display:flex; align-items:center; gap:6px; min-width:0; max-width:420px; font-size:12px; }
 .online-class-room--original-v3 .online-class-room__archive-notice > span { min-width:0; overflow-wrap:anywhere; }
-.online-class-room--original-v3 .online-class-room__board-controls { margin-left:auto; flex-shrink:0; gap:4px; padding:4px 6px; }
+.online-class-room--original-v3 .online-class-room__board-controls { margin-left:auto; flex:1 1 280px; min-width:0; gap:4px; padding:4px 6px; }
 .online-class-room--original-v3 .online-class-room__topbar button,
 .online-class-room--original-v3 .online-class-room__topbar select {
   height:34px; min-height:34px; padding:5px 10px; border:1px solid #3b4348;
@@ -63,6 +63,16 @@
 .online-class-room--original-v3 .online-class-room__board-controls select { border:0; background:transparent; }
 .online-class-room--original-v3 .online-class-room__topbar button[aria-pressed='true'] { color:var(--v3-orange); background:var(--v3-selected); }
 .online-class-room--original-v3 .online-class-room__topbar .board-switcher { margin:0; }
+.online-class-room--original-v3 .online-class-room__topbar .board-switcher--teacher {
+  flex:1 1 auto; min-width:0; overflow-x:auto; scrollbar-width:thin;
+  overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch;
+}
+.online-class-room--original-v3 .board-switcher--teacher button {
+  flex:0 0 auto; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.online-class-room--original-v3 .board-switcher--teacher .board-switcher__overview {
+  display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:5px 8px;
+}
 .online-class-room--original-v3 .online-class-room__topbar .online-class-room__videos-toggle { margin-left:0; }
 .online-class-room--original-v3 .board-switcher select { max-width:220px; color-scheme:dark; }
 .online-class-room--original-v3 .online-class-room__status { font-size:10px; color:var(--v3-muted); }
@@ -306,7 +316,8 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
 .online-class-room--original-v3 .classroom-solutions__sheet { padding:0; color:#29333c; }
 
 @media(max-width:1100px) {
-  .online-class-room--original-v3 .online-class-room__topbar { padding-left:max(14px,env(safe-area-inset-left)); padding-right:max(14px,env(safe-area-inset-right)); }
+  .online-class-room--original-v3 .online-class-room__topbar { flex-wrap:wrap; padding-left:max(14px,env(safe-area-inset-left)); padding-right:max(14px,env(safe-area-inset-right)); }
+  .online-class-room--original-v3 .online-class-room__lesson-actions { order:3; flex:1 0 100%; flex-wrap:wrap; }
   .online-class-room--original-v3 .online-class-room__stage > .answers-panel,
   .online-class-room--original-v3 .online-class-room__stage > .classroom-solutions { width:188px; flex-basis:188px; }
   .whiteboard--original-v3.school-islands-board .whiteboard__surface { left:24px; right:24px; }
@@ -409,3 +420,9 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
   min-width:0; max-width:340px; font-size:12px; line-height:1.35;
 }
 .online-class-room__audio-focus button { padding:5px 8px; font-size:12px; }
+
+@media (max-height:500px) and (orientation:landscape) {
+  .online-class-room--original-v3 .online-class-room__topbar { flex-wrap:nowrap; }
+  .online-class-room--original-v3 .online-class-room__lesson-actions { order:0; flex:0 1 auto; flex-wrap:nowrap; max-width:42%; }
+  .online-class-room--original-v3 .online-class-room__board-controls { flex-basis:220px; }
+}
