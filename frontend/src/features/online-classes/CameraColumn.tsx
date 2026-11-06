@@ -7,7 +7,7 @@ import {
   useTracks,
   type TrackReferenceOrPlaceholder,
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { ParticipantKind, Track } from 'livekit-client';
 import { useRef } from 'react';
 import { useI18n } from '../../i18n/I18nContext';
 import { initialsOf, isReconnecting } from './cameraCard';
@@ -87,13 +87,12 @@ function CameraCard({
 }
 
 /**
- * Permanent camera column to the right of the board.
+ * Camera islands over the right side of the board.
  *
  * Order is fixed for the whole lesson: the teacher first, students in the
  * order they arrived. The active speaker is highlighted where they stand, never
  * moved. Cards are all one size; a leaver's slot closes up, a latecomer lands
- * in the next free slot, and there is deliberately no scrolling at this stage
- * (the layout is sized for about five cameras).
+ * in the next free slot. The overlay scrolls when the viewport cannot fit them.
  */
 export function CameraColumn({
   hostUserId,
@@ -103,9 +102,15 @@ export function CameraColumn({
   localIsHost: boolean;
 }) {
   const { t } = useI18n();
-  const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], {
+  const roomTracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], {
     onlySubscribed: false,
   });
+  // Transcription/recording agents and notebook devices are not people tiles.
+  // Keep human placeholders even when their name or camera is not available.
+  const tracks = roomTracks.filter(({ participant }) => !participant.isAgent
+    && (participant.kind === undefined || participant.kind === ParticipantKind.STANDARD)
+    && !participant.identity.startsWith('notebook-phone:')
+    && !participant.identity.startsWith('notebook-viewer:'));
 
   const hostOf = (track: TrackReferenceOrPlaceholder) =>
     track.participant.isLocal ? localIsHost : isFromHost(track.participant.identity, hostUserId);

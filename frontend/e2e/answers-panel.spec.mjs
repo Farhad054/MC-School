@@ -38,19 +38,21 @@ async function dragGrip(page, delta) {
   await page.mouse.up();
 }
 
-async function expectSeparatedLayout(page, panel) {
+async function expectOverlayLayout(page, panel) {
   const main = page.locator('.online-class-room__stage > .online-class-room__main');
   const camera = page.locator('.camera-card[data-host="true"]:visible').first();
   await expect(camera).toBeVisible();
   const panelBox = await panel.boundingBox(), mainBox = await main.boundingBox(), cameraBox = await camera.boundingBox();
   expect(mainBox.width).toBeGreaterThanOrEqual(259);
   expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(mainBox.x + 1);
-  expect(mainBox.x + mainBox.width).toBeLessThanOrEqual(cameraBox.x + 1);
+  expect(mainBox.x + mainBox.width).toBeCloseTo(page.viewportSize().width, 0);
+  expect(cameraBox.x).toBeGreaterThanOrEqual(mainBox.x);
+  expect(cameraBox.x + cameraBox.width).toBeLessThanOrEqual(mainBox.x + mainBox.width);
   expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(cameraBox.x + 1);
 }
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1000, height: 900 }]) {
-  test(`empty answers panel keeps a visible oval and resizes beside videos at ${viewport.width}px`, async ({ page }) => {
+  test(`empty answers panel keeps a visible oval and resizes with floating videos at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const { panel, toggle, errors } = await openEmptyTrial(page);
     const grip = separator(page).locator('.answers-panel-resizer__grip');
@@ -59,14 +61,19 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1000, height: 900
     expect(gripBox.width).toBeGreaterThanOrEqual(20);
     expect(gripBox.height).toBeGreaterThanOrEqual(50);
 
+    const beforeVideos = await page.locator('.online-class-room__main').boundingBox();
+    const beforeWidth = await width(panel);
     await page.locator('.online-class-room__videos-toggle').click();
     await expect(page.locator('#online-class-videos')).toHaveAttribute('aria-hidden', 'false');
-    await expectSeparatedLayout(page, panel);
+    await expect(page.locator('#online-class-videos')).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+    await expect.poll(() => page.locator('.online-class-room__main').boundingBox()).toEqual(beforeVideos);
+    await expect.poll(() => width(panel)).toBe(beforeWidth);
+    await expectOverlayLayout(page, panel);
     const initial = await width(panel);
     await dragGrip(page, 150);
     await expect.poll(() => width(panel)).toBeGreaterThan(initial + 100);
     const expanded = await width(panel);
-    await expectSeparatedLayout(page, panel);
+    await expectOverlayLayout(page, panel);
     await dragGrip(page, -80);
     await expect.poll(() => width(panel)).toBeLessThan(expanded - 50);
     const chosen = await width(panel);
@@ -81,12 +88,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1000, height: 900
     await dragGrip(page, viewport.width * 2);
     const maximum = Number(await separator(page).getAttribute('aria-valuemax'));
     await expect.poll(() => width(panel)).toBeCloseTo(maximum, 0);
-    await expectSeparatedLayout(page, panel);
+    await expectOverlayLayout(page, panel);
     await dragGrip(page, -viewport.width * 2);
     const minimum = Number(await separator(page).getAttribute('aria-valuemin'));
     await expect.poll(() => width(panel)).toBeCloseTo(minimum, 0);
     expect(minimum).toBeGreaterThanOrEqual(180);
-    await expectSeparatedLayout(page, panel);
+    await expectOverlayLayout(page, panel);
     expect(errors).toEqual([]);
   });
 }

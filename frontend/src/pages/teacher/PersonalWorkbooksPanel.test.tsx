@@ -39,8 +39,8 @@ describe('personal lesson worksheets', () => {
     await userEvent.upload(input, file);
     await waitFor(() => expect(lessonPreparationApi.uploadPersonalWorkbook).toHaveBeenCalledWith('lesson-1', 'bob', file));
     expect(await screen.findByRole('status')).toHaveTextContent('Лист для Борис сохранён.');
-    expect(within(screen.getByRole('group', { name: 'Анна' })).getByText('anna.pdf')).toBeInTheDocument();
-    expect(within(screen.getByRole('group', { name: 'Борис' })).getByText('boris.pdf')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Анна' })).getByText('anna.pdf')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Борис' })).getByText('boris.pdf')).toBeInTheDocument();
   });
 
   it('keeps the existing worksheet when the replacement is rejected', async () => {
@@ -67,8 +67,8 @@ describe('personal lesson worksheets', () => {
     expect(lessonPreparationApi.uploadPersonalAnswers).toHaveBeenCalledWith('lesson-1', 'bob', file);
     expect(lessonPreparationApi.uploadPersonalWorkbook).not.toHaveBeenCalled();
     expect(await screen.findByRole('status')).toHaveTextContent('видны только преподавателю');
-    expect(within(screen.getByRole('group', { name: 'Борис' })).getByText('boris-solutions.pdf')).toBeInTheDocument();
-    expect(within(screen.getByRole('group', { name: 'Анна' })).getByText('anna.pdf')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Борис' })).getByText('boris-solutions.pdf')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Анна' })).getByText('anna.pdf')).toBeInTheDocument();
   });
 
   it('preserves personal solutions when a worksheet response omits the optional answer fields', async () => {
@@ -78,7 +78,8 @@ describe('personal lesson worksheets', () => {
     await userEvent.upload(await screen.findByLabelText('Лист для Анна'), new File(['%PDF-1.7'], 'new-anna.pdf', { type: 'application/pdf' }));
     await screen.findByText('new-anna.pdf');
     expect(screen.getByText('anna-solutions.pdf')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Посмотреть решения' })).toBeInTheDocument();
+    const solutions = screen.getByText('anna-solutions.pdf').parentElement!;
+    expect(within(solutions).getByRole('button', { name: 'Открыть' })).toBeInTheDocument();
   });
 
   it('never applies a previous lesson’s pending solutions upload to the current lesson', async () => {
