@@ -1,0 +1,106 @@
+{
+  "meta": {
+    "school": "MINDCRAFTI SCHOOL",
+    "durationMinutes": 30,
+    "group": "",
+    "date": ""
+  },
+  "workbookPages": [
+    {
+      "title": "",
+      "subtitle": "",
+      "blocks": [
+        {
+          "type": "exercise",
+          "number": "",
+          "title": "",
+          "subtitle": "",
+          "rows": [
+            {
+              "label": "1.",
+              "text": "Упростить дробь и вычислить.",
+              "math": {
+                "latex": "\\frac{3}{4} + \\frac{2}{5}"
+              },
+              "work": false
+            },
+            {
+              "label": "2.",
+              "text": "Вычислить разность дробей.",
+              "math": {
+                "latex": "\\frac{7}{8} - \\frac{1}{3}"
+              },
+              "work": false
+            },
+            {
+              "label": "3.",
+              "text": "Вычислить произведение дробей.",
+              "math": {
+                "latex": "\\frac{5}{6} \\times \\frac{3}{4}"
+              },
+              "work": false
+            },
+            {
+              "label": "4.",
+              "text": "Вычислить частное дробей.",
+              "math": {
+                "latex": "\\frac{2}{7} \\div \\frac{1}{14}"
+              },
+              "work": false
+            },
+            {
+              "label": "5.",
+              "text": "Упростить сложное выражение с дробями.",
+              "math": {
+                "latex": "\\frac{1}{2} + \\frac{3}{8} - \\frac{1}{4}"
+              },
+              "work": false
+            }
+          ],
+          "writeLines": 0
+        }
+      ]
+    }
+  ],
+  "teacherPages": [
+    {
+      "title": "",
+      "subtitle": "",
+      "blocks": [
+        {
+          "type": "text",
+          "text": "Private automated answer validation"
+        }
+      ]
+    }
+  ],
+  "qa": {
+    "algebra": [
+      {
+        "kind": "expressionValue",
+        "expression": "\\frac{3}{4} + \\frac{2}{5}",
+        "restrictions": []
+      },
+      {
+        "kind": "expressionValue",
+        "expression": "\\frac{7}{8} - \\frac{1}{3}",
+        "restrictions": []
+      },
+      {
+        "kind": "expressionValue",
+        "expression": "\\frac{5}{6} \\times \\frac{3}{4}",
+        "restrictions": []
+      },
+      {
+        "kind": "expressionValue",
+        "expression": "\\frac{2}{7} \\div \\frac{1}{14}",
+        "restrictions": []
+      },
+      {
+        "kind": "expressionValue",
+        "expression": "\\frac{1}{2} + \\frac{3}{8} - \\frac{1}{4}",
+        "restrictions": []
+      }
+    ]
+  }
+}

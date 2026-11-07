@@ -40,6 +40,11 @@ def plain_tex(text):
     if not isinstance(text, str) or not text.strip() or len(text) > 2000:
         raise ValueError('Expression must contain 1..2000 characters')
     text = text.replace('−', '-').replace('×', '*').replace('·', '*')
+    text = text.replace('÷', '/').replace('∶', '/').replace(':', '/')
+    # Only complete TeX command names are aliases. For example \divide and
+    # \colonize must remain unsupported, not become a different expression.
+    text = re.sub(r'\\(?:div|colon)(?![A-Za-z])', '/', text)
+    text = re.sub(r'\\(?:dfrac|tfrac)(?![A-Za-z])', lambda _: r'\frac', text)
     text = text.replace(r'\left', '').replace(r'\right', '').replace(r'\cdot', '*').replace(r'\times', '*')
     def group(pos):
         while pos < len(text) and text[pos].isspace():

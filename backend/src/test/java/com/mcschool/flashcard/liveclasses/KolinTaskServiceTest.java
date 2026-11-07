@@ -96,9 +96,44 @@ class KolinTaskServiceTest {
         reserve();
         when(ai.kolinStructuredReply(anyString(),anyList(),anyString())).thenReturn(mapper.writeValueAsString(
                 new KolinTaskService.Content("worksheet","Дроби",UUID.randomUUID().toString(),Collections.nCopies(5,task("1+2","3")))));
-        assertThatThrownBy(()->send("Дай пару заданий по дробям")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->send("Дай пару заданий по дробям")).isInstanceOf(KolinRequestException.class)
+                .satisfies(error -> assertThat(((KolinRequestException)error).getErrorCode()).isEqualTo("KOLIN_TASK_INVALID"));
         verifyNoInteractions(renderer);
         verify(store).fail(host,room.getId(),artifact,attempt);
+    }
+    @Test void renderFailureReportsItsStageWithoutLoggingTaskTextOrRawRendererDetails() throws Exception {
+        reserve();
+        when(ai.kolinStructuredReply(anyString(),anyList(),anyString())).thenReturn(mapper.writeValueAsString(
+                new KolinTaskService.Content("worksheet","Дроби",pupil.getId().toString(),Collections.nCopies(5,task("1/2+1/4","")))));
+        when(renderer.renderPlain(anyString())).thenThrow(new IllegalArgumentException("PRIVATE_TASK SECRET_KEY raw renderer output"));
+        var logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(KolinTaskService.class);
+        var logs=new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start();logger.addAppender(logs);
+        try {
+            assertThatThrownBy(()->send("Дай пару заданий по дробям")).isInstanceOf(KolinRequestException.class)
+                    .hasMessageNotContaining("PRIVATE_TASK").hasMessageNotContaining("SECRET_KEY");
+            assertThat(logs.list).hasSize(1);
+            assertThat(logs.list.get(0).getFormattedMessage()).contains("stage=RENDER","errorType=IllegalArgumentException",artifact.toString())
+                    .doesNotContain("PRIVATE_TASK","SECRET_KEY","raw renderer output","1/2");
+            assertThat(logs.list.get(0).getThrowableProxy()).isNull();
+        } finally { logger.detachAppender(logs);logs.stop(); }
+    }
+    @Test void providerFailureUsesADifferentStableCode() {
+        reserve();
+        when(ai.kolinStructuredReply(anyString(),anyList(),anyString())).thenThrow(new IllegalStateException("PRIVATE_PROVIDER_BODY"));
+        assertThatThrownBy(()->send("Дай пару заданий по дробям")).isInstanceOf(KolinRequestException.class)
+                .satisfies(error -> assertThat(((KolinRequestException)error).getErrorCode()).isEqualTo("KOLIN_GENERATION_FAILED"))
+                .hasMessageNotContaining("PRIVATE_PROVIDER_BODY");
+    }
+    @Test void occupiedRendererIsRetryableCapacityRatherThanAnInvalidTask() throws Exception {
+        reserve();
+        when(ai.kolinStructuredReply(anyString(),anyList(),anyString())).thenReturn(mapper.writeValueAsString(
+                new KolinTaskService.Content("worksheet","Дроби",pupil.getId().toString(),Collections.nCopies(5,task("1/2+1/4","")))));
+        when(renderer.renderPlain(anyString())).thenThrow(new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,"PRIVATE_CAPACITY_DETAIL"));
+        assertThatThrownBy(()->send("Дай пару заданий по дробям")).isInstanceOf(KolinRequestException.class)
+                .satisfies(error -> assertThat(((KolinRequestException)error).getErrorCode()).isEqualTo("KOLIN_BUSY"))
+                .hasMessageNotContaining("PRIVATE_CAPACITY_DETAIL");
     }
     private void reserve() {
         when(store.begin(eq(host),eq(room.getId()),eq(clientId),anyString())).thenReturn(new KolinWorksheetStore.Reservation(artifact,attempt,null));

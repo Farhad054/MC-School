@@ -1,5 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { ApiRequestError } from '../../api/client';
 import { kolinApi, parseKolinTranscriptContext, parseKolinWorksheet, type KolinContext, type KolinHistoryMessage, type KolinTranscriptContext, type KolinWorksheet } from '../../api/kolin';
+
+export type KolinFailureCode = 'KOLIN_BUSY' | 'KOLIN_TASK_INVALID' | 'KOLIN_GENERATION_FAILED';
+
+function failureCode(error: unknown): KolinFailureCode | null {
+  if (!(error instanceof ApiRequestError)) return null;
+  return error.errorCode === 'KOLIN_BUSY' || error.errorCode === 'KOLIN_TASK_INVALID'
+    || error.errorCode === 'KOLIN_GENERATION_FAILED' ? error.errorCode : null;
+}
 
 export interface KolinMessage extends KolinHistoryMessage {
   id: string;
@@ -25,10 +34,11 @@ interface Session {
   availability: 'idle' | 'checking' | 'ready' | 'unconfigured' | 'error';
   pending: boolean;
   error: 'connection' | 'response' | null;
+  failureCode: KolinFailureCode | null;
   failed: Submission | null;
 }
 
-const initial = (token: object): Session => ({ token, open: false, draft: '', messages: [], availability: 'idle', pending: false, error: null, failed: null });
+const initial = (token: object): Session => ({ token, open: false, draft: '', messages: [], availability: 'idle', pending: false, error: null, failureCode: null, failed: null });
 
 /** One private, in-page teacher thread. Closing/resizing/changing pupil never changes its scope. */
 export function useKolinChat(classId: string, teacherId: string, enabled: boolean) {
@@ -50,7 +60,7 @@ export function useKolinChat(classId: string, teacherId: string, enabled: boolea
   const checkAvailability = useCallback(async () => {
     if (!enabled || statusFlight.current === token) return;
     statusFlight.current = token;
-    change(current => ({ ...current, availability: 'checking', error: null }));
+    change(current => ({ ...current, availability: 'checking', error: null, failureCode: null }));
     try {
       const result = await kolinApi.status(classId);
       change(current => ({ ...current, availability: result.configured ? 'ready' : 'unconfigured' }));
@@ -73,7 +83,7 @@ export function useKolinChat(classId: string, teacherId: string, enabled: boolea
   const run = useCallback(async (submission: Submission, append: boolean) => {
     if (!enabled || responseFlight.current === token || state.current.availability !== 'ready') return;
     responseFlight.current = token;
-    change(current => ({ ...current, pending: true, error: null, failed: null,
+    change(current => ({ ...current, pending: true, error: null, failureCode: null, failed: null,
       messages: append ? [...current.messages, { id: submission.messageId, role: 'user', type: 'text', text: submission.text, status: 'pending' }]
         : current.messages.map(message => message.id === submission.messageId ? { ...message, status: 'pending' } : message),
     }));
@@ -91,8 +101,8 @@ export function useKolinChat(classId: string, teacherId: string, enabled: boolea
             ...(worksheet ? { worksheet } : {}),
             ...(transcriptContext ? { transcriptContext } : {}) }],
       }));
-    } catch {
-      change(current => ({ ...current, pending: false, error: 'response', failed: submission,
+    } catch (error) {
+      change(current => ({ ...current, pending: false, error: 'response', failureCode: failureCode(error), failed: submission,
         messages: current.messages.map(message => message.id === submission.messageId ? { ...message, status: 'failed' } : message),
       }));
     } finally {
@@ -104,9 +114,9 @@ export function useKolinChat(classId: string, teacherId: string, enabled: boolea
     const current = state.current;
     const text = current.draft.trim();
     if (!enabled || !text || text.length > 2000 || current.pending) return;
+    // Page navigation or late board initialization must not create a new request on retry.
     if (current.failed?.text === text && current.failed.context.studentId === context.studentId
-        && current.failed.context.targetType === context.targetType
-        && current.failed.context.currentWorkbookPage === context.currentWorkbookPage) return run(current.failed, false);
+        && current.failed.context.targetType === context.targetType) return run(current.failed, false);
     const history = current.messages.filter(message => message.status === 'complete')
       .slice(-8).map(message => ({ role: message.role, text: message.text }));
     return run({ messageId: crypto.randomUUID(), text, history, context: { ...context } }, true);

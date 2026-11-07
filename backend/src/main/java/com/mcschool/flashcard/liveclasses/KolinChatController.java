@@ -21,6 +21,13 @@ public class KolinChatController {
     private KolinWorksheetStore worksheets;
     public KolinChatController(KolinChatService chat) { this.chat = chat; }
 
+    @ExceptionHandler(KolinRequestException.class)
+    public ResponseEntity<com.mcschool.flashcard.common.ApiErrorResponse> failure(
+            KolinRequestException error,jakarta.servlet.http.HttpServletRequest request) {
+        return ResponseEntity.status(error.getStatusCode()).body(com.mcschool.flashcard.common.ApiErrorResponse.of(
+                error.getStatusCode().value(),error.getErrorCode(),error.getReason(),request.getRequestURI()));
+    }
+
     @GetMapping("/status")
     public Map<String, Boolean> status(@AuthenticationPrincipal AuthenticatedUser caller, @PathVariable UUID classId) {
         return chat.status(caller, classId);
