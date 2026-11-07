@@ -1,13 +1,30 @@
 import { useEffect, useRef } from 'react';
 import { useI18n } from '../../i18n/I18nContext';
 import type { KolinContext, KolinTranscriptContext } from '../../api/kolin';
-import type { useKolinChat } from './useKolinChat';
+import type { KolinFailureCode, useKolinChat } from './useKolinChat';
 import { KolinWorksheetCard } from './KolinWorksheetCard';
 import './kolin-panel.css';
 
 function lessonTime(milliseconds: number) {
   const seconds = Math.floor(milliseconds / 1000);
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function failureMessage(code: KolinFailureCode | null, de: boolean) {
+  switch (code) {
+    case 'KOLIN_BUSY': return de
+      ? 'Kolin bereitet die Antwort noch vor. Versuchen Sie es in ein paar Sekunden erneut.'
+      : 'Kolin ещё готовит ответ. Повторите через несколько секунд.';
+    case 'KOLIN_TASK_INVALID': return de
+      ? 'Die Aufgaben konnten nicht überprüft werden. Bitte senden Sie die Anfrage erneut.'
+      : 'Не удалось проверить задания. Повторите запрос.';
+    case 'KOLIN_GENERATION_FAILED': return de
+      ? 'Kolin konnte die Antwort nicht fertigstellen. Bitte senden Sie die Anfrage erneut.'
+      : 'Kolin не смог завершить ответ. Повторите запрос.';
+    default: return de
+      ? 'Die Antwort konnte nicht geladen werden. Bitte erneut versuchen.'
+      : 'Не удалось получить ответ. Повторите отправку.';
+  }
 }
 
 function TranscriptContextNote({ context, de }: { context: KolinTranscriptContext; de: boolean }) {
@@ -71,7 +88,7 @@ export function KolinPanel({ chat, context }: { chat: ReturnType<typeof useKolin
     {chat.availability === 'checking' && <p className="kolin-panel__status" role="status">{de ? 'Kolin wird verbunden…' : 'Подключаем Kolin…'}</p>}
     {chat.availability === 'unconfigured' && <p className="kolin-panel__status" role="status">{de ? 'Kolin ist noch nicht verfügbar.' : 'Kolin пока недоступен.'}</p>}
     {chat.error && <div className="kolin-panel__error" role="alert">
-      <p>{de ? 'Die Antwort konnte nicht geladen werden. Bitte erneut versuchen.' : 'Не удалось получить ответ. Повторите отправку.'}</p>
+      <p>{failureMessage(chat.failureCode, de)}</p>
       <button type="button" onClick={() => void chat.retry()} disabled={chat.pending || chat.availability === 'checking'}>
         {de ? 'Erneut senden' : 'Повторить отправку'}
       </button>

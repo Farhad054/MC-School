@@ -39,7 +39,7 @@ public class KolinWorksheetStore {
         }
         requireOpen(room);
         if ("GENERATING".equals(row.getState()) && row.getUpdatedAt().isAfter(Instant.now().minusSeconds(180)))
-            throw new ConflictException("Kolin is still preparing this reply; retry the same message shortly");
+            throw new ConflictException("KOLIN_BUSY","Kolin is still preparing this reply; retry the same message shortly");
         row.generating();
         repository.saveAndFlush(row);
         return new Reservation(row.getId(),row.getAttemptId(),null);

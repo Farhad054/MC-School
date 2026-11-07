@@ -139,7 +139,7 @@ class KolinChatServiceTest {
         try {
             var first=pool.submit(()->chat.send(host,room.getId(),question("Ответ",null)));
             assertThat(started.await(5,TimeUnit.SECONDS)).isTrue();
-            assertThatThrownBy(()->chat.send(host,room.getId(),question("Ответ",null))).isInstanceOf(ResponseStatusException.class).hasMessageContaining("уже отвечает");
+            assertThatThrownBy(()->chat.send(host,room.getId(),question("Ответ",null))).isInstanceOf(ResponseStatusException.class).hasMessageContaining("готовит ответ");
             finish.countDown();assertThat(first.get(5,TimeUnit.SECONDS).text()).isEqualTo("2");
         } finally {finish.countDown();pool.shutdownNow();}
     }

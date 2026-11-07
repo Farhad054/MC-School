@@ -3,6 +3,40 @@ from algebra_qa import validate, verify_document, parse
 
 
 class AlgebraTests(unittest.TestCase):
+    def test_school_division_aliases_and_fraction_variants(self):
+        for operator in [r'\div', r'\colon', '÷', '∶', ':']:
+            with self.subTest(operator=operator):
+                result = validate({'kind': 'expressionValue',
+                                   'expression': rf'\frac{{2}}{{7}} {operator} \frac{{1}}{{14}}'})
+                self.assertEqual(result['answer'], '4')
+        self.assertEqual(validate({'kind': 'expressionValue',
+                                  'expression': r'\dfrac{2}{3} \div \tfrac{1}{6}'})['answer'], '4')
+        self.assertEqual(validate({'kind': 'expressionValue', 'expression': r'1 \div2'})['answer'], '1/2')
+
+    def test_division_aliases_keep_precedence_and_left_associativity(self):
+        for expression, expected in [('6:3:2', '1'), ('6:(3:2)', '4'),
+                                     ('1/2 + 3/4 : (3/2)', '1'),
+                                     ('(1/2+3/4):(5/2)', '1/2')]:
+            with self.subTest(expression=expression):
+                self.assertEqual(validate({'kind': 'expressionValue', 'expression': expression})['answer'], expected)
+
+    def test_division_aliases_reject_zero_and_preserve_original_domain(self):
+        for expression in [r'\frac{2}{3} \div \frac{0}{1}', r'2 \colon (1-1)', '2÷0', '2∶0', '2:0']:
+            with self.subTest(expression=expression), self.assertRaisesRegex(ValueError, 'Zero denominator'):
+                validate({'kind': 'expressionValue', 'expression': expression})
+        assertion = {'kind': 'expressionValue', 'expression': r'x \div x'}
+        with self.assertRaisesRegex(ValueError, 'Missing domain'):
+            validate(assertion)
+        assertion['restrictions'] = ['x != 0']
+        self.assertEqual(validate(assertion)['answer'], '1')
+
+    def test_division_aliases_never_accept_command_prefixes_or_injections(self):
+        for expression in [r'2 \divide 3', r'2 \division 3', r'2 \colonize 3',
+                           r'\dfracx{1}{2}', r'\tfractal{1}{2}', r'\href{https://example.com}{2}',
+                           r'2 \div __import__("os")', r'\require{html}']:
+            with self.subTest(expression=expression), self.assertRaises(ValueError):
+                validate({'kind': 'expressionValue', 'expression': expression})
+
     def test_binomial_equivalence(self):
         self.assertTrue(validate({'kind': 'equivalence', 'expression': '(x+3)^2', 'answer': 'x^2+6x+9'})['passed'])
 

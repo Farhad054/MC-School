@@ -33,6 +33,7 @@ public class KolinTaskService {
                 .getBytes(StandardCharsets.UTF_8)));
         var reserved=store.begin(teacher,room.getId(),request.clientMessageId(),hash);
         if(reserved.cached()!=null) return reserved.cached();
+        String stage="ROSTER";
         try {
             var pupils=roster.read(room);
             context.put("roster",pupils);
@@ -44,12 +45,15 @@ public class KolinTaskService {
             if(request.context()!=null && request.context().studentId()!=null)
                 context.put("selectedStudentId",request.context().studentId());
             else if(room.getStudent()!=null) context.put("selectedStudentId",room.getStudent().getId());
+            stage="MODEL";
             Content content=mapper.readValue(ai.kolinStructuredReply(mapper.writeValueAsString(context),history,question),Content.class);
+            stage="CONTENT";
             if(content==null || content.kind()==null || content.text()==null || content.text().length()>4000
                     || content.tasks()==null) throw new IllegalArgumentException("Invalid Kolin content");
             if("text".equals(content.kind())) {
                 if(!content.tasks().isEmpty() || content.studentId()!=null || content.text().isBlank())
                     throw new IllegalArgumentException("Invalid Kolin text reply");
+                stage="STORE";
                 return store.complete(teacher,room.getId(),reserved.id(),reserved.attemptId(),"text",content.text(),transcript,
                         null,null,0,0,null,null);
             }
@@ -57,22 +61,41 @@ public class KolinTaskService {
                 throw new IllegalArgumentException("Invalid Kolin worksheet");
             if(content.tasks().size()!=requiredCount)
                 throw new IllegalArgumentException("Unexpected worksheet task count");
+            stage="RECIPIENT";
             UUID target=UUID.fromString(content.studentId());
             var pupil=pupils.stream().filter(item -> item.id().equals(target)).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("Unknown worksheet recipient"));
+            stage="DOCUMENT";
             String document=mapper.writeValueAsString(document(content.tasks()));
             long started=System.nanoTime();
+            stage="RENDER";
             var rendered=renderer.renderPlain(document);
+            stage="ANSWERS";
             var verifiedContent=withVerifiedAnswers(content,rendered.qa());
             String summary=content.text().isBlank()?"Подготовлено "+content.tasks().size()+" заданий.":content.text();
+            stage="STORE";
             var result=store.complete(teacher,room.getId(),reserved.id(),reserved.attemptId(),"worksheet",summary,transcript,
                     pupil.id(),pupil.name(),content.tasks().size(),rendered.pageCount(),rendered.pdf(),rendered.previewPng(),mapper.writeValueAsString(verifiedContent));
             org.slf4j.LoggerFactory.getLogger(getClass()).info("Kolin worksheet ready: classId={} artifactId={} tasks={} pages={} renderMs={}",
                     room.getId(),reserved.id(),content.tasks().size(),rendered.pageCount(),(System.nanoTime()-started)/1_000_000);
             return result;
         } catch(Exception ex) {
-            store.fail(teacher,room.getId(),reserved.id(),reserved.attemptId());
-            throw ex;
+            var log=org.slf4j.LoggerFactory.getLogger(getClass());
+            log.warn("Kolin generation failed: classId={} artifactId={} stage={} errorType={}",
+                    room.getId(),reserved.id(),stage,ex.getClass().getSimpleName());
+            try { store.fail(teacher,room.getId(),reserved.id(),reserved.attemptId()); }
+            catch(RuntimeException recovery) {
+                log.warn("Kolin failure receipt unavailable: classId={} artifactId={} errorType={}",
+                        room.getId(),reserved.id(),recovery.getClass().getSimpleName());
+            }
+            if(ex instanceof KolinRequestException known) throw known;
+            if(ex instanceof com.mcschool.flashcard.common.ConflictException conflict) throw conflict;
+            if(ex instanceof org.springframework.web.server.ResponseStatusException status
+                    && (status.getStatusCode().value()==503 || status.getStatusCode().value()==429))
+                throw KolinRequestException.busy();
+            if(Set.of("CONTENT","RECIPIENT","DOCUMENT","RENDER","ANSWERS").contains(stage))
+                throw KolinRequestException.invalid();
+            throw KolinRequestException.failed();
         }
     }
 

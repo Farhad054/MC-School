@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { kolinApi, type KolinTranscriptContext } from '../../api/kolin';
+import { ApiRequestError } from '../../api/client';
 import { I18nProvider } from '../../i18n/I18nContext';
 import { KolinPanel } from './KolinPanel';
 import { useKolinChat } from './useKolinChat';
@@ -10,10 +11,11 @@ vi.mock('../../api/kolin', async importOriginal => ({ ...await importOriginal<ty
   kolinApi: { status: vi.fn(), send: vi.fn(), worksheetPreview: vi.fn(), worksheetPdf: vi.fn(), appendWorksheet: vi.fn() } }));
 const transcriptContext: KolinTranscriptContext = { state: 'included', segmentCount: 12, truncated: true,
   latestSegmentAt: '2026-11-07T15:45:00Z', fromMs: 120000, toMs: 525000, transcriptionActive: false };
-function Harness() {
+function Harness({ currentWorkbookPage }: { currentWorkbookPage?: number } = {}) {
   const chat = useKolinChat('class-1', 'teacher', true);
   return <I18nProvider><button onClick={chat.toggle}>Kolin</button>
-    {chat.open && <KolinPanel chat={chat} context={{ targetType: 'student', studentId: 'alice' }} />}
+    {chat.open && <KolinPanel chat={chat} context={{ targetType: 'student', studentId: 'alice',
+      ...(currentWorkbookPage !== undefined ? { currentWorkbookPage } : {}) }} />}
   </I18nProvider>;
 }
 beforeEach(() => {
@@ -125,5 +127,54 @@ describe('Kolin text panel', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.getAllByText('Объясни проще')).toHaveLength(1);
     expect(kolinApi.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('resubmits the retained draft from Send after a page change without a second user bubble', async () => {
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new Error('generation failed'));
+    const view = render(<Harness currentWorkbookPage={1} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Kolin' }));
+    const text = 'А ну дай пару заданий для виталины что по дробям';
+    await userEvent.type(screen.getByRole('textbox'), text);
+    await userEvent.click(screen.getByRole('button', { name: 'Отправить' }));
+    await screen.findByRole('alert');
+    view.rerender(<Harness currentWorkbookPage={2} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Отправить' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getAllByText(text)).toHaveLength(1);
+    expect(vi.mocked(kolinApi.send).mock.calls[1]).toEqual(vi.mocked(kolinApi.send).mock.calls[0]);
+  });
+
+  it.each([
+    ['RU', 'KOLIN_BUSY', 429, 'Kolin ещё готовит ответ. Повторите через несколько секунд.'],
+    ['RU', 'KOLIN_BUSY', 409, 'Kolin ещё готовит ответ. Повторите через несколько секунд.'],
+    ['RU', 'KOLIN_TASK_INVALID', 502, 'Не удалось проверить задания. Повторите запрос.'],
+    ['RU', 'KOLIN_GENERATION_FAILED', 502, 'Kolin не смог завершить ответ. Повторите запрос.'],
+    ['DE', 'KOLIN_BUSY', 429, 'Kolin bereitet die Antwort noch vor. Versuchen Sie es in ein paar Sekunden erneut.'],
+    ['DE', 'KOLIN_TASK_INVALID', 502, 'Die Aufgaben konnten nicht überprüft werden. Bitte senden Sie die Anfrage erneut.'],
+    ['DE', 'KOLIN_GENERATION_FAILED', 502, 'Kolin konnte die Antwort nicht fertigstellen. Bitte senden Sie die Anfrage erneut.'],
+  ])('shows fixed %s copy for %s (%s) without raw server details', async (language, code, status, copy) => {
+    localStorage.setItem('language', language);
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new ApiRequestError(Number(status), code, 'PRIVATE_PROVIDER_BODY_AND_KEY'));
+    render(<Harness />);
+    await userEvent.click(screen.getByRole('button', { name: 'Kolin' }));
+    await userEvent.type(screen.getByRole('textbox'), 'Задания{Enter}');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(copy);
+    expect(alert).not.toHaveTextContent('PRIVATE_PROVIDER_BODY_AND_KEY');
+    expect(screen.getByRole('textbox')).toHaveValue('Задания');
+  });
+
+  it.each([
+    new ApiRequestError(502, 'FUTURE_KOLIN_ERROR', 'PRIVATE_PROVIDER_BODY_AND_KEY'),
+    new Error('KOLIN_TASK_INVALID PRIVATE_PROVIDER_BODY_AND_KEY'),
+    { errorCode: 'KOLIN_TASK_INVALID', message: 'PRIVATE_PROVIDER_BODY_AND_KEY' },
+  ])('uses safe generic copy for an unknown or untrusted failure %#', async error => {
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(error);
+    render(<Harness />);
+    await userEvent.click(screen.getByRole('button', { name: 'Kolin' }));
+    await userEvent.type(screen.getByRole('textbox'), 'Вопрос{Enter}');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Не удалось получить ответ. Повторите отправку.');
+    expect(alert).not.toHaveTextContent('PRIVATE_PROVIDER_BODY_AND_KEY');
   });
 });

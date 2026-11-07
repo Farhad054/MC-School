@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { kolinApi, type KolinContext, type KolinResponse, type KolinTranscriptContext, type KolinWorksheet } from '../../api/kolin';
+import { ApiRequestError } from '../../api/client';
 import { useKolinChat } from './useKolinChat';
 
 vi.mock('../../api/kolin', async importOriginal => ({ ...await importOriginal<typeof import('../../api/kolin')>(),
@@ -118,6 +119,66 @@ describe('private Kolin lesson session', () => {
     expect(result.current.messages[0].status).toBe('complete');
     expect(result.current.draft).toBe('');
     expect(vi.mocked(kolinApi.send).mock.calls[1]).toEqual(vi.mocked(kolinApi.send).mock.calls[0]);
+  });
+
+  it.each([[undefined, 1], [1, 2]])('reuses the failed request when the same pupil page changes from %s to %s', async (originalPage, currentPage) => {
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new Error('generation failed'));
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    const context: KolinContext = { targetType: 'student', studentId: 'alice',
+      ...(originalPage !== undefined ? { currentWorkbookPage: originalPage } : {}) };
+    const text = 'А ну дай пару заданий для виталины что по дробям';
+    await ask(result, text, context);
+    const originalId = result.current.messages[0].id;
+    expect(result.current.draft).toBe(text);
+    await act(async () => { await result.current.send({ ...context, currentWorkbookPage: currentPage }); });
+    expect(vi.mocked(kolinApi.send).mock.calls[1]).toEqual(vi.mocked(kolinApi.send).mock.calls[0]);
+    expect(result.current.messages.filter(message => message.role === 'user')).toEqual([
+      expect.objectContaining({ id: originalId, text, status: 'complete' }),
+    ]);
+    expect(result.current.messages.filter(message => message.role === 'assistant')).toHaveLength(1);
+  });
+
+  it('creates a distinct request when the recipient changes after a failed send', async () => {
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new Error('generation failed'));
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    await ask(result, 'Дай задания по дробям', { targetType: 'student', studentId: 'alice', currentWorkbookPage: 1 });
+    await act(async () => { await result.current.send({ targetType: 'student', studentId: 'bob', currentWorkbookPage: 2 }); });
+    const [original, changed] = vi.mocked(kolinApi.send).mock.calls;
+    expect(original[3]).toEqual({ targetType: 'student', studentId: 'alice', currentWorkbookPage: 1 });
+    expect(changed[3]).toEqual({ targetType: 'student', studentId: 'bob', currentWorkbookPage: 2 });
+    expect(changed[4]).not.toBe(original[4]);
+    expect(result.current.messages.filter(message => message.role === 'user')).toHaveLength(2);
+  });
+
+  it('clears a recognized failure code when retry begins and keeps unknown failures generic', async () => {
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new ApiRequestError(429, 'KOLIN_BUSY', 'private provider message'));
+    const { result, rerender } = renderHook(({ classId }) => useKolinChat(classId, 'teacher', true), {
+      initialProps: { classId: 'class-1' },
+    });
+    await open(result);
+    await ask(result, 'Дай задания', { studentId: 'alice' });
+    expect(result.current.error).toBe('response');
+    expect(result.current.failureCode).toBe('KOLIN_BUSY');
+    let resolve!: (value: KolinResponse) => void;
+    vi.mocked(kolinApi.send).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    let retry!: Promise<void>;
+    act(() => { retry = result.current.retry()!; });
+    expect(result.current.failureCode).toBeNull();
+    expect(result.current.error).toBeNull();
+    await act(async () => { resolve({ type: 'text', text: 'Готово' }); await retry; });
+    expect(result.current.failureCode).toBeNull();
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new ApiRequestError(502, 'UNKNOWN_CODE', 'private provider message'));
+    await ask(result, 'Следующий вопрос');
+    expect(result.current.error).toBe('response');
+    expect(result.current.failureCode).toBeNull();
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new ApiRequestError(502, 'KOLIN_TASK_INVALID', 'private provider message'));
+    await act(async () => { await result.current.retry(); });
+    expect(result.current.failureCode).toBe('KOLIN_TASK_INVALID');
+    rerender({ classId: 'class-2' });
+    expect(result.current.failureCode).toBeNull();
+    expect(result.current.error).toBeNull();
   });
 
   it('excludes a failed turn from a new question history and blocks a second send while pending', async () => {

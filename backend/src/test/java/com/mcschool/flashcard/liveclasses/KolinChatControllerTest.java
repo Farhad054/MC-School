@@ -112,4 +112,15 @@ class KolinChatControllerTest {
         mvc.perform(post(base()+"/worksheets/"+id+"/append")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("ADDED")).andExpect(jsonPath("$.fromPage").value(3));
     }
+    @Test void generationErrorsHaveStablePublicCodesAndFixedSafeMessages() throws Exception {
+        var teacher=authenticate(Role.TEACHER);
+        when(chat.send(eq(teacher),eq(classId),any())).thenThrow(KolinRequestException.invalid());
+        mvc.perform(post(base()+"/messages").contentType("application/json").content("{\"text\":\"PRIVATE_QUESTION\"}"))
+                .andExpect(status().isBadGateway()).andExpect(jsonPath("$.errorCode").value("KOLIN_TASK_INVALID"))
+                .andExpect(jsonPath("$.message").value("Не удалось проверить задания. Повторите запрос."))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("PRIVATE_QUESTION"))));
+        when(chat.send(eq(teacher),eq(classId),any())).thenThrow(KolinRequestException.busy());
+        mvc.perform(post(base()+"/messages").contentType("application/json").content("{\"text\":\"Вопрос\"}"))
+                .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.errorCode").value("KOLIN_BUSY"));
+    }
 }

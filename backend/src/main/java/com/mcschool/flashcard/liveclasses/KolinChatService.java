@@ -70,18 +70,18 @@ public class KolinChatService {
         List<Map<String, String>> history = history(request.history());
         if (!ai.isConfigured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                 "Kolin пока не настроен. Обратитесь к администратору.");
-        if (!pendingTeachers.add(teacher.id())) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                "Kolin уже отвечает. Дождитесь завершения запроса.");
+        if (!pendingTeachers.add(teacher.id())) throw KolinRequestException.busy();
         try {
             var transcript = transcript(room);
             context.put("transcript", transcript);
             if (request.clientMessageId()!=null)
                 return tasks.reply(teacher,room,request,context,history,question,transcript.metadata());
             return new Reply("text", ai.kolinReply(mapper.writeValueAsString(context), history, question), transcript.metadata());
+        } catch (KolinRequestException | com.mcschool.flashcard.common.ConflictException ex) {
+            throw ex;
         } catch (Exception ex) {
             LoggerFactory.getLogger(getClass()).warn("Kolin request failed: classId={} errorType={}", classId, ex.getClass().getSimpleName());
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Kolin не смог завершить ответ. Попробуйте отправить запрос ещё раз.");
+            throw KolinRequestException.failed();
         } finally {
             pendingTeachers.remove(teacher.id());
         }

@@ -98,3 +98,28 @@ test('derived reference answers come from the unchanged visible expressions in a
       await copyFile(join(directory,name),join(derived,name));
   }
 }));
+
+test('a real fraction worksheet with generated TeX division passes math and PDF QA',async()=>workspace(async directory=>{
+  const source=join(root,'examples','kolin-fraction-division.json');
+  const result=generate(source,directory);
+  assert.equal(result.status,0,result.stderr || result.stdout || result.error?.message);
+  const qa=JSON.parse(await readFile(join(directory,'Kolin_Plain_math-qa.json'),'utf8'));
+  assert.equal(qa.passed,true);
+  assert.equal(qa.checked,5);
+  assert.deepEqual(qa.results.map(item=>item.answer),['23/20','13/24','5/8','4','5/8']);
+  const layout=JSON.parse(await readFile(join(directory,'Kolin_Plain_layout-qa.json'),'utf8'));
+  assert.equal(layout.passed,true);
+  assert.equal(layout.documents[0].pageCount,1);
+  const html=await readFile(join(directory,'Kolin_Plain_Arbeitsheft_30min.html'),'utf8');
+  assert.equal((html.match(/class="task-row"/g)||[]).length,5);
+  assert.match(html,/Вычислить частное дробей/);
+  assert.doesNotMatch(html,/data-mml-node="merror"|data-mjx-error|Private automated answer validation|<footer|<div class="brandbar">|<img/);
+  assert.ok((await readFile(join(directory,'Kolin_Plain_preview.png'))).length>0);
+  const artifacts=process.env.PLAIN_WORKSHEET_ARTIFACT_DIR;
+  if(artifacts) {
+    const division=artifacts+'-division';
+    await mkdir(division,{recursive:true});
+    for(const name of await readdir(directory)) if(/\.(pdf|png|json|html)$/.test(name))
+      await copyFile(join(directory,name),join(division,name));
+  }
+}));
