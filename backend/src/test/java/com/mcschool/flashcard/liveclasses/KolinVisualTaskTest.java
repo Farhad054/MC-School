@@ -33,11 +33,25 @@ class KolinVisualTaskTest {
         String dir=System.getProperty("kolin.visualFixtureDir");
         if(dir!=null){Files.createDirectories(Path.of(dir));Files.writeString(Path.of(dir,"visual-demo.json"),mapper.writerWithDefaultPrettyPrinter().writeValueAsString(doc));}
     }
-    @Test void hiddenConditionsAndUnmatchedVisualDataAreRejected() {
-        assertThatThrownBy(()->KolinTaskService.document(List.of(new KolinTaskService.Task("visual","Wrong extra claim","","","",List.of(),graph("zeros")))))
-                .isInstanceOf(IllegalArgumentException.class);
+    @Test void modelProseCannotOverrideCanonicalConditionsOrPolluteFollowupContext() throws Exception {
+        var task=new KolinTaskService.Task("visual","Wrong extra claim 999","x=999","UNVERIFIED","x",List.of("x != 0"),graph("zeros"));
+        assertThat(mapper.writeValueAsString(KolinTaskService.document(List.of(task)))).doesNotContain("999","UNVERIFIED","x != 0");
+        var verified=KolinTaskService.withVerifiedAnswers(new KolinTaskService.Content("worksheet","Test","synthetic",List.of(task)),
+                Map.of("results",List.of(Map.of("passed",true,"answer","CHECKED")))).tasks().get(0);
+        assertThat(verified.instruction()).isEmpty();assertThat(verified.expression()).isEmpty();assertThat(verified.restrictions()).isEmpty();
+        assertThat(verified.answer()).isEqualTo("CHECKED");
         assertThatThrownBy(()->KolinTaskService.document(List.of(new KolinTaskService.Task("expression","Compute","1+1","","",List.of(),graph("zeros")))))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+    @Test void optionalLiveModelSamplesUseTheRealDocumentAdapter() throws Exception {
+        String dir=System.getProperty("kolin.visualFixtureDir");if(dir==null)return;
+        for(String name:List.of("graphs","geometry","fractions")) {
+            Path sample=Path.of(dir,"provider-"+name+".json");if(!Files.exists(sample))continue;
+            var content=mapper.treeToValue(mapper.readTree(Files.readString(sample)).path("content"),KolinTaskService.Content.class);
+            assertThat(content.tasks()).hasSize(5);
+            var document=KolinTaskService.document(content.tasks());
+            Files.writeString(Path.of(dir,"document-"+name+".json"),mapper.writerWithDefaultPrettyPrinter().writeValueAsString(document));
+        }
     }
     @Test void mixedMathAndPicturesKeepNumbersAndTheSameAlgebraGuards() throws Exception {
         var doc=KolinTaskService.document(List.of(visual(graph("zeros")),new KolinTaskService.Task("expression","Вычисли","1+1","","",List.of())));

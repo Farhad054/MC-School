@@ -144,9 +144,9 @@ public class KolinTaskService {
         for(int i=0;i<tasks.size();i++) {
             Task task=tasks.get(i);
             if("visual".equals(task.kind())) {
-                if(task.visual()==null || task.visual().isEmpty() || task.instruction()==null || !task.instruction().isEmpty()
-                        || task.expression()==null || !task.expression().isEmpty() || task.variable()==null || !task.variable().isEmpty()
-                        || task.restrictions()==null || !task.restrictions().isEmpty())
+                // The closed visual spec is authoritative. Model-supplied prose/formulas are
+                // deliberately discarded, including in follow-up context, never rendered.
+                if(task.visual()==null || task.visual().isEmpty())
                     throw new IllegalArgumentException("Visual conditions must come exclusively from checked parameters");
                 pages.add(Map.of("title","","blocks",List.of(Map.of("type","taskCard","children",List.of(
                         Map.of("type","visualTask","number",i+1,"spec",task.visual()))))));
@@ -190,7 +190,9 @@ public class KolinTaskService {
                     || !(row.get("answer") instanceof String answer) || answer.isBlank() || answer.length()>2000)
                 throw new IllegalArgumentException("Invalid computed reference answer");
             var task=content.tasks().get(i);
-            tasks.add(new Task(task.kind(),task.instruction(),task.expression(),answer,task.variable(),task.restrictions(),task.visual()));
+            tasks.add("visual".equals(task.kind())
+                    ? new Task("visual","","",answer,"",List.of(),task.visual())
+                    : new Task(task.kind(),task.instruction(),task.expression(),answer,task.variable(),task.restrictions(),task.visual()));
         }
         return new Content(content.kind(),content.text(),content.studentId(),tasks);
     }
