@@ -437,7 +437,8 @@ export function coordinateGridSvg(spec = {}) {
 
 /** geometry figures are built from measured coordinates, not hand-drawn paths. */
 export function geometrySvg(spec) {
-  if(!spec || !['triangle','rectangle','circle','quadrilateral','cube','cuboid'].includes(spec.figure))
+  if(spec && ['cylinder','cone','sphere','fractionCircle'].includes(spec.figure))return roundFigureSvg(spec);
+  if(!spec || !['triangle','rectangle','circle','quadrilateral','polygon','cube','cuboid'].includes(spec.figure))
     throw new Error(`Unsupported geometry figure: ${esc(spec?.figure)}`);
   const W=560,H=258;
   let world=[], entries=[];
@@ -451,8 +452,8 @@ export function geometrySvg(spec) {
     if(radius<=0)throw Error('Circle radius must be positive');
     world=[add(center,[-radius,-radius]),add(center,[radius,radius])];
   }else{
-    if(!Array.isArray(spec.vertices) || spec.vertices.length!==(spec.figure==='triangle'?3:4))throw Error(`Invalid ${spec.figure} vertices`);
-    entries=spec.vertices.map((p,i)=>({name: String(p.label || 'ABCD'[i]), p:point(p,`vertex${i}`)}));
+    if(!Array.isArray(spec.vertices) || (spec.figure==='polygon' ? spec.vertices.length<3 || spec.vertices.length>8 : spec.vertices.length!==(spec.figure==='triangle'?3:4)))throw Error(`Invalid ${spec.figure} vertices`);
+    entries=spec.vertices.map((p,i)=>({name: String(p.label || 'ABCDEFGH'[i]), p:point(p,`vertex${i}`)}));
     world=entries.map(x=>x.p);
     const area=Math.abs(world.reduce((sum,p,i)=>sum+p[0]*world[(i+1)%world.length][1]-p[1]*world[(i+1)%world.length][0],0))/2;
     if(area<1e-5)throw Error('Degenerate polygon: area must be nonzero');
@@ -589,6 +590,39 @@ export function geometrySvg(spec) {
     }
   }
   return `<svg class="diagram-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(spec.alt ?? `${spec.figure} drawing`)}">${shapes.join('')}</svg>`;
+}
+
+/** Equal circular sectors and schematic solids, with bounded dimensions and no external assets. */
+function roundFigureSvg(spec) {
+  const shapes=[], cx=280,cy=129,r=86;
+  const line=(x1,y1,x2,y2,dashed=false)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${NAVY}" stroke-width="2"${dashed?' stroke-dasharray="6 4"':''}/>`;
+  const label=(x,y,value)=>`<text x="${x}" y="${y}" font-size="15" fill="${NAVY}">${esc(value)}</text>`;
+  if(spec.figure==='fractionCircle') {
+    const n=spec.parts,k=spec.selected;
+    if(!Number.isInteger(n)||n<2||n>24||!Number.isInteger(k)||k<0||k>n)throw Error('Invalid equal circle sectors');
+    for(let i=0;i<n;i++) {
+      const a=-Math.PI/2+2*Math.PI*i/n,b=-Math.PI/2+2*Math.PI*(i+1)/n;
+      const x1=cx+r*Math.cos(a),y1=cy+r*Math.sin(a),x2=cx+r*Math.cos(b),y2=cy+r*Math.sin(b);
+      shapes.push(`<path class="fraction-sector${i<k?' selected':''}" d="M ${cx} ${cy} L ${fmt(x1)} ${fmt(y1)} A ${r} ${r} 0 0 1 ${fmt(x2)} ${fmt(y2)} Z" fill="${i<k?'#b7dce2':'white'}" stroke="${NAVY}" stroke-width="1.4"/>`);
+    }
+  } else {
+    const radius=finite(spec.radius,'radius');if(radius<=0)throw Error('Radius must be positive');
+    if(spec.figure!=='sphere'&&finite(spec.height,'height')<=0)throw Error('Height must be positive');
+    if(spec.figure==='sphere') {
+      shapes.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="white" stroke="${NAVY}" stroke-width="2.4"/>`,
+        `<ellipse cx="${cx}" cy="${cy}" rx="${r}" ry="25" fill="none" stroke="${NAVY}" stroke-dasharray="6 4"/>`,line(cx,cy,cx+r,cy),label(cx+40,cy-7,'r'));
+    } else if(spec.figure==='cylinder') {
+      shapes.push(`<path d="M 194 60 L 194 198 A 86 24 0 0 0 366 198 L 366 60" fill="#f8fafc" stroke="${NAVY}" stroke-width="2.4"/>`,
+        `<ellipse cx="280" cy="60" rx="86" ry="24" fill="white" stroke="${NAVY}" stroke-width="2.4"/>`,
+        `<path d="M 194 198 A 86 24 0 0 1 366 198" fill="none" stroke="${NAVY}" stroke-dasharray="6 4"/>`,
+        line(280,60,366,60),label(320,53,'r'),line(384,60,384,198),label(390,132,'h'));
+    } else {
+      shapes.push(`<path d="M 194 198 L 280 34 L 366 198 A 86 24 0 0 1 194 198" fill="#f8fafc" stroke="${NAVY}" stroke-width="2.4"/>`,
+        `<path d="M 194 198 A 86 24 0 0 1 366 198" fill="none" stroke="${NAVY}" stroke-dasharray="6 4"/>`,
+        line(280,34,280,198,true),line(280,198,366,198),label(285,125,'h'),label(320,191,'r'));
+    }
+  }
+  return `<svg class="diagram-svg" viewBox="0 0 560 258" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(spec.figure)}">${shapes.join('')}</svg>`;
 }
 
 export function renderDiagram(block){

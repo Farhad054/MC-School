@@ -165,7 +165,7 @@ class OwnerWorkbookPdfRenderServiceTest {
     void plainSupplementHasBoundedTasksPagesAndNoTeacherAnswerLeak() {
         var lesson = new java.util.LinkedHashMap<String, Object>(document(60));
         assertEquals(1, OwnerWorkbookPdfRenderService.validatePlainDocument(lesson));
-        lesson.put("workbookPages", java.util.Collections.nCopies(5, ((List<?>) lesson.get("workbookPages")).get(0)));
+        lesson.put("workbookPages", java.util.Collections.nCopies(11, ((List<?>) lesson.get("workbookPages")).get(0)));
         assertThrows(IllegalArgumentException.class, () -> OwnerWorkbookPdfRenderService.validatePlainDocument(lesson));
         lesson.put("workbookPages", List.of(Map.of("blocks", List.of(Map.of("type", "exercise",
                 "rows", java.util.Collections.nCopies(21, Map.of("math", List.of("1", "+", "1"))))))));

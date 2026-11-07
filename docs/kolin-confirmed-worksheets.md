@@ -26,8 +26,21 @@ private reference answers from each exact visible expression or affine equation;
 model-suggested answers are never trusted. Every task must pass that checker and the
 measured PDF layout checks. Expressions can use fractions, roots and polynomial
 algebra. Equation PDFs currently require one-variable affine equations with exactly
-one real solution. Unsupported geometry, word problems, inequalities or nonlinear
+one real solution. Visual tasks use closed numeric specifications and the same
+SVG diagram engine. The compiler derives the visible question, givens and private
+reference answer from those parameters; it accepts no model-written SVG or answer.
+Graphs support values and construction for constant, linear, quadratic, polynomial,
+trigonometric, absolute, reciprocal, square-root, exponential, logarithmic and rational
+functions. Zeros/intersections use the existing polynomial/rational root isolation,
+are bounded to the visible range and are explicitly approximate.
+Geometry supports convex coordinate polygons (including triangles and rectangles),
+areas, perimeters, sides and angles; circles; cube/cuboid/cylinder/cone/sphere volumes
+and full surface areas; and equal circular fraction sectors. Solids are schematic.
+Numeric reference values are rounded to six decimals, not symbolic geometry proofs.
+Unsupported constructions, theorem proofs, general word problems, inequalities or nonlinear
 equations stay text assistance rather than being labelled automatically verified.
+Mixed/visual sheets place at most two tasks on each page with blank working space.
+Five visual tasks therefore use three pages; pure short algebra remains one page.
 These checks verify the encoded mathematics, not the entire pedagogical suitability
 or the correctness of speech recognition. The teacher can inspect the draft before adding.
 

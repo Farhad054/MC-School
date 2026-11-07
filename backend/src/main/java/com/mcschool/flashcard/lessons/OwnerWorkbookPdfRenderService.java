@@ -36,7 +36,7 @@ public class OwnerWorkbookPdfRenderService {
     static final int MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
     static final String VERSION = "2026-11-05-v4-fast-shared";
     private static final List<String> RENDER_FILES = List.of(
-            "generate.mjs", "math.mjs", "schema.mjs", "diagrams.mjs", "styles.css", "render_pdf.py", "verify_pdf.py", "algebra_qa.py");
+            "generate.mjs", "math.mjs", "schema.mjs", "diagrams.mjs", "visual-tasks.mjs", "styles.css", "render_pdf.py", "verify_pdf.py", "algebra_qa.py");
 
     @Value("${MINDCRAFTI_WORKBOOK_MODULES:/opt/mindcrafti-workbook/node_modules}")
     private String modulesDirectory;
@@ -209,9 +209,9 @@ public class OwnerWorkbookPdfRenderService {
 
     static int validatePlainDocument(Map<String, Object> document) {
         int count = validateDocument(document);
-        if (count > 20 || ((List<?>) document.get("workbookPages")).size() > 4
+        if (count > 20 || ((List<?>) document.get("workbookPages")).size() > 10
                 || ((List<?>) document.get("teacherPages")).size() > 4)
-            throw new IllegalArgumentException("Plain worksheet needs 1..20 tasks and at most 4 pages per document");
+            throw new IllegalArgumentException("Plain worksheet needs 1..20 tasks and at most 10 student pages");
         return count;
     }
 

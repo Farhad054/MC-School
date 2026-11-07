@@ -39,7 +39,7 @@ export type Block =
   | {type:'teacherNote';label?:Text;title?:Text;text?:Text;paragraphs?:Text[]}
   | {type:'schedule';label?:Text;title?:Text;rows:[Text,Text][]}
   | {type:'solutions';section?:Text;title?:Text;items:{label:Text;math?:MathInput;text?:Text;note?:Text;explanation?:Text;validation?:AlgebraCheck}[];footerNote?:Text}
-  | {type:'geometry';figure:'triangle'|'rectangle'|'quadrilateral'|'circle'|'cube'|'cuboid';[key:string]:unknown}
+  | {type:'geometry';figure:'triangle'|'rectangle'|'quadrilateral'|'polygon'|'circle'|'cube'|'cuboid'|'cylinder'|'cone'|'sphere'|'fractionCircle';[key:string]:unknown}
   | {type:'strips';label?:Text;left:{numerator:number;denominator:number};right:{numerator:number;denominator:number};relation:string};
 export type AlgebraCheck =
   | {kind:'equivalence';expression:string;answer:string;restrictions?:string[]}

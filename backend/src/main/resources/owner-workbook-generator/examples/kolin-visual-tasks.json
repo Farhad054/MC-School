@@ -1,0 +1,129 @@
+{
+  "workbookPages" : [ {
+    "blocks" : [ {
+      "type" : "taskCard",
+      "children" : [ {
+        "spec" : {
+          "xRange" : [ -5, 5 ],
+          "series" : [ {
+            "kind" : "quadratic",
+            "parameters" : [ 1, 0, -4 ],
+            "denominator" : [ ]
+          } ],
+          "yRange" : [ -5, 10 ],
+          "type" : "graph",
+          "objective" : "zeros",
+          "language" : "ru",
+          "at" : 2
+        },
+        "number" : 1,
+        "type" : "visualTask"
+      } ]
+    }, {
+      "type" : "spacer",
+      "height" : "14mm"
+    }, {
+      "type" : "taskCard",
+      "children" : [ {
+        "spec" : {
+          "figure" : "triangle",
+          "index" : 0,
+          "type" : "geometry",
+          "objective" : "area",
+          "language" : "ru",
+          "parameters" : [ ],
+          "vertices" : [ [ 0, 0 ], [ 6, 0 ], [ 0, 8 ] ]
+        },
+        "number" : 2,
+        "type" : "visualTask"
+      } ]
+    } ],
+    "title" : ""
+  }, {
+    "blocks" : [ {
+      "type" : "taskCard",
+      "children" : [ {
+        "spec" : {
+          "figure" : "cylinder",
+          "index" : 0,
+          "type" : "geometry",
+          "objective" : "volume",
+          "language" : "ru",
+          "parameters" : [ 3, 4 ],
+          "vertices" : [ ]
+        },
+        "number" : 3,
+        "type" : "visualTask"
+      } ]
+    }, {
+      "type" : "spacer",
+      "height" : "14mm"
+    }, {
+      "type" : "taskCard",
+      "children" : [ {
+        "spec" : {
+          "type" : "fractionCircle",
+          "selected" : 6,
+          "language" : "ru",
+          "parts" : 12
+        },
+        "number" : 4,
+        "type" : "visualTask"
+      } ]
+    } ],
+    "title" : ""
+  }, {
+    "blocks" : [ {
+      "type" : "taskCard",
+      "children" : [ {
+        "spec" : {
+          "xRange" : [ -5, 5 ],
+          "series" : [ {
+            "kind" : "quadratic",
+            "parameters" : [ 1, 0, -4 ],
+            "denominator" : [ ]
+          } ],
+          "yRange" : [ -5, 10 ],
+          "type" : "graph",
+          "objective" : "draw",
+          "language" : "ru",
+          "at" : 2
+        },
+        "number" : 5,
+        "type" : "visualTask"
+      } ]
+    } ],
+    "title" : ""
+  } ],
+  "teacherPages" : [ {
+    "blocks" : [ {
+      "text" : "Private automated answer validation",
+      "type" : "text"
+    } ],
+    "title" : ""
+  } ],
+  "meta" : {
+    "durationMinutes" : 30,
+    "school" : "MINDCRAFTI SCHOOL",
+    "date" : "",
+    "group" : ""
+  },
+  "qa" : {
+    "algebra" : [ {
+      "number" : 1,
+      "kind" : "visualValue"
+    }, {
+      "number" : 2,
+      "kind" : "visualValue"
+    }, {
+      "number" : 3,
+      "kind" : "visualValue"
+    }, {
+      "number" : 4,
+      "kind" : "visualValue"
+    }, {
+      "number" : 5,
+      "kind" : "visualValue"
+    } ]
+  }
+}

@@ -15,6 +15,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { renderDiagram, computeIntersections, graphWarnings } from './diagrams.mjs';
 import { primeMath, renderMath as math, richText } from './math.mjs';
 import { validateLesson, length, integer, columns } from './schema.mjs';
+import { prepareVisualTasks, mergeVisualQa } from './visual-tasks.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -27,6 +28,8 @@ const logoPath = resolve(option('logo', join(root, 'assets', 'logo-m.png')));
 const out = resolve(option('out', join(root, 'out')));
 const plain = args.includes('--plain');
 const lesson = JSON.parse(await readFile(lessonPath, 'utf8'));
+validateLesson(lesson);
+const visualQa = prepareVisualTasks(lesson);
 const css = await readFile(join(root, 'styles.css'), 'utf8');
 const logo = plain ? '' : (await readFile(logoPath)).toString('base64');
 validateLesson(lesson);
@@ -347,9 +350,11 @@ const dateKey = String(lesson.meta.date || 'undated').replace(/[^0-9]/g,'') || '
 const groupKey = String(lesson.meta.group || 'Gruppe').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,50) || 'Gruppe';
 const base = basename(option('basename', `Mindcrafti_${groupKey}_${dateKey}`))
   .replace(/[^A-Za-z0-9_-]/g,'_').slice(0,90);
-const algebraRun=await runProcess(process.env.PYTHON_BIN || 'python3',[join(root,'algebra_qa.py'),lessonPath],45000,'Algebra QA failed');
+const checkedLessonPath=visualQa.results.size ? join(out,`${base}_checked-source.json`) : lessonPath;
+if(visualQa.results.size)await writeFile(checkedLessonPath,JSON.stringify(lesson),'utf8');
+const algebraRun=await runProcess(process.env.PYTHON_BIN || 'python3',[join(root,'algebra_qa.py'),checkedLessonPath],45000,'Algebra QA failed');
 const graphQaWarnings=[...lesson.workbookPages,...lesson.teacherPages].flatMap(p=>[...flattenBlocks(p.blocks)]).filter(b=>b.type==='graph').flatMap(graphWarnings);
-const mathQa={...JSON.parse(algebraRun.stdout),arithmeticChains,graphWarnings:graphQaWarnings};
+const mathQa={...mergeVisualQa(JSON.parse(algebraRun.stdout),visualQa),arithmeticChains,graphWarnings:graphQaWarnings};
 if(mathQa.passed!==true)throw new Error('Algebra QA did not pass');
 await primeMath(lesson);
 await writeFile(join(out,`${base}_math-qa.json`),JSON.stringify(mathQa,null,2),'utf8');

@@ -26,7 +26,7 @@ public class OwnerWorkbookGeneratorService {
     private static final String RESOURCE_PREFIX = "owner-workbook-generator/";
     private static final String REPO_PATH = "backend/src/main/resources/owner-workbook-generator/";
     private static final List<String> TEXT_FILES = List.of(
-            "README.md", "CHANGELOG.md", "generate.mjs", "diagrams.mjs", "diagrams.test.mjs",
+            "README.md", "CHANGELOG.md", "generate.mjs", "diagrams.mjs", "diagrams.test.mjs", "visual-tasks.mjs", "visual-tasks.test.mjs",
             "styles.css", "lesson.sample.json", "examples/graphs-geometry-demo.json", "examples/clean-tasks-demo.json",
             "render_pdf.py", "verify_pdf.py", "algebra_qa.py", "math.mjs", "schema.mjs", "package.json");
     private static final Set<String> ALLOWED_FILES = Set.copyOf(TEXT_FILES);

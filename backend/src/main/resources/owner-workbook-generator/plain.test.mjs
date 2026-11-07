@@ -24,6 +24,23 @@ function generate(input,output,options=[]) {
     {encoding:'utf8',timeout:115000,env:process.env});
 }
 
+test('Kolin diagrams render with checked references, all pages and no answer leakage',async()=>workspace(async directory=>{
+  const source=join(root,'examples','kolin-visual-tasks.json');
+  const rendered=generate(source,directory);
+  assert.equal(rendered.status,0,rendered.stderr || rendered.stdout || rendered.error?.message);
+  const qa=JSON.parse(await readFile(join(directory,'Kolin_Plain_math-qa.json'),'utf8'));
+  assert.equal(qa.passed,true);assert.equal(qa.checked,5);assert.equal(qa.visualChecked,5);
+  assert.deepEqual(qa.results.map(r=>r.answer),['x ≈ -2; x ≈ 2','≈ 24 cm²','≈ 113.097336 cm³','1/2','f(x) = x^2 - 4']);
+  const layout=JSON.parse(await readFile(join(directory,'Kolin_Plain_layout-qa.json'),'utf8'));
+  assert.equal(layout.passed,true);assert.equal(layout.documents[0].pageCount,3);
+  const html=await readFile(join(directory,'Kolin_Plain_Arbeitsheft_30min.html'),'utf8');
+  assert.equal((html.match(/class="block task-card"/g)||[]).length,5);
+  assert.match(html,/fraction-sector selected/);assert.match(html,/cylinder/);
+  assert.doesNotMatch(html,/Private automated answer|113\.097336|≈ 24|<footer|<img|data-mjx-error/);
+  const artifacts=process.env.PLAIN_WORKSHEET_ARTIFACT_DIR;
+  if(artifacts){await mkdir(artifacts+'-visuals',{recursive:true});for(const name of await readdir(directory))if(/\.(pdf|png|json|html)$/.test(name))await copyFile(join(directory,name),join(artifacts+'-visuals',name));}
+}));
+
 test('plain PDF keeps five conditions, domains and vector math without branding or answers',async()=>workspace(async directory=>{
   const result=generate(example,directory);
   assert.equal(result.status,0,result.stderr || result.stdout || result.error?.message);
