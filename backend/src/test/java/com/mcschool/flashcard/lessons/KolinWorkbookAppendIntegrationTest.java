@@ -1,0 +1,170 @@
+package com.mcschool.flashcard.lessons;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.verifyNoInteractions;
+
+import com.mcschool.flashcard.auth.AuthenticatedUser;
+import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.liveclasses.*;
+import com.mcschool.flashcard.liveclasses.dto.AnnotationOperationRequest;
+import com.mcschool.flashcard.users.*;
+import java.io.ByteArrayOutputStream;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.*;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIf;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/** Actual PostgreSQL migrations, row locks, annotation retargeting and confirmation receipts. */
+@SpringBootTest
+@TestPropertySource(properties="app.online-classes.enabled=true")
+@EnabledIf("databaseAvailable")
+@DirtiesContext(classMode=DirtiesContext.ClassMode.AFTER_CLASS)
+class KolinWorkbookAppendIntegrationTest {
+    @Autowired private KolinWorkbookAppendService append;
+    @Autowired private KolinWorksheetStore store;
+    @Autowired private PersonalLessonWorkbookRepository workbooks;
+    @Autowired private LessonPreparationRepository preparations;
+    @Autowired private UserRepository users;
+    @Autowired private OnlineClassRepository rooms;
+    @Autowired private OnlineClassParticipantRepository participants;
+    @Autowired private OnlineClassAnnotationService annotations;
+    @Autowired private OnlineClassAnnotationDocumentRepository annotationDocuments;
+    @Autowired private OnlineClassDocumentService documents;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactions;
+    @MockitoBean private GoogleCalendarLessonService calendar;
+    private User teacher,student;
+    private AuthenticatedUser host,owner;
+    private OnlineClass room;
+
+    @DynamicPropertySource static void database(DynamicPropertyRegistry p){McpTestDatabase.properties(p);}
+    static boolean databaseAvailable(){return McpTestDatabase.available();}
+    @AfterAll static void stopDatabase(){McpTestDatabase.stop();}
+
+    @BeforeEach void seed(){
+        jdbc.execute("TRUNCATE TABLE users CASCADE");
+        teacher=users.saveAndFlush(User.activeTeacher("Other active teacher","append@test.local","append-teacher","unused"));
+        student=users.saveAndFlush(User.managedStudent("Pupil",teacher));
+        host=new AuthenticatedUser(teacher.getId(),null,Role.TEACHER);owner=new AuthenticatedUser(student.getId(),null,Role.STUDENT);
+        var candidate=OnlineClass.forStudent(teacher,"kolin-test-event","kolin-test-event","Test",Instant.now().minusSeconds(300),Instant.now().plusSeconds(3600),student);
+        candidate.start(Instant.now());room=rooms.saveAndFlush(candidate);
+        var admission=OnlineClassParticipant.student(room,student);admission.admit();participants.saveAndFlush(admission);
+    }
+
+    private byte[] pdf(String... texts)throws Exception{
+        try(var doc=new PDDocument();var out=new ByteArrayOutputStream()){
+            for(String text:texts){var page=new PDPage();doc.addPage(page);try(var s=new PDPageContentStream(doc,page)){
+                s.beginText();s.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA),12);s.newLineAtOffset(40,700);s.showText(text);s.endText();}}
+            doc.save(out);return out.toByteArray();
+        }
+    }
+    private AnnotationOperationRequest stroke(){return new AnnotationOperationRequest(UUID.randomUUID(),AnnotationOperationType.ADD,
+            "{\"kind\":\"text\",\"x\":0.2,\"y\":0.3,\"text\":\"ink\",\"size\":0.02}");}
+    private UUID legacyPage(int page){return annotations.openDocument(host,room.getId(),AnnotationTargetType.WHITEBOARD,
+            PersonalBoard.targetIdFor(student.getId()),page,800,600).id();}
+    private PersonalLessonWorkbook workbook(){return workbooks.findByTeacherIdAndEventIdAndStudentId(teacher.getId(),room.getEventId(),student.getId()).orElseThrow();}
+
+    @Test void firstAssignmentPreservesBackgroundInkBlankPagesAndStaleClientWritesForAnyActiveTeacher()throws Exception{
+        byte[] shared=pdf("inherited one","inherited two");
+        var prep=LessonPreparation.create(teacher,room.getEventId());prep.attachWorkbook("shared.pdf",shared);preparations.saveAndFlush(prep);
+        UUID page=legacyPage(0);legacyPage(4);var originalStroke=stroke();annotations.append(owner,room.getId(),page,originalStroke);
+        var result=append.append(host,room,student.getId(),pdf("new exercise"));
+        assertThat(result).isEqualTo(new KolinWorkbookAppendService.Result(6,6,1));
+        assertThat(annotationDocuments.findById(page).orElseThrow().getTargetId()).isEqualTo(PersonalBoard.workbookTargetIdFor(student.getId()));
+        assertThat(annotations.replay(owner,room.getId(),page,0)).extracting(event->event.operationId()).containsExactly(originalStroke.operationId());
+        var inFlightOldDocumentStroke=stroke();annotations.append(owner,room.getId(),page,inFlightOldDocumentStroke);
+        assertThat(annotations.replay(owner,room.getId(),page,0)).hasSize(2);
+        var staleOpen=annotations.openDocument(owner,room.getId(),AnnotationTargetType.WHITEBOARD,
+                PersonalBoard.targetIdFor(student.getId()),6,800,600);
+        assertThat(staleOpen.targetId()).isEqualTo(PersonalBoard.workbookTargetIdFor(student.getId()));
+        assertThat(annotationDocuments.findAllByOnlineClassIdOrderByPageIndexAsc(room.getId()))
+                .noneMatch(d->d.getTargetId().equals(PersonalBoard.targetIdFor(student.getId())));
+        assertThat(preparations.findByTeacherIdAndEventId(teacher.getId(),room.getEventId()).orElseThrow().getWorkbookPdf()).isEqualTo(shared);
+        String privateTarget=PersonalBoard.workbookTargetIdFor(student.getId());
+        assertThat(documents.workbook(owner,room.getId(),privateTarget)).contains(workbook().getWorkbookPdf());
+        assertThat(documents.workbookVersion(owner,room.getId(),privateTarget)).isEqualTo(1);
+        assertThat(documents.workbookVersion(host,room.getId(),privateTarget)).isEqualTo(1);
+        var outsider=users.saveAndFlush(User.managedStudent("Outsider",teacher));
+        var outsiderPrincipal=new AuthenticatedUser(outsider.getId(),null,Role.STUDENT);
+        assertThatThrownBy(()->documents.workbook(outsiderPrincipal,room.getId(),privateTarget)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(()->documents.workbookVersion(outsiderPrincipal,room.getId(),privateTarget)).isInstanceOf(ResourceNotFoundException.class);
+        try(var merged=Loader.loadPDF(workbook().getWorkbookPdf())){
+            assertThat(merged.getNumberOfPages()).isEqualTo(6);
+            assertThat(new PDFTextStripper().getText(merged)).contains("inherited one","inherited two","new exercise");
+            assertThat(merged.getPage(4).getMediaBox().getWidth()/merged.getPage(4).getMediaBox().getHeight()).isEqualTo(800f/600f);
+        }
+        verifyNoInteractions(calendar);
+    }
+
+    @Test void appendWaitsForAnInflightStrokeAndRetainsItsDocumentAndOperation()throws Exception{
+        UUID page=legacyPage(3);var operation=stroke();
+        var entered=new CountDownLatch(1);var release=new CountDownLatch(1);var appendStarted=new CountDownLatch(1);
+        var appendPid=new AtomicInteger();var pool=Executors.newFixedThreadPool(2);byte[] generated=pdf("after concurrent ink");
+        try{
+            var writing=pool.submit(()->new TransactionTemplate(transactions).execute(status->{
+                annotations.append(owner,room.getId(),page,operation);entered.countDown();
+                try{if(!release.await(10,TimeUnit.SECONDS))throw new AssertionError("Lock test timed out");}catch(InterruptedException e){throw new RuntimeException(e);}return true;
+            }));
+            assertThat(entered.await(5,TimeUnit.SECONDS)).isTrue();
+            var appending=pool.submit(()->new TransactionTemplate(transactions).execute(status->{
+                appendPid.set(jdbc.queryForObject("select pg_backend_pid()",Integer.class));appendStarted.countDown();
+                return append.append(host,room,student.getId(),generated);
+            }));
+            assertThat(appendStarted.await(5,TimeUnit.SECONDS)).isTrue();
+            boolean blocked=false;long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(3);
+            while(System.nanoTime()<deadline&&!blocked){blocked=Boolean.TRUE.equals(jdbc.queryForObject(
+                    "select cardinality(pg_blocking_pids(?)) > 0",Boolean.class,appendPid.get()));if(!blocked)Thread.sleep(20);}
+            assertThat(blocked).as("exclusive append must wait for the annotation writer's shared class lock").isTrue();
+            assertThat(appending.isDone()).isFalse();release.countDown();assertThat(writing.get(10,TimeUnit.SECONDS)).isTrue();
+            assertThat(appending.get(10,TimeUnit.SECONDS).fromPage()).isEqualTo(5);
+            assertThat(annotations.replay(owner,room.getId(),page,0)).extracting(event->event.operationId()).containsExactly(operation.operationId());
+            assertThat(annotationDocuments.findById(page).orElseThrow().getTargetId()).isEqualTo(PersonalBoard.workbookTargetIdFor(student.getId()));
+        }finally{release.countDown();pool.shutdownNow();}
+    }
+
+    @Test void twoConfirmationsOfTheSameDurableArtifactAppendExactlyOnce()throws Exception{
+        byte[] generated=pdf("only once");
+        var reservation=store.begin(host,room.getId(),UUID.randomUUID(),"a".repeat(64));
+        store.complete(host,room.getId(),reservation.id(),reservation.attemptId(),"worksheet","Ready",
+                new KolinTranscriptContextService.Metadata("empty",0,false,null,null,null,false),student.getId(),"Pupil",1,1,generated,new byte[]{1,2,3});
+        assertThat(jdbc.queryForObject("select to_regclass('public.kolin_worksheets')::text",String.class)).isEqualTo("kolin_worksheets");
+        var start=new CountDownLatch(1);var pool=Executors.newFixedThreadPool(2);
+        try{
+            Callable<KolinWorksheetStore.Worksheet> call=()->{start.await();return store.append(host,room.getId(),reservation.id());};
+            var first=pool.submit(call);var second=pool.submit(call);start.countDown();
+            var a=first.get(15,TimeUnit.SECONDS);var b=second.get(15,TimeUnit.SECONDS);
+            assertThat(a).isEqualTo(b);assertThat(a.state()).isEqualTo("ADDED");assertThat(a.fromPage()).isEqualTo(1);assertThat(a.toPage()).isEqualTo(1);
+            assertThat(workbook().documentVersion()).isEqualTo(1);
+            try(var merged=Loader.loadPDF(workbook().getWorkbookPdf())){assertThat(merged.getNumberOfPages()).isEqualTo(1);assertThat(new PDFTextStripper().getText(merged)).containsOnlyOnce("only once");}
+        }finally{start.countDown();pool.shutdownNow();}
+        verifyNoInteractions(calendar);
+    }
+
+    @Test void outerConfirmationRollbackRestoresAnnotationScopeAndDoesNotLeaveAPrivatePdf()throws Exception{
+        UUID page=legacyPage(0);var operation=stroke();annotations.append(owner,room.getId(),page,operation);byte[] generated=pdf("rolled back");
+        assertThatThrownBy(()->new TransactionTemplate(transactions).execute(status->{
+            append.append(host,room,student.getId(),generated);throw new IllegalStateException("Confirmation failed after append");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(workbooks.findByTeacherIdAndEventIdAndStudentId(teacher.getId(),room.getEventId(),student.getId())).isEmpty();
+        assertThat(annotationDocuments.findById(page).orElseThrow().getTargetId()).isEqualTo(PersonalBoard.targetIdFor(student.getId()));
+        assertThat(annotations.replay(owner,room.getId(),page,0)).extracting(event->event.operationId()).containsExactly(operation.operationId());
+    }
+}

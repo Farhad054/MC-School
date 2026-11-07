@@ -28,6 +28,7 @@ class KolinChatControllerTest {
     @Configuration @EnableMethodSecurity static class Security {}
     private AnnotationConfigApplicationContext context;
     private KolinChatService chat;
+    private KolinWorksheetStore worksheets;
     private KolinChatController controller;
     private MockMvc mvc;
     private final UUID classId=UUID.randomUUID(),teacherId=UUID.randomUUID();
@@ -36,6 +37,8 @@ class KolinChatControllerTest {
     @BeforeEach void setup() {
         context=new AnnotationConfigApplicationContext();chat=mock(KolinChatService.class);
         context.register(Security.class,KolinChatController.class);
+        worksheets=mock(KolinWorksheetStore.class);
+        context.getBeanFactory().registerSingleton("worksheets",worksheets);
         context.getBeanFactory().registerSingleton("chat",chat);context.refresh();
         controller=context.getBean(KolinChatController.class);
         mvc=MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler())
@@ -62,8 +65,11 @@ class KolinChatControllerTest {
             var caller=authenticate(role);
             assertThatThrownBy(()->controller.status(caller,classId)).isInstanceOf(AccessDeniedException.class);
             assertThatThrownBy(()->controller.send(caller,classId,new KolinChatService.Request("Hi",List.of(),null))).isInstanceOf(AccessDeniedException.class);
+            assertThatThrownBy(()->controller.preview(caller,classId,UUID.randomUUID())).isInstanceOf(AccessDeniedException.class);
+            assertThatThrownBy(()->controller.pdf(caller,classId,UUID.randomUUID())).isInstanceOf(AccessDeniedException.class);
+            assertThatThrownBy(()->controller.append(caller,classId,UUID.randomUUID())).isInstanceOf(AccessDeniedException.class);
         }
-        verifyNoInteractions(chat);
+        verifyNoInteractions(chat,worksheets);
     }
 
     @Test void serviceOwnershipFailureRemainsNotFound() throws Exception {
@@ -92,5 +98,18 @@ class KolinChatControllerTest {
                         {"type":"text","text":"Новый пример","transcriptContext":{"state":"empty","segmentCount":0,
                         "truncated":false,"latestSegmentAt":null,"fromMs":null,"toMs":null,"transcriptionActive":false}}
                         """));
+    }
+    @Test void privatePreviewAndPdfAreAuthenticatedNoStoreAndAppendIsOnlyAnExplicitPost() throws Exception {
+        var teacher=authenticate(Role.TEACHER); UUID id=UUID.randomUUID();
+        when(worksheets.file(teacher,classId,id,true)).thenReturn(new byte[]{1,2,3});
+        when(worksheets.file(teacher,classId,id,false)).thenReturn("%PDF-1.7".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        when(worksheets.append(teacher,classId,id)).thenReturn(new KolinWorksheetStore.Worksheet(id,UUID.randomUUID(),"Виталина",5,1,"ADDED",3,3));
+        mvc.perform(get(base()+"/worksheets/"+id+"/preview")).andExpect(status().isOk())
+                .andExpect(content().contentType("image/png")).andExpect(header().string("Cache-Control","no-store"));
+        mvc.perform(get(base()+"/worksheets/"+id+"/pdf")).andExpect(status().isOk())
+                .andExpect(content().contentType("application/pdf")).andExpect(header().string("Cache-Control","no-store"));
+        verify(worksheets,never()).append(any(),any(),any());
+        mvc.perform(post(base()+"/worksheets/"+id+"/append")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("ADDED")).andExpect(jsonPath("$.fromPage").value(3));
     }
 }

@@ -164,11 +164,16 @@ public class PersonalLessonWorkbookService {
     // targets. This read guard must not mark its caller's transaction for rollback.
     @Transactional(readOnly = true, noRollbackFor = ResourceNotFoundException.class)
     public void requireClassStudent(OnlineClass lesson, UUID studentId) {
+        requireStudent(studentsForClass(lesson),studentId);
+    }
+
+    /** One authoritative roster pass for host-owned classroom helpers, without Calendar I/O. */
+    @Transactional(readOnly = true, noRollbackFor = ResourceNotFoundException.class)
+    public List<User> studentsForClass(OnlineClass lesson) {
         UUID teacherId = lesson.getTeacher().getId();
-        List<User> roster = lesson.isGroupClass()
+        return lesson.isGroupClass()
                 ? groupStudents(teacherId, lesson.getGroup().getId())
                 : singleStudent(teacherId, lesson.getStudent() == null ? null : lesson.getStudent().getId());
-        requireStudent(roster, studentId);
     }
 
     private List<User> lessonStudents(AuthenticatedUser teacher, String eventId) {

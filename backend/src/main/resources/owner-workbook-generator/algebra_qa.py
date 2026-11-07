@@ -220,7 +220,7 @@ def validate(assertion):
         for variable, pole in changed_domain:
             if not any(s.simplify(item.subs(variable, pole)) == 0 for item in excluded):
                 raise ValueError(f'Missing domain restriction: {variable} != {pole}')
-    elif kind == 'solution':
+    elif kind in ('solution', 'linearSolution'):
         sides = assertion['equation'].split('=')
         if len(sides) != 2:
             raise ValueError('Equation must have exactly one equals sign')
@@ -229,6 +229,21 @@ def validate(assertion):
         solution = assertion.get('solution')
         if not isinstance(solution, dict) or not solution:
             raise ValueError('Solution must map variables to values')
+        if kind == 'linearSolution':
+            variables = left.free_symbols | right.free_symbols
+            if len(variables) != 1:
+                raise ValueError('A linear task must contain exactly one variable')
+            variable = next(iter(variables))
+            if set(solution) != {str(variable)}:
+                raise ValueError('A linear task must supply exactly its own variable')
+            difference = bounded(s.cancel(left - right))
+            if not difference.is_polynomial(variable) or s.degree(difference, variable) != 1:
+                raise ValueError('A linear task requires a nonconstant affine difference')
+            polynomial = s.Poly(difference, variable)
+            root = s.simplify(-polynomial.TC() / polynomial.LC())
+            proposed, _ = parse(str(solution[str(variable)]))
+            if root.is_real is not True or proposed.free_symbols or s.simplify(proposed - root) != 0:
+                raise ValueError('Answer is not the unique real solution of the linear task')
         values = {}
         for name, raw in solution.items():
             if name not in SYMBOLS:

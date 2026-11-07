@@ -20,6 +20,23 @@ class AlgebraTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate(item)
 
+    def test_linear_tasks_require_the_complete_unique_solution(self):
+        self.assertTrue(validate({'kind': 'linearSolution', 'equation': '2x-1=5-x',
+                                  'solution': {'x': 2}})['passed'])
+        self.assertTrue(validate({'kind': 'linearSolution', 'equation': r'\frac{x}{2}+1=2',
+                                  'solution': {'x': 2}})['passed'])
+        for equation, solution in [('x^2=4', {'x': 2}), ('x=x', {'x': 2}),
+                                   ('x+1=x', {'x': 2}), ('x+y=2', {'x': 1, 'y': 1}),
+                                   ('x=2', {'x': 2, 'y': 3}), ('x=2', {'x': 3})]:
+            with self.subTest(equation=equation), self.assertRaises(ValueError):
+                validate({'kind': 'linearSolution', 'equation': equation, 'solution': solution})
+
+    def test_linear_tasks_keep_original_domain_and_restrictions(self):
+        for equation, restrictions in [('(x^2-1)/(x-1)=2', []), ('x=2', ['x != 2'])]:
+            with self.subTest(equation=equation), self.assertRaises(ValueError):
+                validate({'kind': 'linearSolution', 'equation': equation,
+                          'solution': {'x': 1 if not restrictions else 2}, 'restrictions': restrictions})
+
     def test_original_denominator_before_simplification(self):
         with self.assertRaisesRegex(ValueError, 'domain'):
             validate({'kind': 'solution', 'equation': '(x^2-9)/(x-3)=6', 'solution': {'x': 3}})

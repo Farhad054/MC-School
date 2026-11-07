@@ -26,6 +26,25 @@
 .kolin-panel__form button,.kolin-panel__error button { min-height:34px; padding:6px 12px; border:1px solid var(--v3-edge); border-radius:8px; background:var(--v3-raised); color:var(--v3-text); font:inherit; font-size:12px; cursor:pointer; }
 .kolin-panel__form button { margin-left:auto; }
 .kolin-panel button:disabled { opacity:.5; cursor:default; }
+.kolin-worksheet { display:flex; flex-direction:column; gap:10px; min-width:0; margin-top:8px; }
+.kolin-worksheet__summary { display:flex; align-items:center; gap:12px; min-width:0; }
+.kolin-worksheet__summary > div { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.kolin-worksheet__summary strong { font-size:13px; overflow-wrap:anywhere; }
+.kolin-worksheet__summary span { color:var(--v3-muted); font-size:11px; }
+.kolin-worksheet__thumbnail { flex:0 0 64px; width:64px; height:88px; padding:0; overflow:hidden; border:1px solid var(--v3-edge); border-radius:5px; background:#fff; cursor:zoom-in; }
+.kolin-worksheet__thumbnail img { display:block; width:100%; height:100%; object-fit:contain; }
+.kolin-worksheet__thumbnail > span { color:#525c66; font-weight:700; }
+.kolin-worksheet__add { width:100%; min-height:40px; padding:8px 10px; border:1px solid #85b6a5; border-radius:7px; background:#38594f; color:#fff; font:inherit; font-size:12px; cursor:pointer; }
+.kolin-worksheet__error { color:#f1a4a4; font-size:11px; line-height:1.4; }
+.kolin-worksheet button:focus-visible,.kolin-pdf-preview button:focus-visible { outline:2px solid #99cfbf; outline-offset:3px; }
+.kolin-pdf-preview { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:20px; background:#000b; }
+.kolin-pdf-preview__dialog { display:flex; flex-direction:column; width:min(780px,100%); max-height:calc(100dvh - 40px); min-height:180px; overflow:auto; border:1px solid #536069; border-radius:12px; background:#252d33; color:#eef2f4; box-shadow:0 20px 80px #0008; }
+.kolin-pdf-preview__dialog > header { position:sticky; top:0; z-index:1; display:flex; flex-shrink:0; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; background:#252d33; }
+.kolin-pdf-preview__dialog > header strong { min-width:0; overflow-wrap:anywhere; font-size:14px; }
+.kolin-pdf-preview__dialog > header button { flex:0 0 40px; width:40px; height:40px; border:0; border-radius:7px; background:#39454e; color:#fff; font-size:24px; cursor:pointer; }
+.kolin-pdf-preview__pages { display:flex; flex-direction:column; gap:12px; padding:0 12px 12px; }
+.kolin-pdf-preview__pages canvas { display:block; width:100%; height:auto; background:#fff; }
+.kolin-pdf-preview__dialog > p { margin:16px; font-size:13px; }
 @media(max-width:600px) {
   .online-class-room--original-v3 .online-class-room__stage:has(> .kolin-panel) { --kolin-mobile-panel-height:min(68%,calc(var(--classroom-header-height) + 270px)); }
   .online-class-room--original-v3 .online-class-room__stage:has(> .answers-panel-resizer) > .kolin-panel { order:-1; border-left:0; flex:0 0 var(--kolin-mobile-panel-height); max-height:68%; }
@@ -35,4 +54,8 @@
   .kolin-panel__form textarea { font-size:16px; min-height:64px; }
   .kolin-panel__form button { margin-left:0; }
   .kolin-panel__form button,.kolin-panel__error button { min-height:44px; }
+  .kolin-worksheet__add { min-height:44px; }
+  .kolin-pdf-preview { padding:8px; }
+  .kolin-pdf-preview__dialog { max-height:calc(100dvh - 16px); border-radius:8px; }
+  .kolin-pdf-preview__pages { padding:0 6px 6px; gap:8px; }
 }

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { request } from './client';
-import { kolinApi, parseKolinTranscriptContext, type KolinContext, type KolinHistoryMessage } from './kolin';
+import { request, requestBlob } from './client';
+import { kolinApi, parseKolinTranscriptContext, parseKolinWorksheet, type KolinContext, type KolinHistoryMessage } from './kolin';
 
-vi.mock('./client', () => ({ request: vi.fn() }));
+vi.mock('./client', () => ({ request: vi.fn(), requestBlob: vi.fn() }));
 beforeEach(() => vi.mocked(request).mockReset().mockResolvedValue({ type: 'text', text: 'Answer' }));
 
 describe('compact Kolin API request', () => {
@@ -18,6 +18,30 @@ describe('compact Kolin API request', () => {
     });
     const payload = JSON.stringify(vi.mocked(request).mock.calls[0][2]);
     expect(payload).not.toMatch(/PDF|transcript|answers|screenshot|skills|image\/png|must not leave/);
+  });
+
+  it('sends the stable submission ID and retrieves authorized artifact blobs without recipient arguments', async () => {
+    await kolinApi.send('class/1', 'Создай и добавь', [], { studentId: 'alice' }, 'submission-id');
+    expect(request).toHaveBeenLastCalledWith('POST', '/online-classes/class%2F1/kolin/messages',
+      { text: 'Создай и добавь', clientMessageId: 'submission-id', history: [], context: { studentId: 'alice' } });
+    await kolinApi.worksheetPreview('class/1', 'artifact/1');
+    await kolinApi.worksheetPdf('class/1', 'artifact/1');
+    expect(requestBlob).toHaveBeenNthCalledWith(1, '/online-classes/class%2F1/kolin/worksheets/artifact%2F1/preview');
+    expect(requestBlob).toHaveBeenNthCalledWith(2, '/online-classes/class%2F1/kolin/worksheets/artifact%2F1/pdf');
+    await kolinApi.appendWorksheet('class/1', 'artifact/1');
+    expect(request).toHaveBeenLastCalledWith('POST', '/online-classes/class%2F1/kolin/worksheets/artifact%2F1/append');
+  });
+});
+
+describe('server-bound Kolin worksheet metadata', () => {
+  const worksheet = { id: 'artifact', studentId: 'alice', studentName: 'Виталина', taskCount: 3, pageCount: 1, state: 'READY' };
+  it('retains only artifact metadata and accepts the confirmed page range', () => {
+    expect(parseKolinWorksheet({ ...worksheet, answers: 'private', pdf: 'bytes' })).toEqual(worksheet);
+    expect(parseKolinWorksheet({ ...worksheet, state: 'ADDED', fromPage: 4, toPage: 4 })).toEqual({ ...worksheet, state: 'ADDED', fromPage: 4, toPage: 4 });
+  });
+  it.each([null, {}, { ...worksheet, taskCount: 0 }, { ...worksheet, pageCount: NaN }, { ...worksheet, studentId: '' },
+    { ...worksheet, state: 'PENDING' }, { ...worksheet, fromPage: 5, toPage: 4 }])('rejects malformed card data %#', value => {
+    expect(parseKolinWorksheet(value)).toBeUndefined();
   });
 });
 

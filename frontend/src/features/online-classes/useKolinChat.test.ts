@@ -1,10 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { kolinApi, type KolinContext, type KolinResponse, type KolinTranscriptContext } from '../../api/kolin';
+import { kolinApi, type KolinContext, type KolinResponse, type KolinTranscriptContext, type KolinWorksheet } from '../../api/kolin';
 import { useKolinChat } from './useKolinChat';
 
 vi.mock('../../api/kolin', async importOriginal => ({ ...await importOriginal<typeof import('../../api/kolin')>(),
-  kolinApi: { status: vi.fn(), send: vi.fn() } }));
+  kolinApi: { status: vi.fn(), send: vi.fn(), appendWorksheet: vi.fn() } }));
 
 const transcriptContext: KolinTranscriptContext = { state: 'included', segmentCount: 12, truncated: true,
   latestSegmentAt: '2026-11-07T15:45:00Z', fromMs: 120000, toMs: 525000, transcriptionActive: false };
@@ -12,6 +12,7 @@ const transcriptContext: KolinTranscriptContext = { state: 'included', segmentCo
 beforeEach(() => {
   vi.mocked(kolinApi.status).mockReset().mockResolvedValue({ configured: true });
   vi.mocked(kolinApi.send).mockReset().mockResolvedValue({ type: 'text', text: '1) 1/2 + 1/4\n2) 2/3 + 1/6' });
+  vi.mocked(kolinApi.appendWorksheet).mockReset();
 });
 
 async function open(result: { current: ReturnType<typeof useKolinChat> }) {
@@ -48,7 +49,7 @@ describe('private Kolin lesson session', () => {
     await act(async () => { await result.current.send({ targetType: 'student', studentId: 'bob' }); });
     expect(vi.mocked(kolinApi.send).mock.calls[1]).toEqual(['class-1', 'Сделай второе сложнее', [
       { role: 'user', text: 'Дай 3 задания' }, { role: 'assistant', text: '1) 1/2 + 1/4\n2) 2/3 + 1/6' },
-    ], { targetType: 'student', studentId: 'bob' }]);
+    ], { targetType: 'student', studentId: 'bob' }, expect.any(String)]);
     expect(result.current.messages.every(message => message.type === 'text')).toBe(true);
     expect(kolinApi.status).toHaveBeenCalledTimes(1);
   });
@@ -181,5 +182,81 @@ describe('private Kolin lesson session', () => {
     await act(async () => { resolveTeacher({ type: 'text', text: 'ANOTHER TEACHER RESPONSE' }); await pending; });
     expect(result.current.messages).toHaveLength(0);
     expect(result.current.draft).toBe('');
+  });
+});
+
+describe('confirmed Kolin worksheet append', () => {
+  const worksheet: KolinWorksheet = { id: 'artifact-alice', studentId: 'alice', studentName: 'Виталина', taskCount: 3, pageCount: 1, state: 'READY' };
+  const response: KolinResponse = { type: 'worksheet', text: 'Задания готовы.', worksheet };
+
+  it('creates a card without appending even when the teacher asks to create and add', async () => {
+    vi.mocked(kolinApi.send).mockResolvedValueOnce(response);
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    await ask(result, 'Создай и добавь три задания', { targetType: 'student', studentId: 'alice' });
+    expect(result.current.messages[1].worksheet).toEqual(worksheet);
+    expect(result.current.messages[1].type).toBe('worksheet');
+    expect(kolinApi.appendWorksheet).not.toHaveBeenCalled();
+    expect(vi.mocked(kolinApi.send).mock.calls[0][4]).toMatch(/^[0-9a-f-]{36}$/);
+    await ask(result, 'Теперь вопрос для другого ученика', { targetType: 'student', studentId: 'bob' });
+    expect(vi.mocked(kolinApi.send).mock.calls[1][2]).toEqual([
+      { role: 'user', text: 'Создай и добавь три задания' }, { role: 'assistant', text: 'Задания готовы.' },
+    ]);
+    expect(result.current.messages[1].worksheet?.studentId).toBe('alice');
+  });
+
+  it('reuses the same submission ID after a lost generation response and never duplicates the card', async () => {
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new Error('lost response')).mockResolvedValueOnce(response);
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    await ask(result, 'Три задания', { studentId: 'alice' });
+    await act(async () => { await result.current.retry(); });
+    expect(vi.mocked(kolinApi.send).mock.calls[1]).toEqual(vi.mocked(kolinApi.send).mock.calls[0]);
+    expect(result.current.messages.filter(message => message.worksheet)).toHaveLength(1);
+    expect(kolinApi.appendWorksheet).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates repeated confirmation and refreshes the workbook after the artifact-bound append', async () => {
+    vi.mocked(kolinApi.send).mockResolvedValueOnce(response);
+    let resolve!: (value: KolinWorksheet) => void;
+    vi.mocked(kolinApi.appendWorksheet).mockImplementation(() => new Promise(done => { resolve = done; }));
+    const refreshed = vi.fn();
+    window.addEventListener('mc-workbook-updated', refreshed);
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    try {
+      await open(result);
+      await ask(result, 'Задания', { studentId: 'alice' });
+      await ask(result, 'Вопрос для Боба', { studentId: 'bob' });
+      let adding!: Promise<void>;
+      act(() => { adding = result.current.appendWorksheet(worksheet.id); });
+      await act(async () => { await result.current.appendWorksheet(worksheet.id); });
+      expect(kolinApi.appendWorksheet).toHaveBeenCalledExactlyOnceWith('class-1', worksheet.id);
+      expect(result.current.messages[1].appendStatus).toBe('pending');
+      await act(async () => { resolve({ ...worksheet, state: 'ADDED', fromPage: 4, toPage: 4 }); await adding; });
+      expect(result.current.messages[1].worksheet).toMatchObject({ studentId: 'alice', state: 'ADDED', fromPage: 4 });
+      await act(async () => { await result.current.appendWorksheet(worksheet.id); });
+      expect(kolinApi.appendWorksheet).toHaveBeenCalledTimes(1);
+      expect(refreshed).toHaveBeenCalledTimes(1);
+    } finally { window.removeEventListener('mc-workbook-updated', refreshed); }
+  });
+
+  it('keeps the saved artifact ID for safe append retry and discards stale completion after a lesson switch', async () => {
+    vi.mocked(kolinApi.send).mockResolvedValueOnce(response);
+    vi.mocked(kolinApi.appendWorksheet).mockRejectedValueOnce(new Error('lost append response'));
+    const { result, rerender } = renderHook(({ classId }) => useKolinChat(classId, 'teacher', true), {
+      initialProps: { classId: 'class-1' },
+    });
+    await open(result);
+    await ask(result, 'Задания', { studentId: 'alice' });
+    await act(async () => { await result.current.appendWorksheet(worksheet.id); });
+    expect(result.current.messages[1].appendStatus).toBe('failed');
+    let resolve!: (value: KolinWorksheet) => void;
+    vi.mocked(kolinApi.appendWorksheet).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    let retry!: Promise<void>;
+    act(() => { retry = result.current.appendWorksheet(worksheet.id); });
+    expect(vi.mocked(kolinApi.appendWorksheet).mock.calls[1]).toEqual(vi.mocked(kolinApi.appendWorksheet).mock.calls[0]);
+    rerender({ classId: 'class-2' });
+    await act(async () => { resolve({ ...worksheet, state: 'ADDED' }); await retry; });
+    expect(result.current.messages).toEqual([]);
   });
 });

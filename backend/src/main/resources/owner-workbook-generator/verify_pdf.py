@@ -51,7 +51,7 @@ class VisibleText(HTMLParser):
             self.text.append(data)
 
 
-def verify_file(path, expected_count):
+def verify_file(path, expected_count, plain=False):
     layout_path = Path(str(path) + '.layout.json')
     assert layout_path.exists(), 'Missing renderer geometry QA; production exports require WeasyPrint'
     layout = json.loads(layout_path.read_text(encoding='utf-8'))
@@ -61,6 +61,8 @@ def verify_file(path, expected_count):
     html_path = path.with_suffix('.html')
     assert html_path.exists(), 'Missing HTML master for raw LaTeX QA'
     html = html_path.read_text(encoding='utf-8')
+    if plain:
+        assert '<div class="brandbar">' not in html and '<footer' not in html, 'Unexpected plain worksheet chrome'
     assert not re.search(r'data-mml-node=[\"\x27]merror|data-mjx-error', html), 'MathJax error found'
     visible = VisibleText()
     visible.feed(html)
@@ -74,15 +76,17 @@ def verify_file(path, expected_count):
             assert abs(rect.width - 595.28) < .6 and abs(rect.height - 841.89) < .6, 'Not A4'
             text = page.get_text()
             assert not RAW_TEX.search(text), 'Raw LaTeX in PDF'
-            assert 'MINDCRAFTI SCHOOL' in text, 'Brand text missing'
-            assert page.get_images(), 'Official logo missing'
+            if not plain:
+                assert 'MINDCRAFTI SCHOOL' in text, 'Brand text missing'
+                assert page.get_images(), 'Official logo missing'
             # PDF whitespace/line grouping depends on the installed font. Use
             # the measured footer boundary rather than a brand-text substring
             # to distinguish footer text from task content. The layout pass
             # already rejects any task or main-content box crossing this line.
             page_layout = layout['pages'][page.number]
+            assert page_layout.get('plain', False) == plain, 'Wrong worksheet rendering mode'
             footer_top = page_layout['footerTop'] * .75
-            blocks = [b for b in page.get_text('blocks') if b[4].strip() and b[1] > 160
+            blocks = [b for b in page.get_text('blocks') if b[4].strip() and (plain or b[1] > 160)
                       and b[1] < footer_top - 1]
             for block in blocks:
                 assert block[0] >= -1 and block[2] <= rect.width + 1, f'Horizontal overflow on page {page.number + 1}'
@@ -94,11 +98,29 @@ def verify_file(path, expected_count):
             for item in page.get_image_info():
                 image = fitz.Rect(item['bbox'])
                 assert image.x0 >= -1 and image.y0 >= -1 and image.x1 <= rect.width + 1 and image.y1 <= rect.height + 1, 'Image outside A4'
-            body_text = [b for b in blocks if b[1] < 745 and b[3] > 185]
-            body_vectors = [d for d in drawings if d['rect'].y0 > 185 and d['rect'].y1 < 745 and d['rect'].get_area() > 25]
+            body_text = [b for b in blocks if b[1] < 745 and (plain or b[3] > 185)]
+            body_vectors = [d for d in drawings if (plain or d['rect'].y0 > 185) and d['rect'].y1 < 745 and d['rect'].get_area() > 25]
             assert body_text or body_vectors, f'Accidental empty page {page.number + 1}'
-        print(f'PASS: {path.name}, {len(pdf)} A4 pages, original logo on every page')
+        print(f'PASS: {path.name}, {len(pdf)} A4 pages, {"plain worksheet" if plain else "original logo on every page"}')
     return {'filename': path.name, 'pageCount': expected_count, 'layoutPassed': True, 'rawLatexFound': False}
+
+
+def preview_plain(path, destination):
+    """A cached preview of the verified first page, cropped after its content.
+
+    The actual PDF remains a complete A4 sheet with blank space for handwriting.
+    Both SVG formula paths and ordinary text contribute to the crop boundary.
+    """
+    with fitz.open(path) as pdf:
+        page = pdf[0]
+        bottoms = [b[3] for b in page.get_text('blocks') if b[4].strip()]
+        bottoms += [item['rect'].y1 for item in page.get_drawings()
+                    if item.get('color') is not None or item.get('fill') not in (None, (1.0, 1.0, 1.0))]
+        bottoms += [fitz.Rect(item['bbox']).y1 for item in page.get_image_info()]
+        bottom = min(page.rect.height, max(100, max(bottoms, default=100) + 20))
+        clip = fitz.Rect(0, 0, page.rect.width, bottom)
+        scale = 800 / max(clip.width, clip.height)
+        page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip, alpha=False).save(destination)
 
 
 def main():
@@ -106,6 +128,7 @@ def main():
     lesson_path = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root / 'lesson.sample.json'
     out = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else root / 'out'
     basename = next((a.split('=', 1)[1] for a in sys.argv[3:] if a.startswith('--basename=')), '')
+    plain = '--plain' in sys.argv[3:]
     data = json.loads(lesson_path.read_text(encoding='utf-8'))
     duration = int(data['meta']['durationMinutes'])
     if basename:
@@ -117,7 +140,9 @@ def main():
     results = []
     for path in found:
         count = len(data['workbookPages'] if '_Arbeitsheft_' in path.name else data['teacherPages'])
-        results.append(verify_file(path, count))
+        results.append(verify_file(path, count, plain))
+    if plain:
+        preview_plain(found[0], out / f'{basename or "workbook"}_preview.png')
     (out / f'{basename or "workbook"}_layout-qa.json').write_text(json.dumps({'passed': True, 'documents': results}), encoding='utf-8')
 
 

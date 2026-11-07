@@ -80,6 +80,7 @@ jobs:
       - name: Check mathematics, graphs, layout and QA rejection paths
         env:
           PYTHON_BIN: python
+          PLAIN_WORKSHEET_ARTIFACT_DIR: out/ci/plain
         run: |
           npm test
           python -m unittest algebra_qa_test pdf_qa_test

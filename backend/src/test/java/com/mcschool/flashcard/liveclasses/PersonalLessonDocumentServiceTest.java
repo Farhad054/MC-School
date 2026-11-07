@@ -32,6 +32,7 @@ class PersonalLessonDocumentServiceTest {
         studentCaller = new AuthenticatedUser(student.getId(), null, Role.STUDENT);
         room = OnlineClass.forStudent(teacher, "event", "event", "Math", Instant.now(), Instant.now().plusSeconds(3600), student);
         when(access.requireAdmitted(studentCaller, room.getId())).thenReturn(room);
+        when(personal.enabledForTeacher(teacher.getId())).thenReturn(true);
     }
 
     @Test
@@ -121,7 +122,7 @@ class PersonalLessonDocumentServiceTest {
     }
 
     @Test
-    void nonPilotTeacherKeepsExistingSharedDocumentOnStudentBoard() {
+    void disabledPersonalWorkbookCapabilityKeepsSharedDocumentOnStudentBoard() {
         ReflectionTestUtils.setField(teacher, "id", UUID.randomUUID());
         var preparation = LessonPreparation.create(teacher, "event");
         preparation.attachWorkbook("shared.pdf", "old-behaviour".getBytes());
@@ -137,7 +138,7 @@ class PersonalLessonDocumentServiceTest {
     }
 
     @Test
-    void nonPilotPrivateVersionProbeStillRequiresExactOwnerAndCurrentRosterForOwnerAndHost() {
+    void disabledPrivateVersionProbeStillRequiresExactOwnerAndCurrentRosterForOwnerAndHost() {
         ReflectionTestUtils.setField(teacher, "id", UUID.randomUUID());
         var host = new AuthenticatedUser(teacher.getId(), null, Role.TEACHER);
         when(access.requireAdmitted(host, room.getId())).thenReturn(room);
@@ -158,6 +159,26 @@ class PersonalLessonDocumentServiceTest {
         }
         verify(personal, never()).workbookVersionForClass(any(), any());
         verify(personal, never()).workbookForClass(any(), any());
+        verifyNoInteractions(shared);
+    }
+
+    @Test
+    void anotherActiveTeacherHasPrivateBytesAndVersionWithTheSameOwnerAndRosterChecks() {
+        ReflectionTestUtils.setField(teacher,"id",UUID.randomUUID());
+        when(personal.enabledForTeacher(teacher.getId())).thenReturn(true);
+        var workbook=PersonalLessonWorkbook.create(teacher.getId(),"event",student.getId());
+        workbook.attach("worksheet.pdf","private bytes".getBytes());
+        when(personal.workbookForClass(room,student.getId())).thenReturn(Optional.of(workbook));
+        when(personal.workbookVersionForClass(room,student.getId())).thenReturn(2L);
+        String scope=PersonalBoard.workbookTargetIdFor(student.getId());
+        assertThat(service.workbook(studentCaller,room.getId(),scope)).contains("private bytes".getBytes());
+        assertThat(service.workbookVersion(studentCaller,room.getId(),scope)).isEqualTo(2L);
+        String foreign=PersonalBoard.workbookTargetIdFor(UUID.randomUUID());
+        assertThatThrownBy(()->service.workbook(studentCaller,room.getId(),foreign)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(()->service.workbookVersion(studentCaller,room.getId(),foreign)).isInstanceOf(ResourceNotFoundException.class);
+        doThrow(new ResourceNotFoundException("Not in current class")).when(personal).requireClassStudent(room,student.getId());
+        assertThatThrownBy(()->service.workbook(studentCaller,room.getId(),scope)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(()->service.workbookVersion(studentCaller,room.getId(),scope)).isInstanceOf(ResourceNotFoundException.class);
         verifyNoInteractions(shared);
     }
 

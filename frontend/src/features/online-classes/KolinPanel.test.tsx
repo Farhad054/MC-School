@@ -7,7 +7,7 @@ import { KolinPanel } from './KolinPanel';
 import { useKolinChat } from './useKolinChat';
 
 vi.mock('../../api/kolin', async importOriginal => ({ ...await importOriginal<typeof import('../../api/kolin')>(),
-  kolinApi: { status: vi.fn(), send: vi.fn() } }));
+  kolinApi: { status: vi.fn(), send: vi.fn(), worksheetPreview: vi.fn(), worksheetPdf: vi.fn(), appendWorksheet: vi.fn() } }));
 const transcriptContext: KolinTranscriptContext = { state: 'included', segmentCount: 12, truncated: true,
   latestSegmentAt: '2026-11-07T15:45:00Z', fromMs: 120000, toMs: 525000, transcriptionActive: false };
 function Harness() {
@@ -36,7 +36,7 @@ describe('Kolin text panel', () => {
     expect(kolinApi.send).not.toHaveBeenCalled();
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(screen.getByRole('log')).toHaveTextContent('1) 1/2 + 1/4'));
-    expect(kolinApi.send).toHaveBeenCalledExactlyOnceWith('class-1', 'Дай задания', [], { targetType: 'student', studentId: 'alice' });
+    expect(kolinApi.send).toHaveBeenCalledExactlyOnceWith('class-1', 'Дай задания', [], { targetType: 'student', studentId: 'alice' }, expect.any(String));
     expect(screen.queryByText('Спросите меня о текущем уроке или попросите создать задание.')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Закрыть Kolin' }));
     expect(screen.queryByRole('complementary', { name: 'Kolin' })).not.toBeInTheDocument();

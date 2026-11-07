@@ -68,21 +68,24 @@ public class OnlineClassAnnotationService {
                                                    int pageIndex, Integer sourceWidth,
                                                    Integer sourceHeight) {
         OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
+        accessService.lockForAnnotationWrite(onlineClass);
         requireBoardAccess(caller, onlineClass, targetId);
+        String canonicalTarget = canonicalWriteTarget(onlineClass, targetType, targetId);
+        requireBoardAccess(caller, onlineClass, canonicalTarget);
         if (pageIndex < 0) {
             throw new IllegalArgumentException("Page index must not be negative");
         }
         OnlineClassAnnotationDocument document = documentRepository
                 .findByOnlineClassIdAndTargetTypeAndTargetIdAndPageIndex(
-                        classId, targetType, targetId, pageIndex)
+                        classId, targetType, canonicalTarget, pageIndex)
                 .orElseGet(() -> {
                     // Safe under concurrency: a simultaneous opener's row wins
                     // and is read back here, rather than failing this request.
                     documentRepository.insertIfAbsent(
-                            UUID.randomUUID(), classId, targetType.name(), targetId, pageIndex);
+                            UUID.randomUUID(), classId, targetType.name(), canonicalTarget, pageIndex);
                     return documentRepository
                             .findByOnlineClassIdAndTargetTypeAndTargetIdAndPageIndex(
-                                    classId, targetType, targetId, pageIndex)
+                                    classId, targetType, canonicalTarget, pageIndex)
                             .orElseThrow(() -> new IllegalStateException(
                                     "Annotation document missing after insert"));
                 });
@@ -105,6 +108,7 @@ public class OnlineClassAnnotationService {
     public AnnotationOperationResponse append(AuthenticatedUser caller, UUID classId,
                                               UUID documentId, AnnotationOperationRequest request) {
         OnlineClass onlineClass = accessService.requireAdmitted(caller, classId);
+        accessService.lockForAnnotationWrite(onlineClass);
         OnlineClassAnnotationDocument document = documentRepository.findForUpdate(documentId, classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Annotation document not found"));
         requireBoardAccess(caller, onlineClass, document.getTargetId());
@@ -182,6 +186,7 @@ public class OnlineClassAnnotationService {
     public AnnotationDocumentResponse saveSnapshot(AuthenticatedUser caller, UUID classId,
                                                    UUID documentId, String pngBase64) {
         OnlineClass onlineClass = accessService.requireHost(caller, classId);
+        accessService.lockForAnnotationWrite(onlineClass);
         OnlineClassAnnotationDocument document = requireDocument(classId, documentId);
         requireBoardAccess(caller, onlineClass, document.getTargetId());
 
@@ -246,6 +251,16 @@ public class OnlineClassAnnotationService {
         if (!canAccessBoard(caller, onlineClass, targetId)) {
             throw new ResourceNotFoundException("Annotation document not found");
         }
+    }
+
+    private String canonicalWriteTarget(OnlineClass room, AnnotationTargetType type, String targetId) {
+        if (type == AnnotationTargetType.WHITEBOARD && PersonalBoard.isPersonal(targetId)
+                && !PersonalBoard.isWorkbook(targetId) && personalWorkbooks.enabledForTeacher(room.getTeacher().getId())) {
+            var owner = PersonalBoard.ownerOf(targetId);
+            if (owner.isPresent() && personalWorkbooks.workbookVersionForClass(room, owner.get()) > 0)
+                return PersonalBoard.workbookTargetIdFor(owner.get());
+        }
+        return targetId;
     }
 
     private OnlineClassAnnotationDocument requireDocument(UUID classId, UUID documentId) {

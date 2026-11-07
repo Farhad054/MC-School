@@ -11,7 +11,8 @@
     "html": "node generate.mjs --html-only",
     "test:math": "node mathjax-smoke.mjs",
     "test:layout": "node --test layout.test.mjs",
-    "test": "node mathjax-smoke.mjs && node diagrams.test.mjs && node --test layout.test.mjs"
+    "test:plain": "node --test plain.test.mjs",
+    "test": "node mathjax-smoke.mjs && node diagrams.test.mjs && node --test layout.test.mjs plain.test.mjs"
   },
   "dependencies": {
     "mathjax": "^4.1.3"
