@@ -15,6 +15,8 @@ import java.util.concurrent.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -24,8 +26,10 @@ class KolinChatServiceTest {
     private final UserRepository users = mock(UserRepository.class);
     private final StudentGroupRepository groups = mock(StudentGroupRepository.class);
     private final AiLessonPilotService ai = mock(AiLessonPilotService.class);
+    private final OnlineClassTranscriptSegmentRepository segments = mock(OnlineClassTranscriptSegmentRepository.class);
+    private final KolinTranscriptContextService transcripts = new KolinTranscriptContextService(segments, JsonMapper.builder().build());
     private final OnlineClassAccessService access = new OnlineClassAccessService(rooms, members, users, mock(OnlineClassParticipantRepository.class));
-    private final KolinChatService chat = new KolinChatService(access, groups, ai, JsonMapper.builder().build());
+    private final KolinChatService chat = new KolinChatService(access, groups, ai, JsonMapper.builder().build(), transcripts);
     private User teacher, pupil, sameTeacherButDifferentClass, otherTeacher;
     private OnlineClass room;
     private StudentGroup group;
@@ -44,6 +48,7 @@ class KolinChatServiceTest {
         when(users.findById(any())).thenAnswer(call->Optional.ofNullable(known.get(call.getArgument(0))));
         when(members.existsByGroupIdAndStudentId(group.getId(),pupil.getId())).thenReturn(true);
         when(ai.isConfigured()).thenReturn(true);
+        when(segments.findByOnlineClassIdOrderByStartMsDescIdDesc(any(),any())).thenReturn(List.of());
         when(ai.kolinReply(anyString(),anyList(),anyString())).thenReturn("1. 1/2 + 1/4\n2. 2/3 + 1/6");
         host=principal(teacher);
     }
@@ -57,11 +62,13 @@ class KolinChatServiceTest {
         @SuppressWarnings("unchecked") ArgumentCaptor<List<Map<String,String>>> captured=ArgumentCaptor.forClass(List.class);
         verify(ai).kolinReply(context.capture(),captured.capture(),eq("Сделай второе сложнее"));
         var metadata=JsonMapper.builder().build().readTree(context.getValue());
-        assertThat(metadata.propertyNames()).containsExactly("lessonTitle","targetType","targetName","currentWorkbookPage");
+        assertThat(metadata.propertyNames()).containsExactly("lessonTitle","targetType","targetName","currentWorkbookPage","transcript");
         assertThat(metadata.path("lessonTitle").asString()).isEqualTo("Fractions");
         assertThat(metadata.path("targetName").asString()).isEqualTo("Виталина");
         assertThat(metadata.path("currentWorkbookPage").asInt()).isEqualTo(3);
-        assertThat(context.getValue()).hasSizeLessThan(200);
+        assertThat(context.getValue()).hasSizeLessThan(500);
+        assertThat(metadata.path("transcript").path("metadata").path("state").asString()).isEqualTo("empty");
+        assertThat(reply.transcriptContext().state()).isEqualTo("empty");
         assertThat(captured.getValue()).hasSize(8);
         assertThat(captured.getValue().get(0)).containsEntry("text","message-0");
         assertThat(reply.type()).isEqualTo("text");
@@ -84,6 +91,7 @@ class KolinChatServiceTest {
         assertThatThrownBy(()->chat.send(host,room.getId(),question("Дай пример",new KolinChatService.Context("student",sameTeacherButDifferentClass.getId(),1))))
                 .isInstanceOf(ResourceNotFoundException.class);
         verifyNoInteractions(ai);
+        verifyNoInteractions(segments);
     }
 
     @Test void studentsAndOtherTeachersCannotCallStatusOrGenerate() {
@@ -92,6 +100,7 @@ class KolinChatServiceTest {
             assertThatThrownBy(()->chat.send(caller,room.getId(),question("Ответ",null))).isInstanceOf(ResourceNotFoundException.class);
         }
         verifyNoInteractions(ai);
+        verifyNoInteractions(segments);
     }
 
     @Test void neverAcceptsSystemMessagesMoreThanEightMessagesOrOversizedText() {
@@ -100,6 +109,7 @@ class KolinChatServiceTest {
                 question("x".repeat(4001),null),question(" ",null));
         for(var request:bad)assertThatThrownBy(()->chat.send(host,room.getId(),request)).isInstanceOf(ResponseStatusException.class);
         verifyNoInteractions(ai);
+        verifyNoInteractions(segments);
     }
 
     @Test void historyCharacterBudgetKeepsContiguousWholeRecentMessages() {
@@ -132,5 +142,66 @@ class KolinChatServiceTest {
             assertThatThrownBy(()->chat.send(host,room.getId(),question("Ответ",null))).isInstanceOf(ResponseStatusException.class).hasMessageContaining("уже отвечает");
             finish.countDown();assertThat(first.get(5,TimeUnit.SECONDS).text()).isEqualTo("2");
         } finally {finish.countDown();pool.shutdownNow();}
+    }
+
+    @Test void statusDoesNotReadOrAnalyzeTranscriptAndUnconfiguredRequestsDoNotReadIt() {
+        assertThat(chat.status(host,room.getId())).containsEntry("configured",true);
+        when(ai.isConfigured()).thenReturn(false);
+        assertThatThrownBy(()->chat.send(host,room.getId(),question("Ответ",null)))
+                .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(segments);
+        verify(ai,never()).kolinReply(anyString(),anyList(),anyString());
+    }
+
+    @Test void eachQuestionReadsFreshFinalsAndReturnsExactlyTheMetadataSentToTheModel() throws Exception {
+        var first=OnlineClassTranscriptSegment.finalSegment(room,"first",ParticipantIdentity.of(teacher.getId(),"tab"),
+                teacher,"Teacher","ru",0,1000,"Складываем 1/2 и 1/4",0.9);
+        var next=OnlineClassTranscriptSegment.finalSegment(room,"next",ParticipantIdentity.of(pupil.getId(),"tab"),
+                pupil,"Pupil","ru",1100,2000,"Получилось 3/4",0.9);
+        ReflectionTestUtils.setField(first,"createdAt",Instant.parse("2026-11-07T13:00:00Z"));
+        ReflectionTestUtils.setField(next,"createdAt",Instant.parse("2026-11-07T13:00:02Z"));
+        when(segments.findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()),any()))
+                .thenReturn(List.of(first),List.of(next,first));
+        assertThat(chat.send(host,room.getId(),question("Дай ответ",null)).transcriptContext().segmentCount()).isEqualTo(1);
+        var reply=chat.send(host,room.getId(),question("Дай сложнее",null));
+        var payload=ArgumentCaptor.forClass(String.class);
+        verify(ai,times(2)).kolinReply(payload.capture(),anyList(),anyString());
+        var json=JsonMapper.builder().build().readTree(payload.getAllValues().get(1));
+        var supplied=json.path("transcript");
+        assertThat(supplied.path("segments").size()).isEqualTo(2);
+        assertThat(supplied.path("segments").get(0).path("text").asString()).isEqualTo(first.getText());
+        assertThat(supplied.path("metadata")).isEqualTo(JsonMapper.builder().build()
+                .readTree(JsonMapper.builder().build().writeValueAsString(reply.transcriptContext())));
+        assertThat(reply.transcriptContext().latestSegmentAt()).isEqualTo("2026-11-07T13:00:02Z");
+        assertThat(payload.getAllValues().get(1)).doesNotContain(teacher.getEmail(),teacher.getId().toString(),pupil.getId().toString(),"participantIdentity","input_file");
+        verify(segments,times(2)).findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()),any());
+    }
+
+    @Test void transcriptReadFailureDoesNotBlockChatAndLogsNoExceptionDetailOrTranscript() {
+        var logger=(ch.qos.logback.classic.Logger)LoggerFactory.getLogger(KolinChatService.class);
+        var logs=new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start();logger.addAppender(logs);
+        when(segments.findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()),any()))
+                .thenThrow(new IllegalStateException("PRIVATE_TRANSCRIPT teacher@test.local SECRET_KEY"));
+        try {
+            var reply=chat.send(host,room.getId(),question("Дай новый пример",null));
+            assertThat(reply.text()).contains("1/2 + 1/4");
+            assertThat(reply.transcriptContext().state()).isEqualTo("unavailable");
+            assertThat(reply.transcriptContext().segmentCount()).isZero();
+            verify(ai).kolinReply(contains("\"state\":\"unavailable\""),anyList(),anyString());
+            assertThat(logs.list).hasSize(1);
+            assertThat(logs.list.get(0).getFormattedMessage()).contains(room.getId().toString(),"IllegalStateException")
+                    .doesNotContain("PRIVATE_TRANSCRIPT","teacher@test.local","SECRET_KEY");
+            assertThat(logs.list.get(0).getThrowableProxy()).isNull();
+        } finally {logger.detachAppender(logs);logs.stop();}
+    }
+
+    @Test void unexpectedOtherRoomTranscriptCannotReachProviderButTextChatStillWorks() {
+        var oldRoom=OnlineClass.forTeacherOnly(otherTeacher,"old","old","Other private room",Instant.now(),Instant.now().plusSeconds(60));
+        var other=OnlineClassTranscriptSegment.finalSegment(oldRoom,"foreign",null,otherTeacher,"Other","ru",0,1000,"FOREIGN_PRIVATE_SPEECH",0.9);
+        when(segments.findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()),any())).thenReturn(List.of(other));
+        var reply=chat.send(host,room.getId(),question("Дай пример",null));
+        assertThat(reply.transcriptContext().state()).isEqualTo("unavailable");
+        verify(ai).kolinReply(argThat(value->value.contains("unavailable")&&!value.contains("FOREIGN_PRIVATE_SPEECH")),anyList(),anyString());
     }
 }

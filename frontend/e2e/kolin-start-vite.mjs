@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const realLiveKit = resolve(dirname(require.resolve('@livekit/components-react')), 'index.mjs');
-const outDir = resolve(root, '../../kolin-browser-dist');
+const outDir = resolve(root, 'test-results/kolin-build');
 const alias = [
   { find: /^@livekit\/components-react$/, replacement: resolve(root, 'e2e/kolin-livekit-adapter.tsx') },
   { find: /^@livekit\/components-react-real$/, replacement: realLiveKit },

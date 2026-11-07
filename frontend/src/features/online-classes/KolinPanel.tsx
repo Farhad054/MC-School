@@ -1,8 +1,34 @@
 import { useEffect, useRef } from 'react';
 import { useI18n } from '../../i18n/I18nContext';
-import type { KolinContext } from '../../api/kolin';
+import type { KolinContext, KolinTranscriptContext } from '../../api/kolin';
 import type { useKolinChat } from './useKolinChat';
 import './kolin-panel.css';
+
+function lessonTime(milliseconds: number) {
+  const seconds = Math.floor(milliseconds / 1000);
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function TranscriptContextNote({ context, de }: { context: KolinTranscriptContext; de: boolean }) {
+  const range = context.fromMs !== null && context.toMs !== null
+    ? `${lessonTime(context.fromMs)}-${lessonTime(context.toMs)}`
+    : context.toMs !== null ? `${de ? 'bis' : 'до'} ${lessonTime(context.toMs)}` : null;
+  const date = context.latestSegmentAt ? new Date(context.latestSegmentAt) : null;
+  const locale = de ? 'de-DE' : 'ru-RU';
+  return <footer className="kolin-panel__transcript-context" aria-label={de ? 'Transkript-Kontext' : 'Контекст расшифровки'}
+    data-transcript-state={context.state}>
+    <span>{context.state === 'included'
+      ? `${de ? 'Transkript' : 'Расшифровка'}: ${context.segmentCount} ${de ? 'Beiträge' : 'реплик'}${range ? `, ${range} ${de ? 'im Unterricht' : 'урока'}` : ''}.${context.truncated ? de ? ' Ausschnitt.' : ' Фрагмент.' : ''}`
+      : context.state === 'empty'
+        ? de ? 'Transkript: noch keine gespeicherten Beiträge.' : 'Расшифровка: сохранённых реплик пока нет.'
+        : de ? 'Transkript konnte nicht geladen werden. Antwort ohne Transkript.' : 'Расшифровку не удалось прочитать. Ответ без неё.'}</span>
+    {context.state === 'included' && <span>{date
+      ? <>{de ? 'Letzter gespeicherter Beitrag: ' : 'Последняя сохранённая реплика: '}
+        <time dateTime={context.latestSegmentAt!} title={date.toLocaleString(locale)}>{date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</time>.</>
+      : de ? 'Zeit des letzten Beitrags unbekannt.' : 'Время последней реплики неизвестно.'}</span>}
+    {!context.transcriptionActive && <span>{de ? 'Transkription war bei der Anfrage nicht aktiv.' : 'На момент запроса расшифровка была неактивна.'}</span>}
+  </footer>;
+}
 
 export function KolinPanel({ chat, context }: { chat: ReturnType<typeof useKolinChat>; context: KolinContext }) {
   const { language } = useI18n();
@@ -27,11 +53,14 @@ export function KolinPanel({ chat, context }: { chat: ReturnType<typeof useKolin
       onScroll={() => { const element = log.current; if (element) nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80; }}>
       {!chat.messages.length && <li className="kolin-panel__welcome">{de
         ? 'Fragen Sie mich zum aktuellen Unterricht oder bitten Sie um eine Aufgabe.'
-        : 'Спросите меня о текущем уроке или попросите создать задание.'}</li>}
+        : 'Спросите меня о текущем уроке или попросите создать задание.'}
+        <p>{de ? 'Bei Ihrer Frage nutze ich das gespeicherte Transkript dieses Unterrichts. Ich gebe keine automatischen Hinweise.'
+          : 'Когда вы задаёте вопрос, я использую сохранённую расшифровку этого урока. Автоматических подсказок нет.'}</p></li>}
       {chat.messages.map(message => <li key={message.id} className={`kolin-panel__message kolin-panel__message--${message.role}`}
         data-role={message.role} data-message-type={message.type}>
         <span className="kolin-panel__speaker">{message.role === 'assistant' ? 'Kolin' : de ? 'Sie' : 'Вы'}</span>
         <p>{message.text}</p>
+        {message.role === 'assistant' && message.transcriptContext && <TranscriptContextNote context={message.transcriptContext} de={de} />}
       </li>)}
     </ol>
     {chat.pending && <p className="kolin-panel__status" role="status">{de ? 'Kolin denkt nach…' : 'Kolin думает…'}</p>}

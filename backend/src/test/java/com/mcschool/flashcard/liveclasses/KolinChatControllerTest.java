@@ -82,4 +82,15 @@ class KolinChatControllerTest {
             mvc.perform(post(base()+"/messages").contentType("application/json").content(body)).andExpect(status().isBadRequest());
         verifyNoInteractions(chat);
     }
+
+    @Test void textReplyIncludesNullableTranscriptMetadataWithoutExposingSegments() throws Exception {
+        var teacher=authenticate(Role.TEACHER);
+        when(chat.send(eq(teacher),eq(classId),any())).thenReturn(new KolinChatService.Reply("text","Новый пример",
+                new KolinTranscriptContextService.Metadata("empty",0,false,null,null,null,false)));
+        mvc.perform(post(base()+"/messages").contentType("application/json").content("{\"text\":\"Дай пример\"}"))
+                .andExpect(status().isOk()).andExpect(content().json("""
+                        {"type":"text","text":"Новый пример","transcriptContext":{"state":"empty","segmentCount":0,
+                        "truncated":false,"latestSegmentAt":null,"fromMs":null,"toMs":null,"transcriptionActive":false}}
+                        """));
+    }
 }
