@@ -1,4 +1,5 @@
 import { useI18n } from '../../i18n/I18nContext';
+import type { ReactNode } from 'react';
 import { SHARED_BOARD_ID, personalBoardId } from './boards';
 import type { RosterStudent } from './useStudentRoster';
 
@@ -17,12 +18,14 @@ export function BoardSwitcher({
   students,
   activeId,
   onChange,
+  teacherAction,
 }: {
   isHost: boolean;
   currentUserId: string;
   students: RosterStudent[];
   activeId: string;
   onChange: (boardId: string) => void;
+  teacherAction?: ReactNode;
 }) {
   const { t, language } = useI18n();
 
@@ -51,6 +54,7 @@ export function BoardSwitcher({
           </svg>
           {language === 'DE' ? 'Alle' : 'Все'}
         </button>
+        {teacherAction}
       </div>
     );
   }

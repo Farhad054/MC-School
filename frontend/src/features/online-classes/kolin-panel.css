@@ -1,0 +1,36 @@
+/* Kolin uses the same space-taking panel and width variable as Answers. */
+.online-class-room--original-v3 .online-class-room__stage > .kolin-panel { order:2; border-right:0; border-left:1px solid #3b4348; }
+.answers-panel-resizer--right { order:1; }
+/* Keep the existing floating cameras over the board while the right panel is open. */
+.online-class-room.online-class-room--original-v3 .online-class-room__stage:has(> .kolin-panel) > .online-class-room__videos-drawer {
+  right:calc(var(--answers-panel-width,360px) + 12px + max(12px,env(safe-area-inset-right)));
+  max-width:calc(100% - var(--answers-panel-width,360px) - 36px);
+}
+.kolin-panel .kolin-panel__title { font-size:15px; }
+.kolin-panel__subtitle { margin:3px 0 0; color:var(--v3-muted); font-size:11px; line-height:1.35; }
+.kolin-panel__messages { flex:1 1 0%; min-height:0; margin:0; padding:0; overflow:auto; overscroll-behavior:contain; list-style:none; display:flex; flex-direction:column; gap:14px; }
+.kolin-panel__welcome { color:var(--v3-muted); font-size:13px; line-height:1.5; }
+.kolin-panel__message { padding:10px; border-radius:9px; background:var(--v3-raised); color:var(--v3-text); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.kolin-panel__message--user { margin-left:16px; background:#39434b; }
+.kolin-panel__message--assistant { margin-right:8px; }
+.kolin-panel__speaker { display:block; color:var(--v3-muted); font-size:10px; margin-bottom:4px; }
+.kolin-panel__message p { margin:0; white-space:pre-wrap; }
+.kolin-panel__status { margin:0; font-size:12px; color:var(--v3-muted); }
+.kolin-panel__error { font-size:12px; color:#f1a4a4; }
+.kolin-panel__error p { margin:0 0 8px; }
+.kolin-panel__error button { width:100%; }
+.kolin-panel__form { display:flex; flex-wrap:wrap; gap:8px; margin:0; }
+.kolin-panel__form textarea { box-sizing:border-box; width:100%; min-width:0; resize:none; padding:10px; border:1px solid var(--v3-edge); border-radius:8px; background:var(--v3-raised); color:var(--v3-text); font:inherit; font-size:13px; line-height:1.4; }
+.kolin-panel__form button,.kolin-panel__error button { min-height:34px; padding:6px 12px; border:1px solid var(--v3-edge); border-radius:8px; background:var(--v3-raised); color:var(--v3-text); font:inherit; font-size:12px; cursor:pointer; }
+.kolin-panel__form button { margin-left:auto; }
+.kolin-panel button:disabled { opacity:.5; cursor:default; }
+@media(max-width:600px) {
+  .online-class-room--original-v3 .online-class-room__stage:has(> .kolin-panel) { --kolin-mobile-panel-height:min(68%,calc(var(--classroom-header-height) + 270px)); }
+  .online-class-room--original-v3 .online-class-room__stage:has(> .answers-panel-resizer) > .kolin-panel { order:-1; border-left:0; flex:0 0 var(--kolin-mobile-panel-height); max-height:68%; }
+  .online-class-room.online-class-room--original-v3 .online-class-room__stage:has(> .kolin-panel) > .online-class-room__videos-drawer { top:calc(var(--kolin-mobile-panel-height) + 68px); right:max(12px,env(safe-area-inset-right)); max-width:calc(100% - 24px); }
+  .kolin-panel__messages { min-height:64px; }
+  .kolin-panel__form { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; flex-shrink:0; }
+  .kolin-panel__form textarea { font-size:16px; min-height:64px; }
+  .kolin-panel__form button { margin-left:0; }
+  .kolin-panel__form button,.kolin-panel__error button { min-height:44px; }
+}

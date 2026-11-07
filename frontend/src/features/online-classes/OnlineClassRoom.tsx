@@ -40,6 +40,8 @@ import { TranscriptionControls } from './TranscriptionControls';
 import { ParticipantListPanel } from './ParticipantListPanel';
 import { WaitingRoomPanel } from './WaitingRoomPanel';
 import { useAnswersPanel } from './useAnswersPanel';
+import { useKolinChat } from './useKolinChat';
+import { KolinPanel } from './KolinPanel';
 import { DocumentWhiteboardPanel } from './DocumentWhiteboardPanel';
 import { openPdf, type PdfDoc } from './pdfDocument';
 import { useBoardDocument } from './useBoardDocument';
@@ -393,6 +395,8 @@ function RoomBody({
   const answerStudentName = answerStudentId ? personalWorkbookData?.students.find(student => student.studentId === answerStudentId)?.studentName : undefined;
   const answers = useAnswersPanel(eventId, connection.host, answerStudentId, currentUserId,
     connection.host && Boolean(personalBoardOwner(activeBoard)) && !personalWorkbookData);
+  const kolin = useKolinChat(classId, currentUserId, connection.host);
+  const toggleAnswers = () => { kolin.close(); answers.toggle(); };
   const boardDocument = useBoardDocument(classId);
   const admittedStudents = useStudentRoster(classId, connection.host);
   const students = [...new Map([
@@ -705,6 +709,8 @@ function RoomBody({
           students={students}
           activeId={activeBoard}
           onChange={selectBoard}
+          teacherAction={<button type="button" aria-expanded={kolin.open} aria-controls="kolin-panel"
+            onClick={() => { if (!kolin.open) answers.close(); kolin.toggle(); }}>Kolin</button>}
         />
         <button type="button" className="online-class-room__videos-toggle" aria-expanded={videosOpen} aria-controls="online-class-videos" onClick={() => setVideosOpen((open) => !open)} title={videosOpen ? 'Скрыть видео участников' : 'Показать видео участников'}>
           {videosOpen ? 'Видео ›' : '‹ Видео'}
@@ -721,7 +727,7 @@ function RoomBody({
       <div className={`online-class-room__stage${videosOpen ? " online-class-room__stage--videos-open" : ""}${showStudentWorkspaces ? ' online-class-room__stage--student-workspaces' : ''}`}>
           {/* Teacher-only answer PDF has its own column. It must not cover the shared
               canvas: the sibling board reflows to the remaining available width. */}
-          {connection.host && answers.open && (<>
+          {connection.host && answers.open && !kolin.open && (<>
             <AnswersPanel
               key={answers.scope}
               personal={answers.personal}
@@ -737,6 +743,14 @@ function RoomBody({
               uploadError={answers.uploadError}
             />
             <AnswersPanelResizer storageKey={currentUserId} videosOpen={videosOpen} />
+          </>)}
+          {connection.host && kolin.open && (<>
+            <KolinPanel chat={kolin} context={{
+              ...(personalBoardOwner(activeBoard) ? { targetType: 'student', studentId: personalBoardOwner(activeBoard)! } : {}),
+              ...(Number.isInteger(studentPages[activeBoard]) ? { currentWorkbookPage: studentPages[activeBoard] + 1 } : {}),
+            }} />
+            <AnswersPanelResizer storageKey={`kolin:${currentUserId}`} videosOpen={videosOpen} side="right" panelId="kolin-panel"
+              defaultWidth={360} label={language === 'DE' ? 'Breite von Kolin ändern' : 'Изменить ширину Kolin'} />
           </>)}
         <div className="online-class-room__main" aria-busy={boardsFrozen}
           ref={element => { if (element) element.inert = boardsFrozen; }}>
@@ -764,7 +778,7 @@ function RoomBody({
                     // Answers belong to whichever board the teacher is looking at.
                     hostActions={
                       connection.host && visible ? (
-                        <AnswersButton compact status={answers.status} open={answers.open} onToggle={answers.toggle} />
+                        <AnswersButton compact status={answers.status} open={answers.open} onToggle={toggleAnswers} />
                       ) : undefined
                     }
                   />
@@ -807,7 +821,7 @@ function RoomBody({
                 fileAction={active && !compact ? fileAction : undefined}
                 onSaveLessonDocuments={!compact ? archiveBoards : undefined}
                 savingLessonDocuments={archiving || exitPending}
-                hostActions={active && !compact ? <AnswersButton compact status={answers.status} open={answers.open} onToggle={answers.toggle} /> : undefined}
+                hostActions={active && !compact ? <AnswersButton compact status={answers.status} open={answers.open} onToggle={toggleAnswers} /> : undefined}
               />
             </Suspense>}
             renderCameraBoard={(studentId, active, compact, source, following) => <Suspense fallback={null}>
@@ -824,7 +838,7 @@ function RoomBody({
                 fileAction={active && !compact ? fileAction : undefined}
                 liveBackground={source ? { source: source.rawVideo, width: source.rawWidth, height: source.rawHeight,
                   notebookView: { view: source.view, rawWidth: source.rawWidth, rawHeight: source.rawHeight, renderer: source.renderer } } : null}
-                hostActions={active && !compact ? <AnswersButton compact status={answers.status} open={answers.open} onToggle={answers.toggle} /> : undefined}
+                hostActions={active && !compact ? <AnswersButton compact status={answers.status} open={answers.open} onToggle={toggleAnswers} /> : undefined}
               />
             </Suspense>}
           />}
