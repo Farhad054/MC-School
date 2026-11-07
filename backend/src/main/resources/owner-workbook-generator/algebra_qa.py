@@ -204,12 +204,59 @@ def real_poles(denominators):
     return result
 
 
+def canonical_answer(value):
+    """Exact output from a bounded expression tree, never a proposed AI answer."""
+    value = bounded(s.simplify(value))
+    if value.has(s.zoo, s.nan, s.oo, -s.oo) or value.is_real is False:
+        raise ValueError('Derived answer is not a finite real expression')
+    symbols = value.free_symbols
+    # Rational functions are real on their original denominator domain. Other
+    # forms must be provably real and finite, not an unchecked sqrt/log domain.
+    rational = bool(symbols) and value.is_rational_function(*symbols)
+    if not rational and (value.is_real is not True or value.is_finite is not True):
+        raise ValueError('Derived answer has an unsupported real or finite domain')
+    answer = s.sstr(value).replace('Abs(', 'abs(')
+    # Keep outputs inside the same safe parser language and complexity budget.
+    parsed, _ = parse(answer)
+    if s.simplify(parsed - value) != 0:
+        raise ValueError('Derived answer cannot be represented exactly')
+    return answer
+
+
 def validate(assertion):
     if not isinstance(assertion, dict):
         raise ValueError('Algebra assertion must be an object')
     excluded = restrictions(assertion.get('restrictions', []))
     kind = assertion.get('kind')
-    if kind == 'equivalence':
+    if kind == 'expressionValue':
+        expression, _ = parse(assertion['expression'])
+        answer = canonical_answer(expression)
+        # Reuse the existing equivalence and original-domain proof. In
+        # particular cancellation still requires the visible exclusion.
+        validate({'kind': 'equivalence', 'expression': assertion['expression'],
+                  'answer': answer, 'restrictions': assertion.get('restrictions', [])})
+        return {'kind': kind, 'passed': True, 'answer': answer}
+    elif kind == 'linearValue':
+        sides = assertion['equation'].split('=')
+        if len(sides) != 2:
+            raise ValueError('Equation must have exactly one equals sign')
+        left, _ = parse(sides[0])
+        right, _ = parse(sides[1])
+        variables = left.free_symbols | right.free_symbols
+        if len(variables) != 1:
+            raise ValueError('A linear task must contain exactly one variable')
+        variable = next(iter(variables))
+        if 'variable' in assertion and assertion['variable'] != str(variable):
+            raise ValueError('Declared variable does not match the visible linear equation')
+        difference = bounded(s.cancel(left - right))
+        if not difference.is_polynomial(variable) or s.degree(difference, variable) != 1:
+            raise ValueError('A linear task requires a nonconstant affine difference')
+        polynomial = s.Poly(difference, variable)
+        answer = canonical_answer(-polynomial.TC() / polynomial.LC())
+        validate({'kind': 'linearSolution', 'equation': assertion['equation'],
+                  'solution': {str(variable): answer}, 'restrictions': assertion.get('restrictions', [])})
+        return {'kind': kind, 'passed': True, 'variable': str(variable), 'answer': answer}
+    elif kind == 'equivalence':
         expression, denominators = parse(assertion['expression'])
         answer, answer_denominators = parse(assertion['answer'])
         if s.count_ops(expression) + s.count_ops(answer) > 120:
@@ -220,7 +267,7 @@ def validate(assertion):
         for variable, pole in changed_domain:
             if not any(s.simplify(item.subs(variable, pole)) == 0 for item in excluded):
                 raise ValueError(f'Missing domain restriction: {variable} != {pole}')
-    elif kind == 'solution':
+    elif kind in ('solution', 'linearSolution'):
         sides = assertion['equation'].split('=')
         if len(sides) != 2:
             raise ValueError('Equation must have exactly one equals sign')
@@ -229,6 +276,21 @@ def validate(assertion):
         solution = assertion.get('solution')
         if not isinstance(solution, dict) or not solution:
             raise ValueError('Solution must map variables to values')
+        if kind == 'linearSolution':
+            variables = left.free_symbols | right.free_symbols
+            if len(variables) != 1:
+                raise ValueError('A linear task must contain exactly one variable')
+            variable = next(iter(variables))
+            if set(solution) != {str(variable)}:
+                raise ValueError('A linear task must supply exactly its own variable')
+            difference = bounded(s.cancel(left - right))
+            if not difference.is_polynomial(variable) or s.degree(difference, variable) != 1:
+                raise ValueError('A linear task requires a nonconstant affine difference')
+            polynomial = s.Poly(difference, variable)
+            root = s.simplify(-polynomial.TC() / polynomial.LC())
+            proposed, _ = parse(str(solution[str(variable)]))
+            if root.is_real is not True or proposed.free_symbols or s.simplify(proposed - root) != 0:
+                raise ValueError('Answer is not the unique real solution of the linear task')
         values = {}
         for name, raw in solution.items():
             if name not in SYMBOLS:

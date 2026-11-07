@@ -34,6 +34,8 @@ public class KolinChatService {
     private final AiLessonPilotService ai;
     private final ObjectMapper mapper;
     private final KolinTranscriptContextService transcripts;
+    @org.springframework.beans.factory.annotation.Autowired
+    private KolinTaskService tasks;
     private final Set<UUID> pendingTeachers = ConcurrentHashMap.newKeySet();
 
     public KolinChatService(OnlineClassAccessService access, StudentGroupRepository groups,
@@ -47,9 +49,13 @@ public class KolinChatService {
     public record Context(@Pattern(regexp="student|group") String targetType, UUID studentId,
                           @Min(1) @Max(1000) Integer currentWorkbookPage) {}
     public record Request(@NotBlank @Size(max=MAX_TEXT_LENGTH) String text,
-                          @Size(max=8) List<@Valid HistoryMessage> history, @Valid Context context) {}
-    public record Reply(String type, String text, KolinTranscriptContextService.Metadata transcriptContext) {
-        public Reply(String type, String text) { this(type, text, null); }
+                          @Size(max=8) List<@Valid HistoryMessage> history, @Valid Context context, UUID clientMessageId) {
+        public Request(String text,List<HistoryMessage> history,Context context) { this(text,history,context,null); }
+    }
+    public record Reply(String type, String text, KolinTranscriptContextService.Metadata transcriptContext,
+                        KolinWorksheetStore.Worksheet worksheet) {
+        public Reply(String type,String text,KolinTranscriptContextService.Metadata metadata) { this(type,text,metadata,null); }
+        public Reply(String type, String text) { this(type, text, null,null); }
     }
 
     public Map<String, Boolean> status(AuthenticatedUser teacher, UUID classId) {
@@ -69,6 +75,8 @@ public class KolinChatService {
         try {
             var transcript = transcript(room);
             context.put("transcript", transcript);
+            if (request.clientMessageId()!=null)
+                return tasks.reply(teacher,room,request,context,history,question,transcript.metadata());
             return new Reply("text", ai.kolinReply(mapper.writeValueAsString(context), history, question), transcript.metadata());
         } catch (Exception ex) {
             LoggerFactory.getLogger(getClass()).warn("Kolin request failed: classId={} errorType={}", classId, ex.getClass().getSimpleName());

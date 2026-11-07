@@ -16,8 +16,21 @@ const toggle = page => page.getByRole('button', { name: 'Kolin', exact: true });
 const separator = page => page.getByRole('separator', { name: 'Изменить ширину Kolin', exact: true });
 function gate() { let release; const promise = new Promise(resolve => { release = resolve; }); return { promise, release }; }
 
+function worksheetPdf() {
+  const content = 'BT /F1 20 Tf 50 740 Td (Kolin worksheet) Tj 0 -40 Td (1. 1/2 + 1/4 = ?) Tj ET';
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${content.length} >>\nstream\n${content}\nendstream`];
+  let pdf = '%PDF-1.4\n'; const offsets = [0];
+  objects.forEach((body, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${body}\nendobj\n`; });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}`;
+  return Buffer.from(`${pdf}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+}
+
 async function setup(page, role = 'teacher') {
-  const state = { teacherId: TEACHER, posts: [], annotationWrites: [], requests: [], errors: [], failOnce: false, failStatusOnce: false, responseGate: null, configured: true, transcriptContext: undefined };
+  const state = { teacherId: TEACHER, posts: [], annotationWrites: [], requests: [], errors: [], failOnce: false, failStatusOnce: false, responseGate: null, configured: true, transcriptContext: undefined,
+    worksheet: undefined, appends: [], appendFailOnce: false, appendGate: null };
   const documents = new Map();
   page.on('pageerror', error => state.errors.push(error.message));
   await page.route('**/api/v1/**', async route => {
@@ -33,8 +46,29 @@ async function setup(page, role = 'teacher') {
       state.posts.push({ path, body, contentType: request.headers()['content-type'] });
       if (state.responseGate) await state.responseGate.promise;
       if (state.failOnce) { state.failOnce = false; return route.fulfill({ status: 503, json: { errorCode: 'KOLIN_UNAVAILABLE', message: 'Kolin временно недоступен. Повторите отправку.' } }); }
+      if (state.worksheet) return route.fulfill({ json: { type: 'worksheet', text: 'Задания готовы.', worksheet: state.worksheet } });
       return route.fulfill({ json: { type: 'text', text: state.posts.length === 1 ? firstReply : nextReply,
         ...(responseContext ? { transcriptContext: responseContext } : {}) } });
+    }
+    if (path.includes('/kolin/worksheets/')) {
+      if (path.endsWith('/preview')) {
+        // Match the first page of the mocked PDF rather than photographing an empty thumbnail.
+        const png = await page.evaluate(() => {
+          const canvas = document.createElement('canvas'); canvas.width = 200; canvas.height = 283;
+          const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, 200, 283);
+          context.fillStyle = '#111'; context.font = '8px Arial'; context.fillText('Kolin worksheet', 17, 34);
+          context.fillText('1. 1/2 + 1/4 = ?', 17, 48);
+          return canvas.toDataURL('image/png').split(',')[1];
+        });
+        return route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') });
+      }
+      if (path.endsWith('/pdf')) return route.fulfill({ contentType: 'application/pdf', body: worksheetPdf() });
+      if (path.endsWith('/append')) {
+        state.appends.push({ path, body: request.postData() });
+        if (state.appendGate) await state.appendGate.promise;
+        if (state.appendFailOnce) { state.appendFailOnce = false; return route.fulfill({ status: 503, json: { message: 'Uncertain append' } }); }
+        return route.fulfill({ json: { ...state.worksheet, state: 'ADDED', fromPage: 3, toPage: 3 } });
+      }
     }
     if (path.endsWith('/participants') || path.endsWith('/attendance')) return route.fulfill({ json: [
       { userId: state.teacherId, displayName: 'Учитель', classRole: 'HOST', admissionState: 'ADMITTED', connected: true },
@@ -88,7 +122,8 @@ async function send(page, state, text) {
 }
 
 function assertCompact(body) {
-  expect(Object.keys(body).sort()).toEqual(['context', 'history', 'text']);
+  expect(Object.keys(body).sort()).toEqual(['clientMessageId', 'context', 'history', 'text']);
+  expect(body.clientMessageId).toMatch(/^[0-9a-f-]{36}$/);
   expect(body.history.length).toBeLessThanOrEqual(8);
   expect(body.history.every(message => ['user', 'assistant'].includes(message.role) && typeof message.text === 'string')).toBe(true);
   expect(Object.keys(body.context).every(key => ['targetType', 'studentId', 'currentWorkbookPage'].includes(key))).toBe(true);
@@ -344,5 +379,56 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await mkdir(artifacts, { recursive: true });
     await page.screenshot({ path: join(artifacts, `kolin-transcript-${viewport.width}.png`), fullPage: true });
     assertCompact(state.posts[0].body); expect(state.errors).toEqual([]);
+  });
+}
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  test(`worksheet confirmation and PDF preview preserve the pupil at ${viewport.width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const state = await setup(page);
+    state.worksheet = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', studentId: SOPHIA,
+      studentName: 'София', taskCount: 3, pageCount: 1, state: 'READY' };
+    await page.getByRole('button', { name: 'Доска ученика: София', exact: true }).click();
+    await openKolin(page);
+    await input(page).fill('Создай и добавь три задания');
+    await input(page).press('Enter');
+    const card = panel(page).locator('.kolin-worksheet');
+    const add = card.getByRole('button', { name: 'Добавить Софии', exact: true });
+    await expect(add).toBeVisible();
+    await expect(card.getByRole('img', { name: 'Первая страница PDF' })).toBeVisible();
+    expect(state.appends).toHaveLength(0);
+    await expect(card.getByRole('button')).toHaveCount(2);
+    await expect(card).toHaveText('София3 задания · 1 стр.Добавить Софии');
+    const thumb = card.getByRole('button', { name: 'Предпросмотр PDF для София' });
+    const thumbBox = await thumb.boundingBox();
+    expect(thumbBox.width).toBeLessThanOrEqual(80);
+    await thumb.click();
+    const dialog = page.getByRole('dialog', { name: 'Предпросмотр PDF для София' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('img', { name: 'Страница 1' })).toBeVisible();
+    const previewBox = await dialog.boundingBox();
+    expect(previewBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(previewBox.width).toBeGreaterThan(thumbBox.width * 3);
+    const artifacts = process.env.KOLIN_ARTIFACT_DIR || testInfo.outputPath('screenshots');
+    await mkdir(artifacts, { recursive: true });
+    await page.screenshot({ path: join(artifacts, `kolin-worksheet-preview-${viewport.width}.png`), fullPage: false });
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await page.getByRole('button', { name: 'Доска ученика: Мелисса', exact: true }).click();
+    await expect(add).toHaveText('Добавить Софии');
+    state.appendFailOnce = true;
+    await add.click();
+    await expect(card.getByRole('alert')).toContainText('Добавление не подтверждено');
+    await add.click();
+    await expect(card.getByRole('button', { name: 'Добавлено ✓', exact: true })).toBeDisabled();
+    expect(state.appends).toHaveLength(2);
+    expect(state.appends[0]).toEqual(state.appends[1]);
+    expect(state.appends[0].path).toContain(state.worksheet.id);
+    expect(state.appends[0].body).toBeNull();
+    expect(state.posts).toHaveLength(1);
+    assertCompact(state.posts[0].body);
+    await assertNoOverlap(page);
+    await page.screenshot({ path: join(artifacts, `kolin-worksheet-${viewport.width}.png`), fullPage: false });
+    expect(state.errors).toEqual([]);
   });
 }

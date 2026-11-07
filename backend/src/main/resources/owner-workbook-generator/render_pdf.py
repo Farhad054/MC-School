@@ -40,13 +40,16 @@ def inspect_layout(document):
         sheets = [b for b in principal if 'sheet' in classes(b)]
         main = next((b for b in principal if 'paper-content' in classes(b)), None)
         footer = next((b for b in principal if 'footer' in classes(b)), None)
-        if len(sheets) != 1 or main is None or footer is None:
+        plain = len(sheets) == 1 and 'plain' in classes(sheets[0])
+        if len(sheets) != 1 or main is None or (footer is None and not plain):
             issues.append(f'Page {index + 1}: missing or fragmented page structure')
             continue
         sheet = sheets[0]
         sx0, sy0, sx1, sy1 = bounds(sheet)
         mx0, my0, mx1, my1 = bounds(main)
-        footer_top = bounds(footer)[1]
+        # Plain supplements have no visible footer or metadata. Keep the same
+        # measured content boundary, 14 mm from the bottom of their A4 sheet.
+        footer_top = sy1 - 14 * 96 / 25.4 if plain else bounds(footer)[1]
         if sx0 < -1 or sy0 < -1 or sx1 > page.width + 1 or sy1 > page.height + 1:
             issues.append(f'Page {index + 1}: sheet outside A4')
         if my1 > footer_top - 3:
@@ -81,7 +84,7 @@ def inspect_layout(document):
                 check_children(child, container)
         check_children(page._page_box)
         summaries.append({'page': index + 1, 'width': page.width, 'height': page.height,
-                          'contentBottom': my1, 'footerTop': footer_top})
+                          'contentBottom': my1, 'footerTop': footer_top, 'plain': plain})
     if any(len(pages) != 1 for pages in task_pages.values()):
         issues.append('A task was split between pages')
     return {'passed': not issues, 'pageCount': len(document.pages),

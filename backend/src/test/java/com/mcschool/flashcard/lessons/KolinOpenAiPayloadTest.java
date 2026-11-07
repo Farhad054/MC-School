@@ -43,6 +43,20 @@ class KolinOpenAiPayloadTest {
         verify(client).send(request.capture(),org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
         return request.getValue();
     }
+
+    @Test void confirmedWorksheetsUseOneStrictStructuredCallAndReuseTheExistingTransport() throws Exception {
+        ai.kolinStructuredReply("{\"roster\":[]}",List.of(),"Дай пару заданий");
+        HttpRequest request=captured(); var json=mapper.readTree(body(request));
+        assertThat(json.path("model").asString()).isEqualTo("gpt-4.1-mini");
+        assertThat(json.path("store").asBoolean()).isFalse();
+        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(3500);
+        assertThat(json.path("text").path("format").path("type").asString()).isEqualTo("json_schema");
+        assertThat(json.path("text").path("format").path("strict").asBoolean()).isTrue();
+        assertThat(json.path("input").get(0).path("content").asString()).contains("ровно 5","исключительно по кнопке","только линейное");
+        assertThat(json.toString()).doesNotContain("TEST_SERVER_ONLY_KEY","input_file","input_image");
+        assertThat(request.timeout()).contains(java.time.Duration.ofSeconds(55));
+        verifyNoInteractions(schoolPrompts);
+    }
     private static String body(HttpRequest request) throws Exception {
         var result=new CompletableFuture<String>();var bytes=new ByteArrayOutputStream();
         request.bodyPublisher().orElseThrow().subscribe(new Flow.Subscriber<ByteBuffer>() {

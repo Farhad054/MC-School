@@ -7,6 +7,9 @@ import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
 import java.util.UUID;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class OnlineClassAccessService {
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private final OnlineClassRepository classRepository;
     private final StudentGroupMemberRepository groupMemberRepository;
@@ -99,6 +104,13 @@ public class OnlineClassAccessService {
         OnlineClass onlineClass = requireParticipantForUpdate(caller, classId);
         if (!isHost(caller, onlineClass)) throw new ResourceNotFoundException("Online class not found");
         return onlineClass;
+    }
+
+    /** Concurrent strokes may share this lock; a PDF/scope change takes the exclusive class lock. */
+    @Transactional
+    public void lockForAnnotationWrite(OnlineClass onlineClass) {
+        // Refresh also observes a concurrent End that committed while this request waited.
+        entityManager.refresh(onlineClass, LockModeType.PESSIMISTIC_READ);
     }
 
     /** Host or participant; used for read-only class detail. */

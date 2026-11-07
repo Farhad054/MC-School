@@ -25,9 +25,10 @@ function option(name, fallback) {
 const lessonPath = resolve(option('lesson', join(root, 'lesson.sample.json')));
 const logoPath = resolve(option('logo', join(root, 'assets', 'logo-m.png')));
 const out = resolve(option('out', join(root, 'out')));
+const plain = args.includes('--plain');
 const lesson = JSON.parse(await readFile(lessonPath, 'utf8'));
 const css = await readFile(join(root, 'styles.css'), 'utf8');
-const logo = (await readFile(logoPath)).toString('base64');
+const logo = plain ? '' : (await readFile(logoPath)).toString('base64');
 validateLesson(lesson);
 
 function callout(b, tall = false) {
@@ -65,7 +66,7 @@ function example(b) {
   return `<div class="block example-box"><div class="example-eyebrow">${richText(b.label)}</div>${formulas}</div>`;
 }
 function studentTaskRow(row) {
-  return `<div class="task-row"><span class="item-label">${richText(row.label)}</span><div class="expression-wrap">${math(row.math)}</div>${row.work ? '<div class="workline"></div>' : ''}</div>`;
+  return `<div class="task-row"><span class="item-label">${richText(row.label)}</span><div class="expression-wrap">${plain && row.text ? `<p class="task-description">${richText(row.text)}</p>` : ''}${math(row.math)}</div>${row.work ? '<div class="workline"></div>' : ''}</div>`;
 }
 
 function factsBlock(b) {
@@ -191,10 +192,12 @@ function pageChrome({ index, count, title, subtitle, time, teacher }) {
   return { top, heading, progress, pill, footer };
 }
 function workbookPage(p, idx, pages) {
+  if (plain) return `<article class="sheet student plain" data-page="${idx+1}"><main class="paper-content">${p.blocks.map((b,i)=>renderWorkbookBlock(b,i,idx)).join('')}</main></article>`;
   const c = pageChrome({index: idx, count: pages.length, title:p.title,subtitle:p.subtitle,time:p.time,teacher:false});
   return `<article class="sheet student" data-page="${idx+1}">${c.top}${c.heading}${c.pill}${c.progress}<main class="paper-content">${p.blocks.map((b,i)=>renderWorkbookBlock(b,i,idx)).join('')}</main>${c.footer}</article>`;
 }
 function teacherPage(p, idx, pages) {
+  if (plain) return `<article class="sheet teacher plain" data-page="${idx+1}"><main class="paper-content">${p.blocks.map(teacherBlock).join('')}</main></article>`;
   const c = pageChrome({index:idx,count:pages.length,title:p.title,subtitle:p.subtitle,time:null,teacher:true});
   return `<article class="sheet teacher" data-page="${idx+1}">${c.top}${c.heading}<main class="paper-content">${p.blocks.map(teacherBlock).join('')}</main>${c.footer}</article>`;
 }
@@ -378,7 +381,7 @@ if(process.argv.includes('--html-only')) {
 if (!process.argv.includes('--html-only')) {
   // Prevent export of a document with overlapping mathematical symbols or
   // cropped A4 content. Always verify PDF geometry automatically before success.
-  const check = await runProcess(process.env.PYTHON_BIN || 'python3', [join(root, 'verify_pdf.py'), lessonPath, out, `--basename=${base}`],120000,'Generated PDF failed the mandatory layout check');
+  const check = await runProcess(process.env.PYTHON_BIN || 'python3', [join(root, 'verify_pdf.py'), lessonPath, out, `--basename=${base}`, ...(plain ? ['--plain'] : [])],120000,'Generated PDF failed the mandatory layout check');
   console.log(check.stdout.trim());
 }
 console.log(`Done. Source: ${lessonPath}. Change lesson JSON for exercises; styles.css controls design.`);

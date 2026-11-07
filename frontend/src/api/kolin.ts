@@ -1,4 +1,4 @@
-import { request } from './client';
+import { request, requestBlob } from './client';
 
 export interface KolinContext {
   targetType?: 'student' | 'group';
@@ -21,7 +21,40 @@ export interface KolinTranscriptContext {
   transcriptionActive: boolean;
 }
 
-export interface KolinResponse { type: 'text'; text: string; transcriptContext?: KolinTranscriptContext }
+export interface KolinWorksheet {
+  id: string;
+  studentId: string;
+  studentName: string;
+  taskCount: number;
+  pageCount: number;
+  state: 'READY' | 'ADDED';
+  fromPage?: number;
+  toPage?: number;
+}
+
+export interface KolinResponse {
+  type: 'text' | 'worksheet';
+  text: string;
+  transcriptContext?: KolinTranscriptContext;
+  worksheet?: KolinWorksheet;
+}
+
+/** Copy only server-owned artifact metadata, never a current board destination. */
+export function parseKolinWorksheet(value: unknown): KolinWorksheet | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const source = value as Record<string, unknown>;
+  if (typeof source.id !== 'string' || !source.id || typeof source.studentId !== 'string' || !source.studentId
+      || typeof source.studentName !== 'string' || !source.studentName.trim()
+      || source.state !== 'READY' && source.state !== 'ADDED') return;
+  const positive = (item: unknown): item is number => typeof item === 'number' && Number.isSafeInteger(item) && item > 0;
+  if (!positive(source.taskCount) || !positive(source.pageCount)) return;
+  const from = source.fromPage, to = source.toPage;
+  if (from != null && !positive(from) || to != null && !positive(to)
+      || typeof from === 'number' && typeof to === 'number' && from > to) return;
+  return { id: source.id, studentId: source.studentId, studentName: source.studentName,
+    taskCount: source.taskCount, pageCount: source.pageCount, state: source.state,
+    ...(typeof from === 'number' ? { fromPage: from } : {}), ...(typeof to === 'number' ? { toPage: to } : {}) };
+}
 
 /** Optional server metadata never prevents an otherwise valid text answer. */
 export function parseKolinTranscriptContext(value: unknown): KolinTranscriptContext | undefined {
@@ -43,12 +76,14 @@ export function parseKolinTranscriptContext(value: unknown): KolinTranscriptCont
 }
 
 const base = (classId: string) => `/online-classes/${encodeURIComponent(classId)}/kolin`;
+const worksheetPath = (classId: string, id: string) => `${base(classId)}/worksheets/${encodeURIComponent(id)}`;
 
 export const kolinApi = {
   status: (classId: string) => request<{ configured: boolean }>('GET', `${base(classId)}/status`),
-  send: (classId: string, text: string, history: KolinHistoryMessage[], context: KolinContext) =>
+  send: (classId: string, text: string, history: KolinHistoryMessage[], context: KolinContext, clientMessageId?: string) =>
     request<KolinResponse>('POST', `${base(classId)}/messages`, {
       text,
+      ...(clientMessageId ? { clientMessageId } : {}),
       history: history.slice(-8).map(message => ({ role: message.role, text: message.text })),
       context: {
         ...(context.targetType ? { targetType: context.targetType } : {}),
@@ -56,4 +91,7 @@ export const kolinApi = {
         ...(context.currentWorkbookPage !== undefined ? { currentWorkbookPage: context.currentWorkbookPage } : {}),
       },
     }),
+  worksheetPreview: (classId: string, id: string) => requestBlob(`${worksheetPath(classId, id)}/preview`),
+  worksheetPdf: (classId: string, id: string) => requestBlob(`${worksheetPath(classId, id)}/pdf`),
+  appendWorksheet: (classId: string, id: string) => request<KolinWorksheet>('POST', `${worksheetPath(classId, id)}/append`),
 };

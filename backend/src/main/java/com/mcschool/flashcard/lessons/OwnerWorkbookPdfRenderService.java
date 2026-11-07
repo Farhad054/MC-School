@@ -17,6 +17,7 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Semaphore;
 import javax.imageio.ImageIO;
+import org.apache.pdfbox.Loader;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -118,6 +119,106 @@ public class OwnerWorkbookPdfRenderService {
         } finally {
             renderSlots.release();
         }
+    }
+
+    /** Immutable output for Kolin's teacher-owned task artifact, never published here. */
+    public record PlainWorksheet(byte[] pdf, byte[] previewPng, int pageCount, Map<String, Object> qa) {}
+
+    /**
+     * Reuses the installed SVG/math and measured A4 pipeline without brand IO or
+     * a lesson draft. Callers authorize the room/student and persist this output
+     * once. Neither viewing the preview nor assigning it should render again.
+     */
+    public PlainWorksheet renderPlain(String lessonJson) throws Exception {
+        if (!renderSlots.tryAcquire())
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Workbook renderer is busy. Retry the same request after an active render finishes.");
+        try {
+            if (lessonJson == null || lessonJson.isBlank() || lessonJson.length() > 32_000)
+                throw new IllegalArgumentException("Plain worksheet JSON must contain 1..32000 characters");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> document = mapper.readValue(lessonJson, Map.class);
+            int exercises = validatePlainDocument(document);
+            int expectedPages = ((List<?>) document.get("workbookPages")).size();
+            int duration = ((Number) requireMap(document.get("meta"), "meta").get("durationMinutes")).intValue();
+            Path runtime = runtimeDirectory();
+            Path workspace = Files.createTempDirectory("mindcrafti-plain-worksheet-");
+            try {
+                Path source = workspace.resolve("lesson.json");
+                Path output = Files.createDirectory(workspace.resolve("out"));
+                Files.writeString(source, lessonJson, StandardCharsets.UTF_8);
+                String basename = "Kolin_Plain";
+                var process = new ProcessBuilder("node", runtime.resolve("generate.mjs").toString(),
+                        "--lesson=" + source, "--out=" + output, "--basename=" + basename, "--plain");
+                process.directory(runtime.toFile());
+                process.redirectErrorStream(true);
+                process.redirectOutput(workspace.resolve("renderer.log").toFile());
+                runPlainProcess(process);
+                Path pdfPath = output.resolve(basename + "_Arbeitsheft_" + duration + "min.pdf");
+                Path previewPath = output.resolve(basename + "_preview.png");
+                if (Files.size(pdfPath) > MAX_DOCUMENT_BYTES || Files.size(previewPath) > 3 * 1024 * 1024)
+                    throw new IllegalStateException("Plain worksheet output exceeds its size limit");
+                @SuppressWarnings("unchecked")
+                Map<String, Object> mathQa = mapper.readValue(Files.readString(output.resolve(basename + "_math-qa.json")), Map.class);
+                @SuppressWarnings("unchecked")
+                Map<String, Object> layoutQa = mapper.readValue(Files.readString(output.resolve(basename + "_layout-qa.json")), Map.class);
+                requirePlainQa(mathQa, layoutQa, exercises);
+                byte[] pdf = Files.readAllBytes(pdfPath);
+                byte[] preview = Files.readAllBytes(previewPath);
+                try (var parsed = Loader.loadPDF(pdf)) {
+                    if (parsed.isEncrypted() || parsed.getNumberOfPages() != expectedPages)
+                        throw new IllegalStateException("Plain worksheet page verification failed");
+                }
+                BufferedImage image = ImageIO.read(new java.io.ByteArrayInputStream(preview));
+                if (image == null || image.getWidth() < 1 || image.getHeight() < 1
+                        || image.getWidth() > 802 || image.getHeight() > 802)
+                    throw new IllegalStateException("Plain worksheet preview verification failed");
+                return new PlainWorksheet(pdf, preview, expectedPages, Map.of(
+                        "mathPassed", true, "layoutPassed", true, "rawLatexFound", false,
+                        "algebraChecked", mathQa.get("checked"),
+                        "algebraCoverage", "explicit assertions tied to generated tasks",
+                        "arithmeticChains", mathQa.getOrDefault("arithmeticChains", 0),
+                        "results", mathQa.getOrDefault("results", List.of())));
+            } finally {
+                cleanupWorkspace(workspace);
+            }
+        } finally {
+            renderSlots.release();
+        }
+    }
+
+    private static void runPlainProcess(ProcessBuilder builder) throws IOException {
+        Process process = builder.start();
+        try {
+            if (!process.waitFor(115, TimeUnit.SECONDS)) {
+                process.descendants().forEach(ProcessHandle::destroyForcibly);
+                process.destroyForcibly();
+                throw new IllegalStateException("Plain worksheet rendering exceeded its time limit");
+            }
+            // Renderer diagnostics can contain source expressions. The internal
+            // temp log is removed with its workspace, never exposed to the user.
+            if (process.exitValue() != 0)
+                throw new IllegalArgumentException("Plain worksheet generation or verification failed");
+        } catch (InterruptedException ex) {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
+            process.destroyForcibly();
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Plain worksheet rendering was interrupted", ex);
+        }
+    }
+
+    static int validatePlainDocument(Map<String, Object> document) {
+        int count = validateDocument(document);
+        if (count > 20 || ((List<?>) document.get("workbookPages")).size() > 4
+                || ((List<?>) document.get("teacherPages")).size() > 4)
+            throw new IllegalArgumentException("Plain worksheet needs 1..20 tasks and at most 4 pages per document");
+        return count;
+    }
+
+    static void requirePlainQa(Map<String, Object> math, Map<String, Object> layout, int exercises) {
+        if (!Boolean.TRUE.equals(math.get("passed")) || !Boolean.TRUE.equals(layout.get("passed"))
+                || !(math.get("checked") instanceof Number checked) || checked.intValue() < exercises)
+            throw new IllegalStateException("Plain worksheet requires successful math assertions for every task and measured layout QA");
     }
 
     private Map<String, Object> render(AuthenticatedUser teacher, String eventId,

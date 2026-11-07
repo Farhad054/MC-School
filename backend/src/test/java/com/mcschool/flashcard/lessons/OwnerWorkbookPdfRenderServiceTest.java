@@ -145,4 +145,45 @@ class OwnerWorkbookPdfRenderServiceTest {
                 "children",List.of(Map.of("type","taskCard","children",List.of(Map.of("type","solutions")))))))));
         assertThrows(IllegalArgumentException.class,()->OwnerWorkbookPdfRenderService.validateDocument(lesson));
     }
+
+    @Test
+    void plainSupplementUsesNoBrandOrDraftSideEffectsAndReleasesSlotsAfterFailure() throws Exception {
+        var drafts = mock(LessonPdfDraftService.class);
+        var brand = mock(SchoolBrandGuideService.class);
+        var json = new ObjectMapper();
+        var renderer = new OwnerWorkbookPdfRenderService(json, drafts, brand);
+        for (int retry = 0; retry < 4; retry++) {
+            // Runtime is deliberately absent. Plain mode must get this far
+            // without fetching a logo, current brand guide or saving a draft.
+            assertThrows(IllegalStateException.class,
+                    () -> renderer.renderPlain(json.writeValueAsString(document(60))));
+        }
+        verifyNoInteractions(brand, drafts);
+    }
+
+    @Test
+    void plainSupplementHasBoundedTasksPagesAndNoTeacherAnswerLeak() {
+        var lesson = new java.util.LinkedHashMap<String, Object>(document(60));
+        assertEquals(1, OwnerWorkbookPdfRenderService.validatePlainDocument(lesson));
+        lesson.put("workbookPages", java.util.Collections.nCopies(5, ((List<?>) lesson.get("workbookPages")).get(0)));
+        assertThrows(IllegalArgumentException.class, () -> OwnerWorkbookPdfRenderService.validatePlainDocument(lesson));
+        lesson.put("workbookPages", List.of(Map.of("blocks", List.of(Map.of("type", "exercise",
+                "rows", java.util.Collections.nCopies(21, Map.of("math", List.of("1", "+", "1"))))))));
+        assertThrows(IllegalArgumentException.class, () -> OwnerWorkbookPdfRenderService.validatePlainDocument(lesson));
+        lesson.put("workbookPages", List.of(Map.of("blocks", List.of(Map.of("type", "teacherNote")))));
+        assertThrows(IllegalArgumentException.class, () -> OwnerWorkbookPdfRenderService.validatePlainDocument(lesson));
+    }
+
+    @Test
+    void plainSupplementCannotPassWithMissingMathCoverageOrFailedActualLayout() {
+        var layout = Map.<String, Object>of("passed", true);
+        assertThrows(IllegalStateException.class, () -> OwnerWorkbookPdfRenderService.requirePlainQa(
+                Map.of("passed", true, "checked", 0), layout, 5));
+        assertThrows(IllegalStateException.class, () -> OwnerWorkbookPdfRenderService.requirePlainQa(
+                Map.of("passed", false, "checked", 5), layout, 5));
+        assertThrows(IllegalStateException.class, () -> OwnerWorkbookPdfRenderService.requirePlainQa(
+                Map.of("passed", true, "checked", 5), Map.of("passed", false), 5));
+        assertDoesNotThrow(() -> OwnerWorkbookPdfRenderService.requirePlainQa(
+                Map.of("passed", true, "checked", 5), layout, 5));
+    }
 }

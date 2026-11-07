@@ -72,9 +72,9 @@ public class OnlineClassDocumentService {
         UUID studentId = personalBoardOwner(caller, onlineClass, boardId);
         if (PersonalBoard.isWorkbook(boardId)) {
             // An authorized owner may probe whether My board has a private
-            // source. Non-pilot classes use the common source; bytes and
-            // annotations still reject this private target as before.
-            if (!PersonalLessonWorkbookService.PILOT_TEACHER_ID.equals(onlineClass.getTeacher().getId())) return 0L;
+            // source. Disabled private-workbook capability keeps the common
+            // source; private bytes and annotations remain unavailable.
+            if (!personalWorkbooks.enabledForTeacher(onlineClass.getTeacher().getId())) return 0L;
             return personalWorkbooks.workbookVersionForClass(onlineClass, studentId);
         }
         return preparations.findByTeacherIdAndEventId(
@@ -98,7 +98,7 @@ public class OnlineClassDocumentService {
     }
 
     private void requireWorkbookPilot(OnlineClass lesson) {
-        if (!PersonalLessonWorkbookService.PILOT_TEACHER_ID.equals(lesson.getTeacher().getId())) {
+        if (!personalWorkbooks.enabledForTeacher(lesson.getTeacher().getId())) {
             throw new ResourceNotFoundException("Board document not found");
         }
     }

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useI18n } from '../../i18n/I18nContext';
 import type { KolinContext, KolinTranscriptContext } from '../../api/kolin';
 import type { useKolinChat } from './useKolinChat';
+import { KolinWorksheetCard } from './KolinWorksheetCard';
 import './kolin-panel.css';
 
 function lessonTime(milliseconds: number) {
@@ -59,7 +60,10 @@ export function KolinPanel({ chat, context }: { chat: ReturnType<typeof useKolin
       {chat.messages.map(message => <li key={message.id} className={`kolin-panel__message kolin-panel__message--${message.role}`}
         data-role={message.role} data-message-type={message.type}>
         <span className="kolin-panel__speaker">{message.role === 'assistant' ? 'Kolin' : de ? 'Sie' : 'Вы'}</span>
-        <p>{message.text}</p>
+        {message.text && <p>{message.text}</p>}
+        {message.role === 'assistant' && message.worksheet && <KolinWorksheetCard classId={chat.classId}
+          worksheet={message.worksheet} appendStatus={message.appendStatus} de={de}
+          onAdd={() => void chat.appendWorksheet(message.worksheet!.id)} />}
         {message.role === 'assistant' && message.transcriptContext && <TranscriptContextNote context={message.transcriptContext} de={de} />}
       </li>)}
     </ol>

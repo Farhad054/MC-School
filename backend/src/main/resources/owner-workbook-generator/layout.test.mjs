@@ -21,13 +21,13 @@ test('bounded layout schema rejects unsafe CSS and ambiguous math',()=>{
   assert.throws(()=>validateLesson(lesson),/exactly one/);
 });
 
-async function render(source) {
+async function render(source, options=[]) {
   await mkdir(join(root,'out'),{recursive:true});
   const dir=await mkdtemp(join(root,'out','layout-test-'));
   try {
     const lesson=typeof source==='string' ? source : join(dir,'lesson.json');
     if(typeof source!=='string')await writeFile(lesson,JSON.stringify(source));
-    const run=spawnSync(process.execPath,[join(root,'generate.mjs'),`--lesson=${lesson}`,`--out=${dir}`,'--basename=Test','--html-only'],{encoding:'utf8',timeout:60000,env:process.env});
+    const run=spawnSync(process.execPath,[join(root,'generate.mjs'),`--lesson=${lesson}`,`--out=${dir}`,'--basename=Test','--html-only',...options],{encoding:'utf8',timeout:60000,env:process.env});
     assert.equal(run.status,0,run.stderr || run.stdout || run.error?.message);
     const files=await readdir(dir);
     const workbook=await readFile(join(dir,files.find(f=>/_Arbeitsheft_\d+min\.html$/.test(f))),'utf8');

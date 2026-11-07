@@ -1,0 +1,28 @@
+CREATE TABLE kolin_worksheets (
+    id uuid PRIMARY KEY,
+    class_id uuid NOT NULL REFERENCES online_classes(id),
+    teacher_id uuid NOT NULL REFERENCES users(id),
+    client_message_id uuid NOT NULL,
+    request_hash varchar(64) NOT NULL,
+    state varchar(16) NOT NULL,
+    result_type varchar(16),
+    reply_text text,
+    task_content text,
+    transcript_metadata text,
+    student_id uuid REFERENCES users(id),
+    student_name varchar(255),
+    task_count integer NOT NULL DEFAULT 0,
+    page_count integer NOT NULL DEFAULT 0,
+    pdf_bytes bytea,
+    preview_bytes bytea,
+    from_page integer,
+    to_page integer,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    attempt_id uuid,
+    version bigint NOT NULL DEFAULT 0,
+    CONSTRAINT uq_kolin_request UNIQUE (class_id,teacher_id,client_message_id),
+    CONSTRAINT ck_kolin_state CHECK (state IN ('NEW','GENERATING','FAILED','READY','ADDED')),
+    CONSTRAINT ck_kolin_pages CHECK (task_count BETWEEN 0 AND 20 AND page_count BETWEEN 0 AND 10)
+);
+CREATE INDEX ix_kolin_worksheets_class ON kolin_worksheets(class_id,teacher_id);
