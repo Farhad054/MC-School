@@ -49,10 +49,18 @@ class KolinOpenAiPayloadTest {
         HttpRequest request=captured(); var json=mapper.readTree(body(request));
         assertThat(json.path("model").asString()).isEqualTo("gpt-4.1-mini");
         assertThat(json.path("store").asBoolean()).isFalse();
-        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(3500);
+        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(6500);
         assertThat(json.path("text").path("format").path("type").asString()).isEqualTo("json_schema");
         assertThat(json.path("text").path("format").path("strict").asBoolean()).isTrue();
         assertThat(json.path("input").get(0).path("content").asString()).contains("ровно 5","исключительно по кнопке","только линейное");
+        assertThat(json.path("text").path("format").path("schema").path("properties").path("tasks").path("items")
+                .path("properties").path("visual").path("anyOf").size()).isEqualTo(4);
+        assertThat(json.path("input").get(0).path("content").asString()).contains("fractionCircle","Geometry:").doesNotContain("Геометрию с рисунками, текстовые задачи");
+        String fixtureDir=System.getProperty("kolin.visualFixtureDir");
+        if(fixtureDir!=null) {
+            java.nio.file.Files.createDirectories(java.nio.file.Path.of(fixtureDir));
+            java.nio.file.Files.writeString(java.nio.file.Path.of(fixtureDir,"provider-payload.json"),body(request));
+        }
         assertThat(json.toString()).doesNotContain("TEST_SERVER_ONLY_KEY","input_file","input_image");
         assertThat(request.timeout()).contains(java.time.Duration.ofSeconds(55));
         verifyNoInteractions(schoolPrompts);

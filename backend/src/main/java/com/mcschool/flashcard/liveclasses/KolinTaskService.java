@@ -12,7 +12,11 @@ import tools.jackson.databind.ObjectMapper;
 /** Single provider pass, deterministic math rendering, then a private durable draft. */
 @Service
 public class KolinTaskService {
-    public record Task(String kind,String instruction,String expression,String answer,String variable,List<String> restrictions) {}
+    public record Task(String kind,String instruction,String expression,String answer,String variable,List<String> restrictions,Map<String,Object> visual) {
+        public Task(String kind,String instruction,String expression,String answer,String variable,List<String> restrictions) {
+            this(kind,instruction,expression,answer,variable,restrictions,null);
+        }
+    }
     public record Content(String kind,String text,String studentId,List<Task> tasks) {}
     private record Fingerprint(String text,List<KolinChatService.HistoryMessage> history,KolinChatService.Context context) {}
     private final AiLessonPilotService ai;
@@ -101,12 +105,14 @@ public class KolinTaskService {
 
     /** Validation assertions are built from the exact expressions displayed to pupils. */
     static Map<String,Object> document(List<Task> tasks) {
+        if(tasks.stream().anyMatch(task -> "visual".equals(task.kind()))) return visualDocument(tasks);
         var pages=new ArrayList<Map<String,Object>>();
         var checks=new ArrayList<Map<String,Object>>();
         for(int offset=0;offset<tasks.size();offset+=5) {
             var rows=new ArrayList<Map<String,Object>>();
             for(int i=offset;i<Math.min(offset+5,tasks.size());i++) {
                 Task task=tasks.get(i);
+                if(task.visual()!=null) throw new IllegalArgumentException("Unexpected visual on algebra task");
                 requireText(task.instruction(),160); requireText(task.expression(),500);
                 if(task.instruction().codePoints().anyMatch(value -> Character.isDigit(value) || "=<>+*/^\\$".indexOf(value)>=0))
                     throw new IllegalArgumentException("Math belongs in the checked expression field");
@@ -131,6 +137,47 @@ public class KolinTaskService {
                 "workbookPages",pages,"teacherPages",List.of(Map.of("title","","subtitle","","blocks",List.of(
                     Map.of("type","text","text","Private automated answer validation")))),"qa",Map.of("algebra",checks));
     }
+    /** Two diagrams per page leave writing space. Pure arithmetic stays five per page. */
+    private static Map<String,Object> visualDocument(List<Task> tasks) {
+        var pages=new ArrayList<Map<String,Object>>();
+        var checks=new ArrayList<Map<String,Object>>();
+        for(int i=0;i<tasks.size();i++) {
+            Task task=tasks.get(i);
+            if("visual".equals(task.kind())) {
+                if(task.visual()==null || task.visual().isEmpty() || task.instruction()==null || !task.instruction().isEmpty()
+                        || task.expression()==null || !task.expression().isEmpty() || task.variable()==null || !task.variable().isEmpty()
+                        || task.restrictions()==null || !task.restrictions().isEmpty())
+                    throw new IllegalArgumentException("Visual conditions must come exclusively from checked parameters");
+                pages.add(Map.of("title","","blocks",List.of(Map.of("type","taskCard","children",List.of(
+                        Map.of("type","visualTask","number",i+1,"spec",task.visual()))))));
+                checks.add(Map.of("kind","visualValue","number",i+1));
+            } else {
+                var single=document(List.of(task));
+                @SuppressWarnings("unchecked") var singlePages=(List<Map<String,Object>>)single.get("workbookPages");
+                // Keep continuous numbering in a mixed worksheet.
+                @SuppressWarnings("unchecked") var blocks=(List<Map<String,Object>>)singlePages.get(0).get("blocks");
+                @SuppressWarnings("unchecked") var rows=(List<Map<String,Object>>)blocks.get(0).get("rows");
+                var row=new LinkedHashMap<>(rows.get(0)); row.put("label",(i+1)+".");
+                var block=new LinkedHashMap<>(blocks.get(0)); block.put("rows",List.of(row));
+                pages.add(Map.of("title","","blocks",List.of(block)));
+                @SuppressWarnings("unchecked") var qa=(Map<String,Object>)single.get("qa");
+                @SuppressWarnings("unchecked") var algebra=(List<Map<String,Object>>)qa.get("algebra");
+                checks.add(algebra.get(0));
+            }
+        }
+        var packed=new ArrayList<Map<String,Object>>();
+        for(int i=0;i<pages.size();i+=2) {
+            var blocks=new ArrayList<Object>((List<?>)pages.get(i).get("blocks"));
+            if(i+1<pages.size()) {
+                blocks.add(Map.of("type","spacer","height","14mm"));
+                blocks.addAll((List<?>)pages.get(i+1).get("blocks"));
+            }
+            packed.add(Map.of("title","","blocks",blocks));
+        }
+        return Map.of("meta",Map.of("school","MINDCRAFTI SCHOOL","durationMinutes",30,"group","","date",""),
+                "workbookPages",packed,"teacherPages",List.of(Map.of("title","","blocks",List.of(
+                        Map.of("type","text","text","Private automated answer validation")))),"qa",Map.of("algebra",checks));
+    }
     private static void requireText(String value,int maximum) {
         if(value==null || value.isBlank() || value.length()>maximum) throw new IllegalArgumentException("Invalid task text");
     }
@@ -143,7 +190,7 @@ public class KolinTaskService {
                     || !(row.get("answer") instanceof String answer) || answer.isBlank() || answer.length()>2000)
                 throw new IllegalArgumentException("Invalid computed reference answer");
             var task=content.tasks().get(i);
-            tasks.add(new Task(task.kind(),task.instruction(),task.expression(),answer,task.variable(),task.restrictions()));
+            tasks.add(new Task(task.kind(),task.instruction(),task.expression(),answer,task.variable(),task.restrictions(),task.visual()));
         }
         return new Content(content.kind(),content.text(),content.studentId(),tasks);
     }

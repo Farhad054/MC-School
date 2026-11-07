@@ -1,6 +1,6 @@
 import {normalizeMath} from './math.mjs';
 
-export const blockTypes = new Set(['callout','strips','graph','geometry','facts','example','exercise','teacherNote','schedule','solutions','richText','text','explanation','math','row','column','grid','split','stack','taskCard','answerLines','answerBox','coordinateGrid','matching','studentHeader','conclusionBox','spacer','divider','intersectionResult']);
+export const blockTypes = new Set(['callout','strips','graph','geometry','facts','example','exercise','teacherNote','schedule','solutions','richText','text','explanation','math','row','column','grid','split','stack','taskCard','answerLines','answerBox','coordinateGrid','matching','studentHeader','conclusionBox','spacer','divider','intersectionResult','visualTask']);
 
 export function length(value, fallback='4mm', max=200, min=0) {
   const v = value ?? fallback;
