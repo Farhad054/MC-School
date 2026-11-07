@@ -39,6 +39,8 @@ public class KolinTaskService {
             String previous=store.previousDraft(teacher,room.getId());
             Content previousContent=previous==null?null:mapper.readValue(previous,Content.class);
             if(previousContent!=null) context.put("lastGeneratedWorksheet",previousContent);
+            int requiredCount=requestedCount(question,previousContent==null?0:previousContent.tasks().size());
+            context.put("requestedTaskCount",requiredCount);
             if(request.context()!=null && request.context().studentId()!=null)
                 context.put("selectedStudentId",request.context().studentId());
             else if(room.getStudent()!=null) context.put("selectedStudentId",room.getStudent().getId());
@@ -53,7 +55,7 @@ public class KolinTaskService {
             }
             if(!"worksheet".equals(content.kind()) || content.tasks().isEmpty() || content.tasks().size()>20)
                 throw new IllegalArgumentException("Invalid Kolin worksheet");
-            if(content.tasks().size()!=requestedCount(question,previousContent==null?0:previousContent.tasks().size()))
+            if(content.tasks().size()!=requiredCount)
                 throw new IllegalArgumentException("Unexpected worksheet task count");
             UUID target=UUID.fromString(content.studentId());
             var pupil=pupils.stream().filter(item -> item.id().equals(target)).findFirst()
@@ -61,9 +63,10 @@ public class KolinTaskService {
             String document=mapper.writeValueAsString(document(content.tasks()));
             long started=System.nanoTime();
             var rendered=renderer.renderPlain(document);
+            var verifiedContent=withVerifiedAnswers(content,rendered.qa());
             String summary=content.text().isBlank()?"Подготовлено "+content.tasks().size()+" заданий.":content.text();
             var result=store.complete(teacher,room.getId(),reserved.id(),reserved.attemptId(),"worksheet",summary,transcript,
-                    pupil.id(),pupil.name(),content.tasks().size(),rendered.pageCount(),rendered.pdf(),rendered.previewPng(),mapper.writeValueAsString(content));
+                    pupil.id(),pupil.name(),content.tasks().size(),rendered.pageCount(),rendered.pdf(),rendered.previewPng(),mapper.writeValueAsString(verifiedContent));
             org.slf4j.LoggerFactory.getLogger(getClass()).info("Kolin worksheet ready: classId={} artifactId={} tasks={} pages={} renderMs={}",
                     room.getId(),reserved.id(),content.tasks().size(),rendered.pageCount(),(System.nanoTime()-started)/1_000_000);
             return result;
@@ -81,7 +84,7 @@ public class KolinTaskService {
             var rows=new ArrayList<Map<String,Object>>();
             for(int i=offset;i<Math.min(offset+5,tasks.size());i++) {
                 Task task=tasks.get(i);
-                requireText(task.instruction(),160); requireText(task.expression(),500); requireText(task.answer(),200);
+                requireText(task.instruction(),160); requireText(task.expression(),500);
                 if(task.instruction().codePoints().anyMatch(value -> Character.isDigit(value) || "=<>+*/^\\$".indexOf(value)>=0))
                     throw new IllegalArgumentException("Math belongs in the checked expression field");
                 if(task.restrictions()==null || task.restrictions().size()>4) throw new IllegalArgumentException("Invalid restrictions");
@@ -89,9 +92,9 @@ public class KolinTaskService {
                 Map<String,Object> check;
                 if("expression".equals(task.kind())) {
                     if(task.expression().contains("=")) throw new IllegalArgumentException("Expression contains a hidden answer");
-                    check=Map.of("kind","equivalence","expression",task.expression(),"answer",task.answer(),"restrictions",task.restrictions());
+                    check=Map.of("kind","expressionValue","expression",task.expression(),"restrictions",task.restrictions());
                 } else if("equation".equals(task.kind()) && Set.of("x","y","z","a","b","c","m","n").contains(task.variable())) {
-                    check=Map.of("kind","linearSolution","equation",task.expression(),"solution",Map.of(task.variable(),task.answer()),
+                    check=Map.of("kind","linearValue","equation",task.expression(),"variable",task.variable(),
                             "restrictions",task.restrictions());
                 } else throw new IllegalArgumentException("Unsupported checked math task");
                 checks.add(check);
@@ -108,6 +111,19 @@ public class KolinTaskService {
     private static void requireText(String value,int maximum) {
         if(value==null || value.isBlank() || value.length()>maximum) throw new IllegalArgumentException("Invalid task text");
     }
+    static Content withVerifiedAnswers(Content content,Map<String,Object> qa) {
+        if(!(qa.get("results") instanceof List<?> results) || results.size()!=content.tasks().size())
+            throw new IllegalArgumentException("Missing computed reference answers");
+        var tasks=new ArrayList<Task>();
+        for(int i=0;i<results.size();i++) {
+            if(!(results.get(i) instanceof Map<?,?> row) || !Boolean.TRUE.equals(row.get("passed"))
+                    || !(row.get("answer") instanceof String answer) || answer.isBlank() || answer.length()>2000)
+                throw new IllegalArgumentException("Invalid computed reference answer");
+            var task=content.tasks().get(i);
+            tasks.add(new Task(task.kind(),task.instruction(),task.expression(),answer,task.variable(),task.restrictions()));
+        }
+        return new Content(content.kind(),content.text(),content.studentId(),tasks);
+    }
     static int requestedCount(String question) {
         return requestedCount(question,0);
     }
@@ -121,7 +137,7 @@ public class KolinTaskService {
                 Map.entry("drei",3),Map.entry("vier",4),Map.entry("fünf",5));
         var verbal=java.util.regex.Pattern.compile("(?iu)([\\p{L}]+)\\s+(?:задан|пример|упражнен|aufgaben|aufgabe|tasks?|exercises?)").matcher(question);
         while(verbal.find()) { Integer count=words.get(verbal.group(1).toLowerCase(Locale.ROOT)); if(count!=null) return count; }
-        if(previousCount>0 && !question.matches("(?isu).*\\b(?:пару|несколько|paar|einige)\\b.*")
+        if(previousCount>0 && !question.matches("(?isU).*\\b(?:пару|несколько|paar|einige)\\b.*")
                 && question.matches("(?isu).*(?:втор|перв|треть|четв|пят|измени|передел|услож|упрост|сложнее|проще|schwerer|leichter|ändern).*"))
             return previousCount;
         return 5;

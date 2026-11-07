@@ -489,7 +489,7 @@ public class AiLessonPilotService {
         if (apiKey.isBlank()) throw new IllegalStateException("Kolin is not configured");
         Map<String,Object> taskProperties=new LinkedHashMap<>();
         taskProperties.put("kind",Map.of("type","string","enum",List.of("expression","equation")));
-        for (String field:List.of("instruction","expression","answer","variable")) taskProperties.put(field,Map.of("type","string"));
+        for (String field:List.of("instruction","expression","variable")) taskProperties.put(field,Map.of("type","string"));
         taskProperties.put("restrictions",Map.of("type","array","items",Map.of("type","string")));
         Map<String,Object> taskSchema=Map.of("type","object","properties",taskProperties,
                 "required",List.copyOf(taskProperties.keySet()),"additionalProperties",false);
@@ -507,21 +507,24 @@ public class AiLessonPilotService {
                 Если получателя нет, имя неоднозначно или отсутствует в roster, задай короткий вопрос в text.
                 Если тема не дана в запросе, истории или расшифровке, уточни её, не выдумывай.
                 'Пару', 'несколько', 'ещё задания' и запрос без числа означают ровно 5 самостоятельных заданий.
+                requestedTaskCount уже вычислен сервером. Для worksheet верни РОВНО requestedTaskCount элементов tasks.
+                В этом приложении 'пару' означает 5, НЕ 2. Не переопределяй серверное количество по разговорному значению слова.
+                Ограничение короткого текстового ответа в 500 токенов не относится к JSON с заданиями: верни полный набор.
                 Явно указанное целое число от 1 до 20 имеет приоритет. Для большего количества попроси разбить запрос.
                 lastGeneratedWorksheet содержит задания прошлого черновика этого урока, а не записи ученицы.
                 При 'сделай второе сложнее/измени' сохрани число и неизменяемые задания прошлого черновика,
                 если новое количество не указано. Возвращай полный обновлённый набор новым черновиком.
                 Нужен простой лист без оформления. Каждый task: краткая instruction без чисел/формул,
-                expression с точным условием в LaTeX, answer для приватной автоматической проверки.
-                kind=expression: вычислить/упростить expression; answer математически эквивалентен ему.
+                expression с точным условием в LaTeX. Ответы вычисляет сервер, не добавляй их в JSON.
+                kind=expression: вычислить/упростить expression.
                 kind=equation: только линейное уравнение одной переменной с единственным действительным решением;
-                expression содержит ровно один '=', answer является точным значением variable (x,y,z,a,b,c,m,n).
+                expression содержит ровно один '=', variable обозначает переменную (x,y,z,a,b,c,m,n).
                 Для expression variable="". restrictions содержит явные ограничения области определения, например 'x != 3'.
                 Ответы не включай в instruction или expression. Не добавляй '= ответ' к условию.
                 Используй короткие проверяемые арифметические и алгебраические примеры, дроби, степени, корни.
                 Геометрию с рисунками, текстовые задачи, неравенства, неоднозначные/нелинейные уравнения
                 пока объясняй текстом: для этого PDF-проверка ещё не подключена. Не подменяй тему случайными примерами.
-                Проверь решение каждого задания. Условия и решения проверяются кодом, PDF при ошибке не создаётся.
+                Условия и решения проверяются кодом, PDF при ошибке не создаётся.
                 text для worksheet должен кратко описывать тему, без утверждений о добавлении в тетрадь.
                 Любая просьба 'добавь/отправь' создаёт только черновик. Добавление возможно исключительно по кнопке преподавателя.
                 Исходные PDF и рукопись по-прежнему недоступны. Не утверждай, что изучил записи ученицы.

@@ -21,8 +21,9 @@ bottom area so the chat preview remains readable. Opening or confirming reuses t
 saved bytes and never calls the model or renderer again.
 
 One structured call uses the existing Kolin model, credential and HTTP transport.
-The server builds each validation assertion from the exact visible expression and
-private answer. Every task must pass the existing bounded symbolic checker and the
+The model supplies conditions only. The existing bounded symbolic engine computes
+private reference answers from each exact visible expression or affine equation;
+model-suggested answers are never trusted. Every task must pass that checker and the
 measured PDF layout checks. Expressions can use fractions, roots and polynomial
 algebra. Equation PDFs currently require one-variable affine equations with exactly
 one real solution. Unsupported geometry, word problems, inequalities or nonlinear

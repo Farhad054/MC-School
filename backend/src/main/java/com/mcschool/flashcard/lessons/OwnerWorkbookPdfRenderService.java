@@ -177,7 +177,8 @@ public class OwnerWorkbookPdfRenderService {
                         "mathPassed", true, "layoutPassed", true, "rawLatexFound", false,
                         "algebraChecked", mathQa.get("checked"),
                         "algebraCoverage", "explicit assertions tied to generated tasks",
-                        "arithmeticChains", mathQa.getOrDefault("arithmeticChains", 0)));
+                        "arithmeticChains", mathQa.getOrDefault("arithmeticChains", 0),
+                        "results", mathQa.getOrDefault("results", List.of())));
             } finally {
                 cleanupWorkspace(workspace);
             }

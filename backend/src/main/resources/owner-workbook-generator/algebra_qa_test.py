@@ -41,6 +41,52 @@ class AlgebraTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'domain'):
             validate({'kind': 'solution', 'equation': '(x^2-9)/(x-3)=6', 'solution': {'x': 3}})
 
+    def test_fraction_values_derive_exact_answers_from_conditions_only(self):
+        for expression, answer in [('1/2+1/4', '3/4'), ('3/5+4/7', '41/35'),
+                                   ('7/8-1/4', '5/8'), ('2/3*9/10', '3/5'),
+                                   ('5/6/(10/9)', '3/4')]:
+            with self.subTest(expression=expression):
+                result = validate({'kind': 'expressionValue', 'expression': expression})
+                self.assertTrue(result['passed'])
+                self.assertEqual(result['answer'], answer)
+                # A discarded model answer cannot influence derivation. The
+                # new kind never treats an answer field as an assertion.
+                self.assertEqual(validate({'kind': 'expressionValue', 'expression': expression,
+                                           'answer': '999'})['answer'], answer)
+                with self.assertRaises(ValueError):
+                    validate({'kind': 'equivalence', 'expression': expression, 'answer': '999'})
+
+    def test_derived_values_keep_original_domain_and_are_finite_real(self):
+        item = {'kind': 'expressionValue', 'expression': '(x^2-9)/(x-3)', 'restrictions': ['x != 3']}
+        self.assertEqual(validate(item)['answer'], 'x + 3')
+        item['restrictions'] = []
+        with self.assertRaisesRegex(ValueError, 'Missing domain'):
+            validate(item)
+        for expression in ['1/0', 'sqrt(-1)', 'log(0)', 'sqrt(x)', 'log(x)']:
+            with self.subTest(expression=expression), self.assertRaises(ValueError):
+                validate({'kind': 'expressionValue', 'expression': expression})
+
+    def test_linear_values_derive_the_unique_root_without_a_proposed_answer(self):
+        for equation, answer in [('2x-1=5-x', '2'), ('x/2+1=2', '2'), ('3x=1', '1/3')]:
+            with self.subTest(equation=equation):
+                result = validate({'kind': 'linearValue', 'equation': equation})
+                self.assertEqual((result['variable'], result['answer']), ('x', answer))
+                self.assertTrue(result['passed'])
+        with self.assertRaisesRegex(ValueError, 'Declared variable'):
+            validate({'kind': 'linearValue', 'equation': 'y=2', 'variable': 'x'})
+        for equation, restrictions in [('x^2=4', []), ('x=x', []), ('x+1=x', []),
+                                       ('x+y=2', []), ('(x^2-1)/(x-1)=2', []), ('x=2', ['x != 2'])]:
+            with self.subTest(equation=equation), self.assertRaises(ValueError):
+                validate({'kind': 'linearValue', 'equation': equation, 'restrictions': restrictions})
+
+    def test_derived_document_results_keep_assertion_order_for_private_answers(self):
+        result = verify_document({'qa': {'algebra': [
+            {'kind': 'expressionValue', 'expression': '1/2+1/4'},
+            {'kind': 'linearValue', 'equation': '3x=1'}]}})
+        self.assertTrue(result['passed'])
+        self.assertEqual(result['checked'], 2)
+        self.assertEqual([(item['index'], item['answer']) for item in result['results']], [(0, '3/4'), (1, '1/3')])
+
     def test_rejects_wrong_equivalence(self):
         with self.assertRaises(ValueError):
             validate({'kind': 'equivalence', 'expression': '(x+3)^2', 'answer': 'x^2+9'})

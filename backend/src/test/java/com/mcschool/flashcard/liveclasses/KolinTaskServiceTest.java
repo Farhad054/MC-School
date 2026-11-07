@@ -44,11 +44,19 @@ class KolinTaskServiceTest {
         assertThat(row.path("work").asBoolean()).isFalse();
         assertThat(json.path("qa").path("algebra").get(0).path("expression").asString()).isEqualTo(row.path("math").path("latex").asString());
         assertThat(row.toString()).doesNotContain("3/4","answer");
-        assertThat(json.path("qa").path("algebra").get(0).path("answer").asString()).isEqualTo("3/4");
+        assertThat(json.path("qa").path("algebra").get(0).path("kind").asString()).isEqualTo("expressionValue");
+        assertThat(json.path("qa").path("algebra").get(0).has("answer")).isFalse();
     }
     @Test void fiveShortExamplesShareOnePlainPageAndSixUseTwoPages() {
         assertThat((List<?>)KolinTaskService.document(Collections.nCopies(5,task("1+2","3"))).get("workbookPages")).hasSize(1);
         assertThat((List<?>)KolinTaskService.document(Collections.nCopies(6,task("1+2","3"))).get("workbookPages")).hasSize(2);
+    }
+    @Test void storedReferencesComeFromTheMathEngineRatherThanTheModel() {
+        var content=new KolinTaskService.Content("worksheet","Дроби",pupil.getId().toString(),List.of(task("1/2+1/4","999")));
+        var verified=KolinTaskService.withVerifiedAnswers(content,Map.of("results",List.of(Map.of("passed",true,"answer","3/4"))));
+        assertThat(verified.tasks().get(0).answer()).isEqualTo("3/4");
+        assertThat(verified.tasks().get(0).expression()).isEqualTo("1/2+1/4");
+        assertThatThrownBy(()->KolinTaskService.withVerifiedAnswers(content,Map.of())).isInstanceOf(IllegalArgumentException.class);
     }
     @Test void unverifiedMathCannotHideInAnInstructionAndEquationsRequireCompleteLinearQa() throws Exception {
         for (String instruction : List.of("Вычисли 2+2", "Вычисли\n2+2", "Вычисли\n\\frac{1}{2}"))
@@ -56,7 +64,7 @@ class KolinTaskServiceTest {
                     .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->KolinTaskService.document(List.of(task("1+1=2","2")))).isInstanceOf(IllegalArgumentException.class);
         var document=KolinTaskService.document(List.of(new KolinTaskService.Task("equation","Решите уравнение","2*x+1=5","2","x",List.of())));
-        assertThat(mapper.writeValueAsString(document)).contains("linearSolution","2*x+1=5");
+        assertThat(mapper.writeValueAsString(document)).contains("linearValue","2*x+1=5");
     }
     @Test void durableRetryReturnsTheOriginalResultWithoutAnotherProviderOrRendererCall() throws Exception {
         var cached=new KolinChatService.Reply("text","Уже готово",metadata);
@@ -77,7 +85,8 @@ class KolinTaskServiceTest {
         var content=new KolinTaskService.Content("worksheet","Дроби",pupil.getId().toString(),Collections.nCopies(5,task("1/2+1/4","3/4")));
         when(ai.kolinStructuredReply(anyString(),anyList(),anyString())).thenReturn(mapper.writeValueAsString(content));
         byte[] pdf={1,2,3},preview={4,5};
-        when(renderer.renderPlain(anyString())).thenReturn(new OwnerWorkbookPdfRenderService.PlainWorksheet(pdf,preview,1,Map.of("mathPassed",true)));
+        when(renderer.renderPlain(anyString())).thenReturn(new OwnerWorkbookPdfRenderService.PlainWorksheet(pdf,preview,1,
+                Map.of("mathPassed",true,"results",Collections.nCopies(5,Map.of("passed",true,"answer","3/4")))));
         send("Создай и добавь Виталине пару заданий по дробям");
         verify(store).complete(eq(host),eq(room.getId()),eq(artifact),eq(attempt),eq("worksheet"),eq("Дроби"),eq(metadata),eq(pupil.getId()),eq("Виталина"),eq(5),eq(1),same(pdf),same(preview),anyString());
         verify(store,never()).append(any(),any(),any());
