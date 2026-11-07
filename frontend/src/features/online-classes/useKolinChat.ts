@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { kolinApi, type KolinContext, type KolinHistoryMessage } from '../../api/kolin';
+import { kolinApi, parseKolinTranscriptContext, type KolinContext, type KolinHistoryMessage, type KolinTranscriptContext } from '../../api/kolin';
 
 export interface KolinMessage extends KolinHistoryMessage {
   id: string;
   type: 'text';
   status: 'complete' | 'pending' | 'failed';
+  transcriptContext?: KolinTranscriptContext;
 }
 
 interface Submission {
@@ -76,10 +77,12 @@ export function useKolinChat(classId: string, teacherId: string, enabled: boolea
     try {
       const result = await kolinApi.send(classId, submission.text, submission.history, submission.context);
       if (result.type !== 'text' || typeof result.text !== 'string' || !result.text.trim()) throw new Error('Empty response');
+      const transcriptContext = parseKolinTranscriptContext(result.transcriptContext);
       change(current => ({ ...current, pending: false,
         draft: current.draft.trim() === submission.text ? '' : current.draft,
         messages: [...current.messages.map(message => message.id === submission.messageId ? { ...message, status: 'complete' as const } : message),
-          { id: crypto.randomUUID(), role: 'assistant', type: 'text', text: result.text, status: 'complete' }],
+          { id: crypto.randomUUID(), role: 'assistant', type: 'text', text: result.text, status: 'complete',
+            ...(transcriptContext ? { transcriptContext } : {}) }],
       }));
     } catch {
       change(current => ({ ...current, pending: false, error: 'response', failed: submission,

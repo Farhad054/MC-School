@@ -10,11 +10,13 @@
 .kolin-panel__subtitle { margin:3px 0 0; color:var(--v3-muted); font-size:11px; line-height:1.35; }
 .kolin-panel__messages { flex:1 1 0%; min-height:0; margin:0; padding:0; overflow:auto; overscroll-behavior:contain; list-style:none; display:flex; flex-direction:column; gap:14px; }
 .kolin-panel__welcome { color:var(--v3-muted); font-size:13px; line-height:1.5; }
+.kolin-panel__welcome p { margin:8px 0 0; }
 .kolin-panel__message { padding:10px; border-radius:9px; background:var(--v3-raised); color:var(--v3-text); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 .kolin-panel__message--user { margin-left:16px; background:#39434b; }
 .kolin-panel__message--assistant { margin-right:8px; }
 .kolin-panel__speaker { display:block; color:var(--v3-muted); font-size:10px; margin-bottom:4px; }
 .kolin-panel__message p { margin:0; white-space:pre-wrap; }
+.kolin-panel__transcript-context { display:flex; flex-direction:column; gap:3px; margin-top:8px; padding-top:7px; border-top:1px solid var(--v3-edge); color:var(--v3-muted); font-size:10px; line-height:1.4; }
 .kolin-panel__status { margin:0; font-size:12px; color:var(--v3-muted); }
 .kolin-panel__error { font-size:12px; color:#f1a4a4; }
 .kolin-panel__error p { margin:0 0 8px; }

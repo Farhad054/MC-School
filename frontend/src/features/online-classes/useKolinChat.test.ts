@@ -1,9 +1,13 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { kolinApi, type KolinContext } from '../../api/kolin';
+import { kolinApi, type KolinContext, type KolinResponse, type KolinTranscriptContext } from '../../api/kolin';
 import { useKolinChat } from './useKolinChat';
 
-vi.mock('../../api/kolin', () => ({ kolinApi: { status: vi.fn(), send: vi.fn() } }));
+vi.mock('../../api/kolin', async importOriginal => ({ ...await importOriginal<typeof import('../../api/kolin')>(),
+  kolinApi: { status: vi.fn(), send: vi.fn() } }));
+
+const transcriptContext: KolinTranscriptContext = { state: 'included', segmentCount: 12, truncated: true,
+  latestSegmentAt: '2026-11-07T15:45:00Z', fromMs: 120000, toMs: 525000, transcriptionActive: false };
 
 beforeEach(() => {
   vi.mocked(kolinApi.status).mockReset().mockResolvedValue({ configured: true });
@@ -59,6 +63,45 @@ describe('private Kolin lesson session', () => {
     expect(last[2][0]).toEqual({ role: 'user', text: 'Question 1' });
     expect(last[2].some(message => message.text === 'Question 5')).toBe(false);
     expect(result.current.messages).toHaveLength(12);
+  });
+
+  it('keeps each answer transcript snapshot on that answer without sending metadata in history', async () => {
+    vi.mocked(kolinApi.send).mockResolvedValueOnce({ type: 'text', text: 'First answer', transcriptContext });
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    await ask(result, 'Use saved lesson speech');
+    act(() => result.current.close());
+    await open(result);
+    expect(result.current.messages[0].transcriptContext).toBeUndefined();
+    expect(result.current.messages[1].transcriptContext).toEqual(transcriptContext);
+    await ask(result, 'And now?');
+    expect(result.current.messages[1].transcriptContext).toEqual(transcriptContext);
+    expect(result.current.messages[3].transcriptContext).toBeUndefined();
+    expect(vi.mocked(kolinApi.send).mock.calls[1][2]).toEqual([
+      { role: 'user', text: 'Use saved lesson speech' }, { role: 'assistant', text: 'First answer' },
+    ]);
+    expect(kolinApi.status).toHaveBeenCalledTimes(1);
+    expect(kolinApi.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores malformed optional metadata while keeping the answer and discards stale transcript snapshots', async () => {
+    vi.mocked(kolinApi.send).mockResolvedValueOnce({ type: 'text', text: 'Valid answer',
+      transcriptContext: { ...transcriptContext, segmentCount: 'not a count' } } as unknown as KolinResponse);
+    const { result, rerender } = renderHook(({ classId }) => useKolinChat(classId, 'teacher', true), {
+      initialProps: { classId: 'class-1' },
+    });
+    await open(result);
+    await ask(result, 'Question');
+    expect(result.current.messages[1].text).toBe('Valid answer');
+    expect(result.current.messages[1].transcriptContext).toBeUndefined();
+    let resolve!: (value: KolinResponse) => void;
+    vi.mocked(kolinApi.send).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    act(() => result.current.setDraft('Pending question'));
+    let pending: Promise<void> | undefined;
+    act(() => { pending = result.current.send({}); });
+    rerender({ classId: 'class-2' });
+    await act(async () => { resolve({ type: 'text', text: 'Stale answer', transcriptContext }); await pending; });
+    expect(result.current.messages).toEqual([]);
   });
 
   it('retries a failed question without duplicating its bubble or losing the original context', async () => {

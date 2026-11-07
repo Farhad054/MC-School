@@ -33,11 +33,13 @@ public class KolinChatService {
     private final StudentGroupRepository groups;
     private final AiLessonPilotService ai;
     private final ObjectMapper mapper;
+    private final KolinTranscriptContextService transcripts;
     private final Set<UUID> pendingTeachers = ConcurrentHashMap.newKeySet();
 
     public KolinChatService(OnlineClassAccessService access, StudentGroupRepository groups,
-                            AiLessonPilotService ai, ObjectMapper mapper) {
+                            AiLessonPilotService ai, ObjectMapper mapper, KolinTranscriptContextService transcripts) {
         this.access = access; this.groups = groups; this.ai = ai; this.mapper = mapper;
+        this.transcripts = transcripts;
     }
 
     public record HistoryMessage(@NotBlank @Pattern(regexp="user|assistant") String role,
@@ -46,7 +48,9 @@ public class KolinChatService {
                           @Min(1) @Max(1000) Integer currentWorkbookPage) {}
     public record Request(@NotBlank @Size(max=MAX_TEXT_LENGTH) String text,
                           @Size(max=8) List<@Valid HistoryMessage> history, @Valid Context context) {}
-    public record Reply(String type, String text) {}
+    public record Reply(String type, String text, KolinTranscriptContextService.Metadata transcriptContext) {
+        public Reply(String type, String text) { this(type, text, null); }
+    }
 
     public Map<String, Boolean> status(AuthenticatedUser teacher, UUID classId) {
         access.requireHost(teacher, classId);
@@ -63,13 +67,25 @@ public class KolinChatService {
         if (!pendingTeachers.add(teacher.id())) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                 "Kolin уже отвечает. Дождитесь завершения запроса.");
         try {
-            return new Reply("text", ai.kolinReply(mapper.writeValueAsString(context), history, question));
+            var transcript = transcript(room);
+            context.put("transcript", transcript);
+            return new Reply("text", ai.kolinReply(mapper.writeValueAsString(context), history, question), transcript.metadata());
         } catch (Exception ex) {
             LoggerFactory.getLogger(getClass()).warn("Kolin request failed: classId={} errorType={}", classId, ex.getClass().getSimpleName());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Kolin не смог завершить ответ. Попробуйте отправить запрос ещё раз.");
         } finally {
             pendingTeachers.remove(teacher.id());
+        }
+    }
+
+    private KolinTranscriptContextService.Context transcript(OnlineClass room) {
+        try {
+            return transcripts.read(room);
+        } catch (RuntimeException ex) {
+            LoggerFactory.getLogger(getClass()).warn("Kolin transcript unavailable: classId={} errorType={}",
+                    room.getId(), ex.getClass().getSimpleName());
+            return KolinTranscriptContextService.unavailable(room);
         }
     }
 

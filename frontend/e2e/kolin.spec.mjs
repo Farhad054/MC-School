@@ -17,7 +17,7 @@ const separator = page => page.getByRole('separator', { name: 'Изменить 
 function gate() { let release; const promise = new Promise(resolve => { release = resolve; }); return { promise, release }; }
 
 async function setup(page, role = 'teacher') {
-  const state = { teacherId: TEACHER, posts: [], annotationWrites: [], requests: [], errors: [], failOnce: false, failStatusOnce: false, responseGate: null, configured: true };
+  const state = { teacherId: TEACHER, posts: [], annotationWrites: [], requests: [], errors: [], failOnce: false, failStatusOnce: false, responseGate: null, configured: true, transcriptContext: undefined };
   const documents = new Map();
   page.on('pageerror', error => state.errors.push(error.message));
   await page.route('**/api/v1/**', async route => {
@@ -29,10 +29,12 @@ async function setup(page, role = 'teacher') {
     }
     if (path.endsWith('/kolin/messages')) {
       const body = request.postDataJSON();
+      const responseContext = state.transcriptContext;
       state.posts.push({ path, body, contentType: request.headers()['content-type'] });
       if (state.responseGate) await state.responseGate.promise;
       if (state.failOnce) { state.failOnce = false; return route.fulfill({ status: 503, json: { errorCode: 'KOLIN_UNAVAILABLE', message: 'Kolin временно недоступен. Повторите отправку.' } }); }
-      return route.fulfill({ json: { type: 'text', text: state.posts.length === 1 ? firstReply : nextReply } });
+      return route.fulfill({ json: { type: 'text', text: state.posts.length === 1 ? firstReply : nextReply,
+        ...(responseContext ? { transcriptContext: responseContext } : {}) } });
     }
     if (path.endsWith('/participants') || path.endsWith('/attendance')) return route.fulfill({ json: [
       { userId: state.teacherId, displayName: 'Учитель', classRole: 'HOST', admissionState: 'ADMITTED', connected: true },
@@ -219,15 +221,18 @@ test('existing board ink survives opening and resizing Kolin without new annotat
 
 test('late reply and previous history do not cross class or teacher scope', async ({ page }) => {
   const state = await setup(page); await openKolin(page); state.responseGate = gate();
+  state.transcriptContext = transcriptSnapshot({ segmentCount: 99 });
   await input(page).fill('Секрет первого урока'); await input(page).press('Enter');
   await expect.poll(() => state.posts.length).toBe(1); await expect(panel(page).getByText('Kolin думает…', { exact: true })).toBeVisible();
   await expect(input(page)).toBeDisabled();
   await expect(panel(page).getByRole('button', { name: 'Отправить', exact: true })).toBeDisabled();
+  state.transcriptContext = undefined;
   await page.evaluate(classId => window.kolinFixture.setSession({ classId }), SECOND_CLASS);
   state.responseGate.release(); state.responseGate = null;
   if (!(await panel(page).isVisible())) await openKolin(page);
   await expect(panel(page).getByText('Секрет первого урока', { exact: true })).toHaveCount(0);
   await expect(panel(page).getByText(firstReply, { exact: true })).toHaveCount(0);
+  await expect(panel(page).getByLabel('Контекст расшифровки', { exact: true })).toHaveCount(0);
   await send(page, state, 'Новый урок'); expect(state.posts.at(-1).body.history).toEqual([]);
   state.teacherId = OTHER_TEACHER; await page.evaluate(teacherId => window.kolinFixture.setSession({ teacherId }), OTHER_TEACHER);
   if (!(await panel(page).isVisible())) await openKolin(page);
@@ -278,3 +283,66 @@ test('temporary configuration-check failure can be retried without losing the dr
   await expect(panel(page).getByText(firstReply, { exact: true })).toBeVisible();
   expect(state.errors).toEqual([]);
 });
+
+const transcriptSnapshot = (overrides = {}) => ({
+  state: 'included', segmentCount: 12, truncated: true,
+  latestSegmentAt: '2026-11-07T13:20:00Z', fromMs: 120000, toMs: 525000,
+  transcriptionActive: true, ...overrides,
+});
+
+test('each answer keeps its own transcript coverage and does not resend transcript metadata', async ({ page }) => {
+  const state = await setup(page); state.transcriptContext = transcriptSnapshot();
+  await openKolin(page); expect(state.posts).toEqual([]);
+  await send(page, state, 'Объясни последнюю ошибку');
+  const notes = panel(page).getByLabel('Контекст расшифровки', { exact: true });
+  await expect(notes).toHaveCount(1);
+  await expect(notes.first()).toHaveAttribute('data-transcript-state', 'included');
+  await expect(notes.first()).toContainText('12');
+  await expect(notes.first()).toContainText(/фрагмент/i);
+  await expect(notes.first().locator('time')).toHaveAttribute('datetime', '2026-11-07T13:20:00Z');
+  await panel(page).getByRole('button', { name: 'Закрыть Kolin', exact: true }).click(); await openKolin(page);
+  await expect(notes.first()).toContainText('12');
+  state.transcriptContext = transcriptSnapshot({ segmentCount: 2, truncated: false, transcriptionActive: false,
+    latestSegmentAt: '2026-11-07T13:21:00Z', fromMs: 530000, toMs: 540000 });
+  await send(page, state, 'Сделай похожее задание');
+  await expect(notes).toHaveCount(2);
+  await expect(notes.first()).toContainText(/фрагмент/i);
+  await expect(notes.last()).not.toContainText(/фрагмент/i);
+  await expect(notes.last()).toContainText(/неактивна/i);
+  expect(state.posts[1].body.history).toEqual([{ role: 'user', text: 'Объясни последнюю ошибку' }, { role: 'assistant', text: firstReply }]);
+  for (const post of state.posts) assertCompact(post.body);
+  expect(state.requests.filter(request => request.path.includes('/kolin/')).map(request => request.method)).toEqual(['GET', 'POST', 'POST']);
+  expect(state.errors).toEqual([]);
+});
+
+for (const status of ['empty', 'unavailable']) {
+  test(`a readable ${status} transcript does not block a text answer`, async ({ page }) => {
+    const state = await setup(page); state.transcriptContext = transcriptSnapshot({ state: status, segmentCount: 0,
+      truncated: false, latestSegmentAt: null, fromMs: null, toMs: null, transcriptionActive: false });
+    await openKolin(page); await send(page, state, 'Дай пример на дроби');
+    const note = panel(page).getByLabel('Контекст расшифровки', { exact: true });
+    await expect(note).toHaveAttribute('data-transcript-state', status);
+    await expect(note).not.toBeEmpty();
+    await expect(note.locator('time')).toHaveCount(0);
+    expect(state.posts).toHaveLength(1); assertCompact(state.posts[0].body);
+    expect(state.errors).toEqual([]);
+  });
+}
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  test(`transcript context stays readable beside the answer at ${viewport.width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const state = await setup(page); state.transcriptContext = transcriptSnapshot();
+    await openKolin(page); await send(page, state, 'Что объяснить ученице ещё раз?');
+    const note = panel(page).getByLabel('Контекст расшифровки', { exact: true });
+    await expect(note).toBeVisible(); await note.scrollIntoViewIfNeeded();
+    const pane = await panel(page).boundingBox(), noteBox = await note.boundingBox();
+    expect(noteBox.x).toBeGreaterThanOrEqual(pane.x);
+    expect(noteBox.x + noteBox.width).toBeLessThanOrEqual(pane.x + pane.width + 1);
+    await assertNoOverlap(page);
+    const artifacts = process.env.KOLIN_ARTIFACT_DIR || testInfo.outputPath('screenshots');
+    await mkdir(artifacts, { recursive: true });
+    await page.screenshot({ path: join(artifacts, `kolin-transcript-${viewport.width}.png`), fullPage: true });
+    assertCompact(state.posts[0].body); expect(state.errors).toEqual([]);
+  });
+}
