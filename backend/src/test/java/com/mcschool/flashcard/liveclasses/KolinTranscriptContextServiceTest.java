@@ -115,15 +115,28 @@ class KolinTranscriptContextServiceTest {
         assertThat(result.segments()).isEmpty();
     }
 
-    @Test void inactiveTranscriptionStillSuppliesStoredSpeechAndUnknownSpeakerUsesLabelWithoutIdentity() {
+    @Test void inactiveTranscriptionStillSuppliesStoredSpeechAndUnknownSpeakerUsesGenericName() {
         var row = segment(10, 20, null, "Общий микрофон", "1/4 плюс 1/4", null);
         when(rows.findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()), any())).thenReturn(List.of(row));
         var result = contexts.read(room);
         assertThat(result.metadata().state()).isEqualTo("included");
         assertThat(result.metadata().transcriptionActive()).isFalse();
         assertThat(result.metadata().latestSegmentAt()).isNull();
-        assertThat(result.segments().get(0).speakerName()).isEqualTo("Общий микрофон");
+        assertThat(result.segments().get(0).speakerName()).isEqualTo("Участник");
         assertThat(result.segments().get(0).speakerRole()).isEqualTo("unknown");
+    }
+
+    @Test void unknownSpeakerLabelsCannotLeakEmailOrDeviceIdentityIntoContext() throws Exception {
+        String identity = ParticipantIdentity.of(UUID.randomUUID(), "private-device");
+        for (String label : List.of("private@example.test", identity)) {
+            var row = segment(10, 20, null, label, "The spoken task stays verbatim", now);
+            when(rows.findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()), any())).thenReturn(List.of(row));
+            var result = contexts.read(room);
+            assertThat(result.segments().get(0).speakerName()).isEqualTo("Участник");
+            assertThat(result.segments().get(0).speakerRole()).isEqualTo("unknown");
+            assertThat(result.segments().get(0).text()).isEqualTo(row.getText());
+            assertThat(mapper.writeValueAsString(result)).doesNotContain(label, row.getParticipantIdentity());
+        }
     }
 
     @Test void emptyTranscriptHasExplicitNullMetadataAndNoInventedActivityTimestamp() throws Exception {

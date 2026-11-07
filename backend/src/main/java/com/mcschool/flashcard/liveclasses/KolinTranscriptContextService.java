@@ -69,7 +69,7 @@ public class KolinTranscriptContextService {
         Long from = null, to = null;
         for (var segment : newestFirst) {
             var speaker = segment.getUser();
-            String name = speaker == null ? segment.getSpeakerLabel() : speaker.getFullName();
+            String name = speaker == null ? "Участник" : speaker.getFullName();
             if (name == null || name.isBlank()) name = "Участник";
             String role = speaker != null && speaker.getRole() == Role.TEACHER ? "teacher"
                     : speaker != null && speaker.getRole() == Role.STUDENT ? "student" : "unknown";
