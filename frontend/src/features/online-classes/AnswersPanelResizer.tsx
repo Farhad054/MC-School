@@ -6,14 +6,17 @@ const DEFAULT_WIDTH = 204;
 const STORAGE_PREFIX = 'mindcrafti:answers-panel-width:v1:';
 
 /** Changes only the teacher's layout. Board coordinates and PDF view state are independent. */
-export function AnswersPanelResizer({ storageKey, videosOpen = false }: { storageKey: string; videosOpen?: boolean }) {
+export function AnswersPanelResizer({ storageKey, videosOpen = false, side = 'left', panelId = 'answers-panel', label,
+  defaultWidth = DEFAULT_WIDTH }: {
+  storageKey: string; videosOpen?: boolean; side?: 'left' | 'right'; panelId?: string; label?: string; defaultWidth?: number;
+}) {
   const { language } = useI18n();
   const separator = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLElement | null>(null);
-  const preferred = useRef(DEFAULT_WIDTH);
-  const current = useRef(DEFAULT_WIDTH);
+  const preferred = useRef(defaultWidth);
+  const current = useRef(defaultWidth);
   const drag = useRef<{ pointerId: number; x: number; width: number; preferred: number } | null>(null);
-  const [size, setSize] = useState({ width: DEFAULT_WIDTH, min: 180, max: 740 });
+  const [size, setSize] = useState({ width: defaultWidth, min: 180, max: 740 });
   const key = STORAGE_PREFIX + storageKey;
 
   const apply = useCallback((requested: number) => {
@@ -62,7 +65,7 @@ export function AnswersPanelResizer({ storageKey, videosOpen = false }: { storag
     if (!parent) return;
     stage.current = parent;
     const previousWidth = parent.style.getPropertyValue('--answers-panel-width');
-    preferred.current = DEFAULT_WIDTH;
+    preferred.current = defaultWidth;
     try {
       const saved = Number(localStorage.getItem(key));
       if (Number.isFinite(saved) && saved >= 100 && saved <= 5000) preferred.current = saved;
@@ -84,14 +87,14 @@ export function AnswersPanelResizer({ storageKey, videosOpen = false }: { storag
       else parent.style.removeProperty('--answers-panel-width');
       stage.current = null;
     };
-  }, [apply, finish, key]);
+  }, [apply, finish, key, defaultWidth]);
 
   useEffect(() => { apply(preferred.current); }, [apply, videosOpen]);
 
-  return <div ref={separator} className="answers-panel-resizer" role="separator" tabIndex={0}
-    aria-orientation="vertical" aria-controls="answers-panel"
-    aria-label={language === 'DE' ? 'Breite der Lösungen ändern' : 'Изменить ширину решений'}
-    title={language === 'DE' ? 'Nach links oder rechts ziehen, um die Lösungen zu vergrößern oder zu verkleinern' : 'Потяните влево или вправо, чтобы изменить ширину решений'}
+  return <div ref={separator} className={`answers-panel-resizer${side === 'right' ? ' answers-panel-resizer--right' : ''}`} role="separator" tabIndex={0}
+    aria-orientation="vertical" aria-controls={panelId}
+    aria-label={label ?? (language === 'DE' ? 'Breite der Lösungen ändern' : 'Изменить ширину решений')}
+    title={label ?? (language === 'DE' ? 'Nach links oder rechts ziehen, um die Lösungen zu vergrößern oder zu verkleinern' : 'Потяните влево или вправо, чтобы изменить ширину решений')}
     aria-valuemin={Math.round(size.min)} aria-valuemax={Math.round(size.max)} aria-valuenow={size.width}
     aria-valuetext={`${size.width} px`}
     onPointerDown={event => {
@@ -107,17 +110,18 @@ export function AnswersPanelResizer({ storageKey, videosOpen = false }: { storag
       const active = drag.current;
       if (!active || event.pointerId !== active.pointerId) return;
       event.preventDefault(); event.stopPropagation();
-      apply(active.width + event.clientX - active.x);
+      apply(active.width + (event.clientX - active.x) * (side === 'right' ? -1 : 1));
     }}
     onPointerUp={event => { if (drag.current?.pointerId === event.pointerId) finish(false); }}
     onPointerCancel={event => { if (drag.current?.pointerId === event.pointerId) finish(true); }}
     onLostPointerCapture={() => finish(true)}
-    onDoubleClick={() => { preferred.current = DEFAULT_WIDTH; apply(DEFAULT_WIDTH); persist(); }}
+    onDoubleClick={() => { preferred.current = defaultWidth; apply(defaultWidth); persist(); }}
     onKeyDown={event => {
       if (event.key === 'Escape') { finish(true); return; }
       const step = event.shiftKey ? 64 : 24;
-      const requested = event.key === 'ArrowLeft' ? current.current - step
-        : event.key === 'ArrowRight' ? current.current + step
+      const direction = side === 'right' ? -1 : 1;
+      const requested = event.key === 'ArrowLeft' ? current.current - step * direction
+        : event.key === 'ArrowRight' ? current.current + step * direction
           : event.key === 'Home' ? size.min : event.key === 'End' ? size.max : null;
       if (requested === null) return;
       event.preventDefault(); event.stopPropagation();

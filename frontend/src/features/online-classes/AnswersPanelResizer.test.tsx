@@ -38,6 +38,25 @@ describe('teacher answer panel width', () => {
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+  it('reuses the resize constraints for right-hand Kolin without changing saved Answers width', () => {
+    localStorage.setItem('mindcrafti:answers-panel-width:v1:teacher-1', '420');
+    render(<I18nProvider><div data-testid="stage"><main /><AnswersPanelResizer storageKey="kolin:teacher-1"
+      side="right" panelId="kolin-panel" label="Изменить ширину Kolin" defaultWidth={360} /><aside id="kolin-panel" /></div></I18nProvider>);
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-controls', 'kolin-panel');
+    expect(screen.getByRole('separator')).toHaveAccessibleName('Изменить ширину Kolin');
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '360');
+    pointer('pointerdown', 700); pointer('pointermove', 560); pointer('pointerup', 560);
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '500');
+    fireEvent.keyDown(screen.getByRole('separator'), { key: 'ArrowLeft' });
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '524');
+    fireEvent.keyDown(screen.getByRole('separator'), { key: 'ArrowRight' });
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '500');
+    expect(localStorage.getItem('mindcrafti:answers-panel-width:v1:teacher-1')).toBe('420');
+    expect(localStorage.getItem('mindcrafti:answers-panel-width:v1:kolin:teacher-1')).toBe('500');
+    fireEvent.doubleClick(screen.getByRole('separator'));
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '360');
+  });
+
   it.each(['mouse', 'touch', 'pen'])('drags with %s and leaves space for the board', pointerType => {
     mount();
     pointer('pointerdown', 210, pointerType);

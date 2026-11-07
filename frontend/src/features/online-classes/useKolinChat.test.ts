@@ -1,0 +1,142 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { kolinApi, type KolinContext } from '../../api/kolin';
+import { useKolinChat } from './useKolinChat';
+
+vi.mock('../../api/kolin', () => ({ kolinApi: { status: vi.fn(), send: vi.fn() } }));
+
+beforeEach(() => {
+  vi.mocked(kolinApi.status).mockReset().mockResolvedValue({ configured: true });
+  vi.mocked(kolinApi.send).mockReset().mockResolvedValue({ type: 'text', text: '1) 1/2 + 1/4\n2) 2/3 + 1/6' });
+});
+
+async function open(result: { current: ReturnType<typeof useKolinChat> }) {
+  act(() => result.current.toggle());
+  await waitFor(() => expect(result.current.availability).toBe('ready'));
+}
+async function ask(result: { current: ReturnType<typeof useKolinChat> }, text: string, context: KolinContext = {}) {
+  act(() => result.current.setDraft(text));
+  await act(async () => { await result.current.send(context); });
+}
+
+describe('private Kolin lesson session', () => {
+  it('does no API work until the teacher opens it, and none at all for a pupil', async () => {
+    const pupil = renderHook(() => useKolinChat('class-1', 'pupil', false));
+    act(() => { pupil.result.current.toggle(); pupil.result.current.setDraft('hello'); });
+    await act(async () => { await pupil.result.current.send({}); });
+    expect(pupil.result.current.open).toBe(false);
+    expect(kolinApi.status).not.toHaveBeenCalled();
+    expect(kolinApi.send).not.toHaveBeenCalled();
+    const teacher = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    expect(kolinApi.status).not.toHaveBeenCalled();
+    await open(teacher.result);
+    expect(kolinApi.status).toHaveBeenCalledExactlyOnceWith('class-1');
+  });
+
+  it('retains conversation and draft across close/reopen and sends current pupil context separately', async () => {
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    await ask(result, 'Дай 3 задания', { targetType: 'student', studentId: 'alice', currentWorkbookPage: 3 });
+    act(() => { result.current.setDraft('Сделай второе сложнее'); result.current.close(); });
+    await open(result);
+    expect(result.current.draft).toBe('Сделай второе сложнее');
+    expect(result.current.messages).toHaveLength(2);
+    await act(async () => { await result.current.send({ targetType: 'student', studentId: 'bob' }); });
+    expect(vi.mocked(kolinApi.send).mock.calls[1]).toEqual(['class-1', 'Сделай второе сложнее', [
+      { role: 'user', text: 'Дай 3 задания' }, { role: 'assistant', text: '1) 1/2 + 1/4\n2) 2/3 + 1/6' },
+    ], { targetType: 'student', studentId: 'bob' }]);
+    expect(result.current.messages.every(message => message.type === 'text')).toBe(true);
+    expect(kolinApi.status).toHaveBeenCalledTimes(1);
+  });
+
+  it('includes at most eight previous completed messages, never the current question twice', async () => {
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    for (let index = 0; index < 6; index++) await ask(result, `Question ${index}`);
+    const last = vi.mocked(kolinApi.send).mock.calls[5];
+    expect(last[1]).toBe('Question 5');
+    expect(last[2]).toHaveLength(8);
+    expect(last[2][0]).toEqual({ role: 'user', text: 'Question 1' });
+    expect(last[2].some(message => message.text === 'Question 5')).toBe(false);
+    expect(result.current.messages).toHaveLength(12);
+  });
+
+  it('retries a failed question without duplicating its bubble or losing the original context', async () => {
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new Error('network'));
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    await ask(result, 'Ответ?', { studentId: 'alice', targetType: 'student' });
+    expect(result.current.draft).toBe('Ответ?');
+    expect(result.current.error).toBe('response');
+    expect(result.current.messages).toHaveLength(1);
+    await act(async () => { await result.current.retry(); });
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0].status).toBe('complete');
+    expect(result.current.draft).toBe('');
+    expect(vi.mocked(kolinApi.send).mock.calls[1]).toEqual(vi.mocked(kolinApi.send).mock.calls[0]);
+  });
+
+  it('excludes a failed turn from a new question history and blocks a second send while pending', async () => {
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new Error('network'));
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    await ask(result, 'Failed question');
+    let resolve!: (value: { type: 'text'; text: string }) => void;
+    vi.mocked(kolinApi.send).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    act(() => result.current.setDraft('Different question'));
+    let pending: Promise<void> | undefined;
+    act(() => { pending = result.current.send({}); });
+    await act(async () => { await result.current.send({}); });
+    expect(kolinApi.send).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(kolinApi.send).mock.calls[1][2]).toEqual([]);
+    await act(async () => { resolve({ type: 'text', text: 'New answer' }); await pending; });
+    await ask(result, 'Follow up');
+    expect(vi.mocked(kolinApi.send).mock.calls[2][2]).toEqual([
+      { role: 'user', text: 'Different question' }, { role: 'assistant', text: 'New answer' },
+    ]);
+  });
+
+  it('preserves a response while closed and keeps the submitted pupil context after switching pupils', async () => {
+    let resolve!: (value: { type: 'text'; text: string }) => void;
+    vi.mocked(kolinApi.send).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true));
+    await open(result);
+    act(() => result.current.setDraft('Example'));
+    let pending: Promise<void> | undefined;
+    act(() => { pending = result.current.send({ targetType: 'student', studentId: 'alice' }); result.current.close(); });
+    await act(async () => { resolve({ type: 'text', text: 'Saved answer' }); await pending; });
+    expect(result.current.open).toBe(false);
+    await open(result);
+    expect(result.current.messages[1].text).toBe('Saved answer');
+    await ask(result, 'Question for Bob', { targetType: 'student', studentId: 'bob' });
+    expect(vi.mocked(kolinApi.send).mock.calls[0][3]).toEqual({ targetType: 'student', studentId: 'alice' });
+    expect(vi.mocked(kolinApi.send).mock.calls[1][3]).toEqual({ targetType: 'student', studentId: 'bob' });
+  });
+
+  it('resets between lessons and teachers and discards late responses from an earlier scope', async () => {
+    let resolve!: (value: { type: 'text'; text: string }) => void;
+    vi.mocked(kolinApi.send).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    const { result, rerender } = renderHook(({ classId, teacher }) => useKolinChat(classId, teacher, true), {
+      initialProps: { classId: 'class-1', teacher: 'teacher-1' },
+    });
+    await open(result);
+    act(() => result.current.setDraft('Old question'));
+    let pending: Promise<void> | undefined;
+    act(() => { pending = result.current.send({}); });
+    rerender({ classId: 'class-2', teacher: 'teacher-1' });
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.open).toBe(false);
+    rerender({ classId: 'class-1', teacher: 'teacher-1' });
+    await act(async () => { resolve({ type: 'text', text: 'PRIVATE OLD RESPONSE' }); await pending; });
+    expect(result.current.messages).toHaveLength(0);
+    await open(result);
+    let resolveTeacher!: (value: { type: 'text'; text: string }) => void;
+    vi.mocked(kolinApi.send).mockImplementationOnce(() => new Promise(done => { resolveTeacher = done; }));
+    act(() => result.current.setDraft('New lesson question'));
+    act(() => { pending = result.current.send({}); });
+    rerender({ classId: 'class-1', teacher: 'teacher-2' });
+    await act(async () => { resolveTeacher({ type: 'text', text: 'ANOTHER TEACHER RESPONSE' }); await pending; });
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.draft).toBe('');
+  });
+});

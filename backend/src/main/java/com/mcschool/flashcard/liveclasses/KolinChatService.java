@@ -1,0 +1,128 @@
+package com.mcschool.flashcard.liveclasses;
+
+import com.mcschool.flashcard.auth.AuthenticatedUser;
+import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.groups.StudentGroupRepository;
+import com.mcschool.flashcard.lessons.AiLessonPilotService;
+import com.mcschool.flashcard.users.Role;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.ObjectMapper;
+
+/** Stateless text assistance. The teacher's private, per-class thread stays in the lesson UI. */
+@Service
+public class KolinChatService {
+    public static final int MAX_TEXT_LENGTH = 4000;
+    private static final int MAX_HISTORY_CHARS = 16000;
+    private final OnlineClassAccessService access;
+    private final StudentGroupRepository groups;
+    private final AiLessonPilotService ai;
+    private final ObjectMapper mapper;
+    private final Set<UUID> pendingTeachers = ConcurrentHashMap.newKeySet();
+
+    public KolinChatService(OnlineClassAccessService access, StudentGroupRepository groups,
+                            AiLessonPilotService ai, ObjectMapper mapper) {
+        this.access = access; this.groups = groups; this.ai = ai; this.mapper = mapper;
+    }
+
+    public record HistoryMessage(@NotBlank @Pattern(regexp="user|assistant") String role,
+                                 @NotBlank @Size(max=MAX_TEXT_LENGTH) String text) {}
+    public record Context(@Pattern(regexp="student|group") String targetType, UUID studentId,
+                          @Min(1) @Max(1000) Integer currentWorkbookPage) {}
+    public record Request(@NotBlank @Size(max=MAX_TEXT_LENGTH) String text,
+                          @Size(max=8) List<@Valid HistoryMessage> history, @Valid Context context) {}
+    public record Reply(String type, String text) {}
+
+    public Map<String, Boolean> status(AuthenticatedUser teacher, UUID classId) {
+        access.requireHost(teacher, classId);
+        return Map.of("configured", ai.isConfigured());
+    }
+
+    public Reply send(AuthenticatedUser teacher, UUID classId, Request request) {
+        OnlineClass room = access.requireHost(teacher, classId);
+        var context = compactContext(room, request.context());
+        String question = text(request.text());
+        List<Map<String, String>> history = history(request.history());
+        if (!ai.isConfigured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Kolin пока не настроен. Обратитесь к администратору.");
+        if (!pendingTeachers.add(teacher.id())) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                "Kolin уже отвечает. Дождитесь завершения запроса.");
+        try {
+            return new Reply("text", ai.kolinReply(mapper.writeValueAsString(context), history, question));
+        } catch (Exception ex) {
+            LoggerFactory.getLogger(getClass()).warn("Kolin request failed: classId={} errorType={}", classId, ex.getClass().getSimpleName());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Kolin не смог завершить ответ. Попробуйте отправить запрос ещё раз.");
+        } finally {
+            pendingTeachers.remove(teacher.id());
+        }
+    }
+
+    private Map<String, Object> compactContext(OnlineClass room, Context requested) {
+        String type = requested == null ? null : requested.targetType();
+        UUID studentId = requested == null ? null : requested.studentId();
+        Integer page = requested == null ? null : requested.currentWorkbookPage();
+        if (type != null && !List.of("student", "group").contains(type)) throw badRequest();
+        if (page != null && (page < 1 || page > 1000)) throw badRequest();
+        if ("group".equals(type) && studentId != null) throw badRequest();
+        if (type == null) type = studentId != null || room.getStudent() != null ? "student" : "group";
+        if ("group".equals(type) && room.getGroup() == null && room.getStudent() != null) type = "student";
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("lessonTitle", room.getTitle());
+        result.put("targetType", type);
+        if ("student".equals(type)) {
+            if (studentId == null && room.getStudent() != null) studentId = room.getStudent().getId();
+            if (studentId == null || !access.canParticipate(new AuthenticatedUser(studentId, null, Role.STUDENT), room))
+                throw new ResourceNotFoundException("Student is not part of this online class");
+            result.put("targetName", access.requireActiveUser(studentId).getFullName());
+        } else {
+            String name = room.getGroup() == null ? room.getTitle() : groups.findById(room.getGroup().getId())
+                    .map(group -> group.getName()).orElse(room.getTitle());
+            result.put("targetName", name);
+        }
+        if (page != null) result.put("currentWorkbookPage", page);
+        return result;
+    }
+
+    private static List<Map<String, String>> history(List<HistoryMessage> messages) {
+        if (messages == null) return List.of();
+        if (messages.size() > 8) throw badRequest();
+        var kept = new ArrayList<Map<String, String>>();
+        int chars = 0;
+        // Keep whole recent messages. Never cut an exercise in the middle to fit a character budget.
+        for (var message : messages) {
+            if (message == null || message.role() == null || !List.of("user", "assistant").contains(message.role())) throw badRequest();
+            text(message.text());
+        }
+        for (int i=messages.size()-1; i>=0; i--) {
+            var message = messages.get(i);
+            String content = message.text().strip();
+            if (chars + content.length() > MAX_HISTORY_CHARS) break;
+            kept.add(0, Map.of("role", message.role(), "text", content)); chars += content.length();
+        }
+        return kept;
+    }
+
+    private static String text(String value) {
+        if (value == null || value.isBlank() || value.length() > MAX_TEXT_LENGTH) throw badRequest();
+        return value.strip();
+    }
+    private static ResponseStatusException badRequest() {
+        return new ResponseStatusException(HttpStatus.BAD_REQUEST, "Некорректный запрос Kolin.");
+    }
+}
