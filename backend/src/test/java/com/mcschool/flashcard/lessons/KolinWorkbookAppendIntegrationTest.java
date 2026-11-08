@@ -20,6 +20,8 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -90,22 +92,48 @@ class KolinWorkbookAppendIntegrationTest {
         return interactiveDraft(false);
     }
     private UUID interactiveDraft(boolean group) {
+        return interactiveDraft(group,graph(1));
+    }
+    private UUID interactiveDraft(boolean group,java.util.Map<String,Object> spec) {
         var reservation=store.begin(host,room.getId(),UUID.randomUUID(),"b".repeat(64));
         var content=new KolinTaskService.Content("interactive","Graph",group?"group":student.getId().toString(),List.of(
-            new KolinTaskService.Task("visual","","",null,"",List.of(),graph(1))));
+            new KolinTaskService.Task("visual","","",null,"",List.of(),spec)));
         store.complete(host,room.getId(),reservation.id(),reservation.attemptId(),"interactive","Graph",
             new KolinTranscriptContextService.Metadata("empty",0,false,null,null,null,false),group?null:student.getId(),group?"Общая доска":"Pupil",1,1,null,null,JSON.writeValueAsString(content));
         return reservation.id();
     }
     private AnnotationOperationRequest interaction(UUID target,UUID revision,double coefficient) {
-        var shape=new java.util.HashMap<>(InteractiveTemplateSpec.shape(graph(coefficient)));
+        return interaction(target,revision,graph(coefficient));
+    }
+    private AnnotationOperationRequest interaction(UUID target,UUID revision,java.util.Map<String,Object> spec) {
+        var shape=new java.util.HashMap<>(InteractiveTemplateSpec.shape(spec));
         shape.put("targetOperationId",target.toString());shape.put("baseOperationId",revision.toString());
         return new AnnotationOperationRequest(UUID.randomUUID(),AnnotationOperationType.UPDATE,JSON.writeValueAsString(shape));
     }
-    @Test void sharedConfirmationPreservesInheritedInkAndIsEditableByBothParticipants()throws Exception {
+    @ParameterizedTest @ValueSource(strings={"math-scenes.json","math-solids.json"})
+    @SuppressWarnings("unchecked") void sceneValuesPersistButPupilCannotRewriteTheConstruction(String fixture)throws Exception {
+        var examples=JSON.readValue(java.nio.file.Files.readString(java.nio.file.Path.of("../frontend/e2e/"+fixture)),List.class);
+        var scene=(java.util.Map<String,Object>)examples.get(0);
+        UUID draft=interactiveDraft(false,scene);store.append(host,room.getId(),draft);
+        var page=annotationDocuments.findAllByOnlineClassIdOrderByPageIndexAsc(room.getId()).get(0);
+        var added=annotations.replay(owner,room.getId(),page.getId(),0).get(0);
+        ((java.util.Map<String,Object>)((List<?>)scene.get("parameters")).get(0)).put("value",6);
+        var shape=new java.util.HashMap<>(InteractiveTemplateSpec.shape(scene));
+        shape.put("targetOperationId",added.operationId().toString());shape.put("baseOperationId",added.operationId().toString());
+        var saved=annotations.append(owner,room.getId(),page.getId(),new AnnotationOperationRequest(UUID.randomUUID(),AnnotationOperationType.UPDATE,JSON.writeValueAsString(shape)));
+        var replay=annotations.replay(host,room.getId(),page.getId(),0);assertThat(replay).hasSize(2);
+        assertThat(replay.get(1).payload()).contains("\"value\":6");
+        scene.put("title","Pupil replaced construction");shape.put("baseOperationId",saved.operationId().toString());
+        assertThatThrownBy(()->annotations.append(owner,room.getId(),page.getId(),new AnnotationOperationRequest(UUID.randomUUID(),AnnotationOperationType.UPDATE,JSON.writeValueAsString(shape))))
+                .isInstanceOf(com.mcschool.flashcard.common.ConflictException.class);
+        assertThat(annotations.replay(owner,room.getId(),page.getId(),0)).hasSize(2);
+    }
+    @ParameterizedTest @ValueSource(strings={"graph","solid"})
+    @SuppressWarnings("unchecked") void sharedConfirmationPreservesInheritedInkAndIsEditableByBothParticipants(String kind)throws Exception {
         var prep=LessonPreparation.create(teacher,room.getEventId());prep.attachWorkbook("shared.pdf",pdf("original"));preparations.saveAndFlush(prep);
         UUID oldPage=legacyPage(3);annotations.append(owner,room.getId(),oldPage,stroke());
-        UUID draft=interactiveDraft(true);
+        var spec=kind.equals("solid")?(java.util.Map<String,Object>)JSON.readValue(java.nio.file.Files.readString(java.nio.file.Path.of("../frontend/e2e/math-solids.json")),List.class).get(0):graph(1);
+        UUID draft=interactiveDraft(true,spec);
         assertThat(store.previousDraft(host,room.getId())).contains("group");
         var added=store.append(host,room.getId(),draft);
         assertThat(added.targetType()).isEqualTo("group");assertThat(added.studentId()).isNull();
@@ -119,9 +147,11 @@ class KolinWorkbookAppendIntegrationTest {
         var page=annotationDocuments.findAllByOnlineClassIdOrderByPageIndexAsc(room.getId()).stream()
                 .filter(p->p.getTargetId().equals("board-1")).findFirst().orElseThrow();
         var first=annotations.replay(owner,room.getId(),page.getId(),0).get(0);
-        var changed=annotations.append(owner,room.getId(),page.getId(),interaction(first.operationId(),first.operationId(),2));
+        var changedSpec=new java.util.HashMap<>(spec);changedSpec.put(kind.equals("solid")?"yaw":"coefficients",kind.equals("solid")?45:List.of(2,0));
+        var changed=annotations.append(owner,room.getId(),page.getId(),interaction(first.operationId(),first.operationId(),changedSpec));
         assertThat(annotations.replay(host,room.getId(),page.getId(),0)).hasSize(2);
-        annotations.append(host,room.getId(),page.getId(),interaction(first.operationId(),changed.operationId(),3));
+        changedSpec.put(kind.equals("solid")?"pitch":"coefficients",kind.equals("solid")?15:List.of(3,0));
+        annotations.append(host,room.getId(),page.getId(),interaction(first.operationId(),changed.operationId(),changedSpec));
         assertThat(annotations.replay(owner,room.getId(),page.getId(),0)).hasSize(3);
     }
     @Test void interactiveDraftNeedsConfirmationAndBothViewersReplayTheSameRevision()throws Exception {

@@ -46,10 +46,10 @@ it('creates a private interactive preview and only appends to its original pupil
   vi.mocked(kolinApi.appendWorksheet).mockResolvedValue({...interactive,state:'ADDED'});
   const view=render(<Harness/>);
   await userEvent.click(screen.getByRole('button',{name:'Kolyn'}));
-  await userEvent.selectOptions(screen.getByRole('combobox',{name:'Формат заданий'}),'interactive');
+  expect(screen.queryByRole('combobox',{name:'Формат заданий'})).not.toBeInTheDocument();
   await userEvent.type(screen.getByRole('textbox'),'График для Виталины{Enter}');
   const add=await screen.findByRole('button',{name:'Добавить Виталине'});
-  expect(vi.mocked(kolinApi.send).mock.calls[0][3]).toMatchObject({targetType:'student',studentId:'alice',format:'interactive'});
+  expect(vi.mocked(kolinApi.send).mock.calls[0][3]).toMatchObject({targetType:'student',studentId:'alice'});
   expect(kolinApi.worksheetPreview).not.toHaveBeenCalled();
   expect(kolinApi.appendWorksheet).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole('button',{name:'Предпросмотр для Виталина'}));
