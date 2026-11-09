@@ -54,7 +54,7 @@ public class MindcraftiMcpController {
 
     private static final String API_KEY_HEADER = "X-Mindcrafti-Api-Key";
     private static final String SERVER_NAME = "mindcrafti-lessons";
-    private static final String SERVER_VERSION = "1.32.0";
+    private static final String SERVER_VERSION = "1.33.0";
     private static final int MAX_DIRECT_PDF_BYTES = 15 * 1024 * 1024;
     private static final String FILE_TRANSFER_RESOURCE = "ui://mindcrafti/lesson-file-transfer-v2.html";
     private static final String FILE_TRANSFER_MIME = "text/html;profile=mcp-app";
@@ -320,6 +320,7 @@ public class MindcraftiMcpController {
     private Map<String, Object> fileTransferResources(AuthContext auth) {
         List<Map<String, Object>> resources = new ArrayList<>();
         if (fileTransferActorAllowed(auth)) {
+            if (teacherGuideService != null) resources.add(McpTeacherGuideService.resourceDescriptor());
             resources.add(Map.of("uri", FILE_TRANSFER_RESOURCE, "name", "lesson-file-transfer",
                         "title", "Загрузка PDF в урок", "mimeType", FILE_TRANSFER_MIME,
                         "description", "Transfers the approved ChatGPT PDFs to the selected Mindcrafti lesson."));
@@ -341,6 +342,12 @@ public class MindcraftiMcpController {
 
     private Map<String, Object> readFileTransferResource(Map<String, Object> request, AuthContext auth) {
         String uri = required(map(request.get("params")), "uri");
+        if (McpTeacherGuideService.UI_RESOURCE.equals(uri)) {
+            if (!fileTransferActorAllowed(auth)) throw new org.springframework.security.access.AccessDeniedException("School OAuth sign-in is required");
+            if (teacherGuideService == null) throw new IllegalStateException("Teacher guide is unavailable");
+            try { return teacherGuideService.resource(auth.user(),auth.apiKey()); }
+            catch (java.io.IOException unavailable) { throw new IllegalStateException("Teacher guide gallery is unavailable"); }
+        }
         if (UI_DIAGNOSTIC_MODERN_RESOURCE.equals(uri) || UI_DIAGNOSTIC_LEGACY_RESOURCE.equals(uri)) {
             return readUiDiagnosticResource(uri, auth);
         }
@@ -595,7 +602,10 @@ public class MindcraftiMcpController {
             if (lessonScheduleService != null) tools.addAll(McpLessonScheduleService.definitions());
             if (siteFunctionsService != null) tools.addAll(McpSiteFunctionsService.definitions());
         }
-        if (fileTransferActorAllowed(auth) && teacherGuideService != null) tools.add(McpTeacherGuideService.definition());
+        if (fileTransferActorAllowed(auth) && teacherGuideService != null) {
+            tools.add(McpTeacherGuideService.definition());
+            tools.add(McpTeacherGuideService.showDefinition());
+        }
         if (fileTransferActorAllowed(auth)) tools.addAll(fileTransferTools());
         if (uiDiagnosticActorAllowed(auth)) tools.addAll(uiDiagnosticTools());
         tools.addAll(SkillBoardMcpService.definitions());
@@ -880,11 +890,13 @@ public class MindcraftiMcpController {
                 return siteToolFailure(failure);
             }
         }
-        if (McpTeacherGuideService.TOOL.equals(name)) {
+        if (McpTeacherGuideService.TOOL.equals(name) || McpTeacherGuideService.SHOW_TOOL.equals(name)) {
             try {
                 if(!fileTransferActorAllowed(auth))throw new org.springframework.security.access.AccessDeniedException("School OAuth teacher or administrator sign-in is required");
                 if(teacherGuideService==null)throw new IllegalStateException("Teacher guide is unavailable");
-                return teacherGuideService.call(auth.user(),auth.apiKey(),arguments);
+                return McpTeacherGuideService.SHOW_TOOL.equals(name)
+                    ? teacherGuideService.show(auth.user(),auth.apiKey(),arguments)
+                    : teacherGuideService.call(auth.user(),auth.apiKey(),arguments);
             }catch(Exception failure){return siteToolFailure(failure);}
         }
         if (McpLessonScheduleService.handles(name) || McpSiteFunctionsService.handles(name)) {
