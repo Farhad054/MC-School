@@ -53,6 +53,69 @@ class McpTeacherGuideTest {
             assertThat(result).containsKey("topics");
         }
     }
+    @Test void onboardingAndButtonQuestionsFindRelevantHelp()throws Exception {
+        var questions=Map.ofEntries(
+            Map.entry("Я новый преподаватель, как вообще проводить урок?","lesson-flow"),
+            Map.entry("Что подготовить и включить перед уроком?","lesson-ready"),
+            Map.entry("Где находится вкладка решения?","answers"),
+            Map.entry("Покажи на фото где кнопки","interface-map"),
+            Map.entry("Как работает переключение звука?","audio"),
+            Map.entry("Кому слышно когда открываю ученика?","audio"),
+            Map.entry("Как сказать всем и вернуться к ученику?","audio"),
+            Map.entry("Почему у ученика нет общих решений?","answers"),
+            Map.entry("Как дать разный PDF каждому?","personal-materials"),
+            Map.entry("Где включить расшифровку?","transcript"),
+            Map.entry("Wo finde ich Lösungen?","answers"),
+            Map.entry("How do I prepare my first lesson?","lesson-flow"));
+        var service=service();
+        for(var entry:questions.entrySet()) {
+            var matches=(List<McpTeacherGuideService.Article>)service.read(teacher,false,Map.of("query",entry.getKey())).get("articles");
+            assertThat(matches).as(entry.getKey()).extracting(McpTeacherGuideService.Article::id).contains(entry.getValue());
+        }
+    }
+    @Test void screenshotsAreOptInDecodableAndNeverDuplicatedInsideText()throws Exception {
+        var service=service();
+        for(var args:List.of(Map.<String,Object>of(),Map.<String,Object>of("query","Где решения?"),Map.<String,Object>of("topicId","answers"))) {
+            var result=service.call(teacher,false,args);
+            var content=(List<Map<String,Object>>)result.get("content");
+            assertThat(content).hasSize(1);
+            assertThat(content.get(0).get("type")).isEqualTo("text");
+            assertThat(content.get(0).get("text").toString()).doesNotContain("iVBOR","base64");
+        }
+        var topic=service.read(teacher,false,Map.of("topicId","answers"));
+        assertThat((List<McpTeacherGuideService.GuideImage>)topic.get("images"))
+            .extracting(McpTeacherGuideService.GuideImage::id).containsExactly("answers-panel");
+        try(var input=new ClassPathResource("mcp/teacher-guide.json").getInputStream()) {
+            for(var image:json.readValue(input,McpTeacherGuideService.Guide.class).images()) {
+                var result=service.call(teacher,false,Map.of("imageId",image.id()));
+                var content=(List<Map<String,Object>>)result.get("content");
+                assertThat(content).hasSize(2);
+                assertThat(content.get(1)).containsEntry("type","image").containsEntry("mimeType","image/png");
+                var bytes=Base64.getDecoder().decode(content.get(1).get("data").toString());
+                assertThat(bytes.length).isBetween(8,500_000);
+                var decoded=javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+                assertThat(decoded).isNotNull();
+                assertThat(decoded.getWidth()).isGreaterThanOrEqualTo(600);
+                assertThat(json.writeValueAsString(result.get("structuredContent"))).doesNotContain("iVBOR","base64","studentId");
+                assertThat(content.get(0).get("text").toString()).contains(image.description());
+            }
+        }
+    }
+    @Test void screenshotReadsUseTheSameAccessAndArgumentBoundaries()throws Exception {
+        var service=service();
+        assertThatThrownBy(()->service.call(teacher,true,Map.of("imageId","answers-panel"))).isInstanceOf(AccessDeniedException.class);
+        for(var args:List.of(Map.<String,Object>of("query","answers","imageId","answers-panel"),
+                Map.<String,Object>of("topicId","answers","imageId","answers-panel"),Map.<String,Object>of("imageId",1),
+                Map.<String,Object>of("imageId","x".repeat(81))))
+            assertThatThrownBy(()->service.call(teacher,false,args)).isInstanceOf(IllegalArgumentException.class);
+        for(String id:List.of("../teacher-guide.json","unknown","https://example.test/private.png")) {
+            var result=service.call(teacher,false,Map.of("imageId",id));
+            assertThat(((Map<?,?>)result.get("structuredContent")).get("found")).isEqualTo(false);
+            assertThat((List<?>)result.get("content")).hasSize(1);
+        }
+        doThrow(new AccessDeniedException("Inactive account")).when(access).requireActor(teacher);
+        assertThatThrownBy(()->service.call(teacher,false,Map.of("imageId","answers-panel"))).isInstanceOf(AccessDeniedException.class);
+    }
     @Test void validatesInputsAndRechecksOAuthAccessOnEveryRead()throws Exception {
         var service=service();
         assertThatThrownBy(()->service.read(teacher,true,Map.of())).isInstanceOf(AccessDeniedException.class);

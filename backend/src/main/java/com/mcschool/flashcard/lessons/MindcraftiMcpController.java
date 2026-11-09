@@ -884,7 +884,7 @@ public class MindcraftiMcpController {
             try {
                 if(!fileTransferActorAllowed(auth))throw new org.springframework.security.access.AccessDeniedException("School OAuth teacher or administrator sign-in is required");
                 if(teacherGuideService==null)throw new IllegalStateException("Teacher guide is unavailable");
-                return toolResult(teacherGuideService.read(auth.user(),auth.apiKey(),arguments));
+                return teacherGuideService.call(auth.user(),auth.apiKey(),arguments);
             }catch(Exception failure){return siteToolFailure(failure);}
         }
         if (McpLessonScheduleService.handles(name) || McpSiteFunctionsService.handles(name)) {
