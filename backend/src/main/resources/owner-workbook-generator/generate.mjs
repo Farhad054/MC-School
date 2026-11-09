@@ -14,7 +14,7 @@ import { dirname, join, resolve, basename } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { renderDiagram, computeIntersections, graphWarnings } from './diagrams.mjs';
 import { primeMath, renderMath as math, richText } from './math.mjs';
-import { validateLesson, length, integer, columns } from './schema.mjs';
+import { validateLesson, normalizeLessonMath, length, integer, columns } from './schema.mjs';
 import { prepareVisualTasks, mergeVisualQa } from './visual-tasks.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +28,9 @@ const logoPath = resolve(option('logo', join(root, 'assets', 'logo-m.png')));
 const out = resolve(option('out', join(root, 'out')));
 const plain = args.includes('--plain');
 const lesson = JSON.parse(await readFile(lessonPath, 'utf8'));
+// Match the teacher/admin ChatGPT contract before strict schema and math QA.
+// This changes only representation, never mathematical content or answers.
+normalizeLessonMath(lesson);
 validateLesson(lesson);
 const visualQa = prepareVisualTasks(lesson);
 const css = await readFile(join(root, 'styles.css'), 'utf8');
@@ -307,7 +310,11 @@ function preflightPages(pages, teacher = false) {
  * Nested diagrams/grids remain intact and are never split.
  */
 function autoPaginatePages(pages, teacher = false) {
-  const targetUnits = teacher ? 14.5 : 12.5;
+  // Reserve physical A4 headroom for handwritten work; a pair of 8-line
+  // exercises exceeded measured geometry QA despite passing the old estimate.
+  // With this limit, short tasks can still share a page, while long
+  // handwritten solutions get a separate sheet without shrinking text.
+  const targetUnits = teacher ? 14.5 : 8.5;
   const hardMax = teacher ? 18 : 16;
   const output = [];
   for (const [pageIndex,page] of pages.entries()) {
