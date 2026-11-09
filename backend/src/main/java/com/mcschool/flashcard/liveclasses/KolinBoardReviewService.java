@@ -60,7 +60,9 @@ public class KolinBoardReviewService {
         var words=Arrays.stream(normalize(text).split("[^a-z0-9]+")).filter(s->!s.isBlank()).toList();
         var matches=pupils.stream().filter(p->Arrays.stream(normalize(p.name()).split("[^a-z]+")).filter(n->n.length()>=3)
                 .anyMatch(name->words.stream().anyMatch(word->nameMatches(name,word)))).toList();
-        boolean explicit=Pattern.compile("(?iu)\\b(у|для|von|bei|for)\\s+\\p{L}+").matcher(text).find();
+        // Unicode word boundaries changed in Java 19. Keep Cyrillic names identical on Java 17/21.
+        boolean explicit=Pattern.compile("(?iuU)\\b(у|для|von|bei|for|of)\\s+\\p{L}+").matcher(text).find()
+                || hasUnresolvedRecipient(text);
         if(matches.isEmpty() && !explicit && !Pattern.compile("(?iu)(проверь|посмотри|разбери|оцени|check|review|prüf|kontrollier|schau)").matcher(text).find())
             return new Target("not_requested",null,null,null);
         if (matches.isEmpty() && !WORK.matcher(text).find() && !explicit)
@@ -79,6 +81,17 @@ public class KolinBoardReviewService {
     private static Target ready(KolinTaskRoster.Pupil pupil,String scope) { return new Target("ready",pupil.id(),pupil.name(),null,scope); }
     private static Target clarify() { return new Target("clarify",null,null,
             "Уточните имя одного ученика из этого урока или откройте его личную доску и попросите проверить решение."); }
+
+    // Do not treat an unfamiliar name after a review verb/work noun as the selected pupil.
+    private static boolean hasUnresolvedRecipient(String text) {
+        var mentions=Pattern.compile("(?iuU)\\b(?:проверь|посмотри|разбери|оцени|задани[ея]|решени[ея]|работ[уыа]|тетрад[ьи])(?=\\s+(\\p{L}+))").matcher(text);
+        var generic=Set.of("пожалуйста","сейчас","заодно","ещё","еще","тоже","у","для","на","в","из","с","по","и",
+                "это","этот","эту","эти","текущее","текущую","всю","весь","все","всё","его","её","ее","мое","моё","мои",
+                "решение","решения","задание","задания","работу","работы","тетрадь","страницу","страницы","ответ","ответы",
+                "вычисления","правильность","полностью","целиком","ниже","выше","что","как","верно","правильно");
+        while(mentions.find()) if(!generic.contains(mentions.group(1).toLowerCase(Locale.ROOT))) return true;
+        return false;
+    }
 
     // Exact names plus common case endings. No fuzzy nearest-pupil selection.
     static boolean nameMatches(String name,String word) {

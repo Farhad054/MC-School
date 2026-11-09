@@ -36,8 +36,9 @@ class KolinBoardReviewServiceTest {
     }
     @Test void unknownOrAmbiguousNamesNeverFallBackToAnotherPupil() {
         var context=new KolinChatService.Context("student",melissa.getId(),1);
-        for(String question:List.of("Проверь задание у Маши","Проверь Мелиссу и Софию"))
-            assertThat(service.resolve(room,question,context).state()).isEqualTo("clarify");
+        for(String question:List.of("Проверь задание у Маши","Проверь Мелиссу и Софию","Проверь решение Анны",
+                "Проверь решение анны","Проверь Машино решение","Проверь Анну"))
+            assertThat(service.resolve(room,question,context).state()).as(question).isEqualTo("clarify");
         when(roster.read(room)).thenReturn(List.of(new KolinTaskRoster.Pupil(melissa.getId(),"Мелисса А"),new KolinTaskRoster.Pupil(sofia.getId(),"Мелисса Б")));
         assertThat(service.resolve(room,"Проверь Мелиссу",context).state()).isEqualTo("clarify");
     }
