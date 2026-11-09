@@ -18,6 +18,10 @@ public final class KolinRequestException extends ResponseStatusException {
         return new KolinRequestException(HttpStatus.BAD_GATEWAY,"KOLIN_TASK_INVALID",
                 "Не удалось проверить задания. Повторите запрос.");
     }
+    public static KolinRequestException reviewUnavailable() {
+        return new KolinRequestException(HttpStatus.CONFLICT,"KOLIN_REVIEW_UNAVAILABLE",
+                "Страница для проверки недоступна или тетрадь изменилась. Отправьте новый запрос, чтобы получить свежий снимок.");
+    }
     public static KolinRequestException failed() {
         return new KolinRequestException(HttpStatus.BAD_GATEWAY,"KOLIN_GENERATION_FAILED",
                 "Kolyn не смог завершить ответ. Попробуйте отправить запрос ещё раз.");

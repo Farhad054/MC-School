@@ -115,7 +115,7 @@ class KolinChatServiceTest {
     @Test void historyCharacterBudgetKeepsContiguousWholeRecentMessages() {
         var history=new ArrayList<KolinChatService.HistoryMessage>();
         history.add(new KolinChatService.HistoryMessage("user","oldest should disappear"));
-        for(int i=0;i<5;i++)history.add(new KolinChatService.HistoryMessage("assistant",String.valueOf(i).repeat(4000)));
+        for(int i=0;i<5;i++)history.add(new KolinChatService.HistoryMessage("assistant",String.valueOf(i).repeat(8000)));
         chat.send(host,room.getId(),new KolinChatService.Request("Продолжи",history,null));
         verify(ai).kolinReply(anyString(),argThat(kept->kept.size()==4 && kept.get(0).get("text").startsWith("1") && kept.get(3).get("text").startsWith("4")),anyString());
     }
@@ -189,10 +189,12 @@ class KolinChatServiceTest {
             assertThat(reply.transcriptContext().state()).isEqualTo("unavailable");
             assertThat(reply.transcriptContext().segmentCount()).isZero();
             verify(ai).kolinReply(contains("\"state\":\"unavailable\""),anyList(),anyString());
-            assertThat(logs.list).hasSize(1);
+            assertThat(logs.list).hasSize(2);
             assertThat(logs.list.get(0).getFormattedMessage()).contains(room.getId().toString(),"IllegalStateException")
                     .doesNotContain("PRIVATE_TRANSCRIPT","teacher@test.local","SECRET_KEY");
             assertThat(logs.list.get(0).getThrowableProxy()).isNull();
+            assertThat(logs.list.get(1).getFormattedMessage()).contains("transcriptState=unavailable","transcriptSegments=0","boardPages=0")
+                    .doesNotContain("PRIVATE_TRANSCRIPT","teacher@test.local","SECRET_KEY");
         } finally {logger.detachAppender(logs);logs.stop();}
     }
 

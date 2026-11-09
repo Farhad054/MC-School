@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnnotationDocument, AnnotationTargetType } from '../../api/onlineClasses';
 import type { PdfDoc } from './pdfDocument';
-import { exportBoardPdf } from './boardExport';
+import { exportBoardPdf, captureBoardPage } from './boardExport';
 import type { Operation } from './annotations';
 
 const mocks = vi.hoisted(() => ({
+  version: vi.fn(), bytes: vi.fn(), openPdf: vi.fn(),
   list: vi.fn(), replay: vi.fn(), stages: [] as Record<string, any>[], images: [] as Record<string, any>[],
   lines: [] as { page: number; attributes: Record<string, any> }[],
 }));
-vi.mock('../../api/onlineClasses', () => ({ onlineClassesApi: { listAnnotationDocuments: mocks.list, replayAnnotations: mocks.replay } }));
+vi.mock('../../api/onlineClasses', () => ({ onlineClassesApi: { listAnnotationDocuments: mocks.list, replayAnnotations: mocks.replay,
+  documentVersion: mocks.version, documentBytes: mocks.bytes } }));
+vi.mock('./pdfDocument', () => ({ openPdf: mocks.openPdf }));
 vi.mock('konva', () => {
   class Node {
     constructor(public attributes: Record<string, any> = {}) {}
@@ -31,9 +34,52 @@ vi.mock('konva', () => {
 beforeEach(() => {
   vi.clearAllMocks(); mocks.stages.length = 0; mocks.images.length = 0; mocks.lines.length = 0;
   mocks.list.mockResolvedValue([]); mocks.replay.mockResolvedValue([]);
+  mocks.version.mockReset().mockResolvedValue({ version: 4 }); mocks.bytes.mockResolvedValue(new ArrayBuffer(10));
 });
 
 const options = { classId: 'class-1', targetType: 'WHITEBOARD' as const, targetId: 'board-1', pageCount: 1, pdfDocument: null };
+
+describe('Kolyn captures saved pupil work', () => {
+  const pupil = '11111111-1111-4111-8111-111111111111', targetId = `personal-workbook-${pupil}`;
+  function pdf() {
+    const value = { pageCount: 4, renderPage: vi.fn(async () => ({ canvas: document.createElement('canvas'), aspect: 210 / 297 })), destroy: vi.fn() };
+    mocks.openPdf.mockResolvedValue(value); return value;
+  }
+  it('combines page three of the correct PDF with only that page saved ink', async () => {
+    const document = pdf();
+    const entry = { ...annotationDocument('WHITEBOARD', 210, 297), targetId, pageIndex: 2, revision: 1 };
+    mocks.list.mockResolvedValue([entry, { ...entry, id: 'another-pupil', targetId: 'personal-other' }]);
+    mocks.replay.mockResolvedValue([lateLine(1)]);
+    const shot = await captureBoardPage('class-1', pupil, targetId, 2, new Date().toISOString());
+    expect(document.renderPage).toHaveBeenCalledExactlyOnceWith(2, 1600);
+    expect(mocks.bytes).toHaveBeenCalledExactlyOnceWith('class-1', targetId);
+    expect(mocks.replay).toHaveBeenCalledExactlyOnceWith('class-1', entry.id, 0);
+    expect(mocks.images).toHaveLength(1); expect(mocks.lines).toHaveLength(1);
+    expect(shot).toMatchObject({ studentId: pupil, pageNumber: 3, revision: 1, documentVersion: 4, scope: 'current_page', additionalPages: [] });
+    expect(document.destroy).toHaveBeenCalledOnce();
+  });
+  it('includes all PDF pages and appended handwritten pages in a workbook review', async () => {
+    const document = pdf();
+    mocks.list.mockResolvedValue([{ ...annotationDocument('WHITEBOARD', 210, 297), targetId, pageIndex: 4, revision: 1 }]);
+    mocks.replay.mockResolvedValue([lateLine(1)]);
+    const shot = await captureBoardPage('class-1', pupil, '', 0, new Date().toISOString(), 'workbook');
+    expect(document.renderPage.mock.calls).toEqual([[0, 1600], [1, 1600], [2, 1600], [3, 1600]]);
+    expect(shot.totalPageCount).toBe(5); expect(shot.additionalPages.map(page => page.pageNumber)).toEqual([2, 3, 4, 5]);
+    expect(shot.additionalPages[3].revision).toBe(1); expect(mocks.lines).toHaveLength(1);
+    expect(document.destroy).toHaveBeenCalledOnce();
+  });
+  it('rejects PDF replacement during capture instead of reviewing old questions with new ink', async () => {
+    const document = pdf(); mocks.version.mockResolvedValueOnce({ version: 4 }).mockResolvedValueOnce({ version: 5 });
+    await expect(captureBoardPage('class-1', pupil, targetId, 0, new Date().toISOString())).rejects.toThrow('source changed');
+    expect(document.destroy).toHaveBeenCalledOnce();
+  });
+  it('never silently falls back to a shared workbook when the private PDF cannot be read', async () => {
+    mocks.bytes.mockResolvedValueOnce(null);
+    await expect(captureBoardPage('class-1', pupil, targetId, 0, new Date().toISOString())).rejects.toThrow('PDF unavailable');
+    expect(mocks.bytes).toHaveBeenCalledExactlyOnceWith('class-1', targetId);
+    expect(mocks.stages).toHaveLength(0);
+  });
+});
 function annotationDocument(targetType: AnnotationTargetType, sourceWidth: number, sourceHeight: number): AnnotationDocument {
   return { id: 'document-1', targetType, targetId: 'board-1', pageIndex: 0, sourceWidth, sourceHeight, revision: 0, snapshotSavedAt: null };
 }

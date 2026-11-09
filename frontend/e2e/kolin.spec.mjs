@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 
 const TEACHER = '33333333-3333-4333-8333-333333333333';
 const OTHER_TEACHER = '44444444-4444-4444-8444-444444444444';
@@ -16,26 +16,29 @@ const toggle = page => page.getByRole('button', { name: 'Kolyn', exact: true });
 const separator = page => page.getByRole('separator', { name: 'Изменить ширину Kolyn', exact: true });
 function gate() { let release; const promise = new Promise(resolve => { release = resolve; }); return { promise, release }; }
 
-function worksheetPdf() {
+function worksheetPdf(pageCount = 1) {
   const content = 'BT /F1 20 Tf 50 740 Td (Kolyn worksheet) Tj 0 -40 Td (1. 1/2 + 1/4 = ?) Tj ET';
-  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', `<< /Type /Pages /Kids [${Array.from({length:pageCount},(_,i)=>`${3+i} 0 R`).join(' ')}] /Count ${pageCount} >>`,
+    ...Array.from({length:pageCount},()=>`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${3+pageCount} 0 R >> >> /Contents ${4+pageCount} 0 R >>`),
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${content.length} >>\nstream\n${content}\nendstream`];
   let pdf = '%PDF-1.4\n'; const offsets = [0];
   objects.forEach((body, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${body}\nendobj\n`; });
   const xref = Buffer.byteLength(pdf);
-  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}`;
-  return Buffer.from(`${pdf}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+  pdf += `xref\n0 ${objects.length+1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}`;
+  return Buffer.from(`${pdf}trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
 }
 
 async function setup(page, role = 'teacher') {
   const state = { teacherId: TEACHER, posts: [], annotationWrites: [], requests: [], errors: [], failOnce: false, failStatusOnce: false, responseGate: null, configured: true, transcriptContext: undefined,
     worksheet: undefined, appends: [], appendFailOnce: false, appendGate: null };
   const documents = new Map();
+  state.documents = documents;
   page.on('pageerror', error => state.errors.push(error.message));
   await page.route('**/api/v1/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname, method = request.method();
     state.requests.push({ path, method });
+    if (path.endsWith('/kolin/review-target')) return route.fulfill({ json: state.review
+      ? { state: 'ready', studentId: MELISSA, studentName: 'Мелисса', scope: state.reviewScope ?? 'current_page' } : { state: 'not_requested' } });
     if (path.endsWith('/kolin/status')) {
       if (state.failStatusOnce) { state.failStatusOnce = false; return route.fulfill({ status: 503, json: { message: 'Temporary test error' } }); }
       return route.fulfill({ json: { configured: state.configured } });
@@ -46,6 +49,14 @@ async function setup(page, role = 'teacher') {
       state.posts.push({ path, body, contentType: request.headers()['content-type'] });
       if (state.responseGate) await state.responseGate.promise;
       if (state.failOnce) { state.failOnce = false; return route.fulfill({ status: 503, json: { errorCode: 'KOLIN_UNAVAILABLE', message: 'Kolyn временно недоступен. Повторите отправку.' } }); }
+      if (body.boardReview) {
+        const shot = body.boardReview;
+        const pages = [shot, ...shot.additionalPages].map(item => ({ pageNumber: item.pageNumber, revision: item.revision,
+          imageSha256: createHash('sha256').update(Buffer.from(item.imageDataUrl.split(',')[1], 'base64')).digest('hex') }));
+        const { imageDataUrl, observedAt, additionalPages, ...metadata } = shot;
+        return route.fulfill({ json: { type: 'text', text: 'Мелисса, страница 3: 1/2 + 1/4 = 3/4. Складываем числители после приведения к общему знаменателю.',
+          boardContext: { ...metadata, studentName: 'Мелисса', imageSha256: pages[0].imageSha256, pages } } });
+      }
       if (state.worksheet) return route.fulfill({ json: { type: 'worksheet', text: 'Задания готовы.', worksheet: state.worksheet } });
       return route.fulfill({ json: { type: 'text', text: state.posts.length === 1 ? firstReply : nextReply,
         ...(responseContext ? { transcriptContext: responseContext } : {}) } });
@@ -77,8 +88,10 @@ async function setup(page, role = 'teacher') {
     ] });
     if (path.endsWith('/personal-workbooks')) return route.fulfill({ json: { enabled: false, students: [] } });
     if (path.endsWith('/answers/metadata')) return route.fulfill({ json: { hasAnswers: false, answersFilename: null, version: 0 } });
-    if (path.endsWith('/document/version')) return route.fulfill({ json: { version: 0 } });
-    if (path.endsWith('/document')) return route.fulfill({ status: 404, json: { message: 'No workbook in this fixture' } });
+    if (path.endsWith('/document/version')) return route.fulfill({ json: { version: state.review && url.searchParams.get('boardId') === `personal-workbook-${MELISSA}` ? 7 : 0 } });
+    if (path.endsWith('/document')) return state.review && url.searchParams.get('boardId') === `personal-workbook-${MELISSA}`
+      ? route.fulfill({ contentType: 'application/pdf', body: worksheetPdf(3) })
+      : route.fulfill({ status: 404, json: { message: 'No workbook in this fixture' } });
     if (path.endsWith('/annotations/documents')) {
       if (method === 'GET') return route.fulfill({ json: [...documents.values()] });
       const targetType = url.searchParams.get('targetType'), targetId = url.searchParams.get('targetId'), pageIndex = Number(url.searchParams.get('pageIndex'));
@@ -130,6 +143,34 @@ function assertCompact(body) {
   expect(JSON.stringify(body)).not.toMatch(/input_file|input_image|file_data|base64|data:application|transcript|workbookPdf|answersPdf|api[_-]?key|sk-proj|schoolPrompt/i);
   expect(JSON.stringify(body).length).toBeLessThan(20000);
 }
+
+for (const whole of [false, true]) test(`review sees Melissa ${whole ? 'whole workbook' : 'page three'} with PDF and saved writing without changing the board`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const state = await setup(page); state.review = true; state.reviewScope = whole ? 'workbook' : 'current_page';
+  const boardId = `personal-workbook-${MELISSA}`, documentId = randomUUID();
+  state.documents.set(documentId, { id: documentId, targetType: 'WHITEBOARD', targetId: boardId, pageIndex: 2,
+    revision: 1, sourceWidth: 595, sourceHeight: 842, snapshotSavedAt: null });
+  state.annotationWrites.push({ path: `/api/v1/online-classes/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/annotations/documents/${documentId}/operations`,
+    operation: { operationId: randomUUID(), sequence: 1, actorId: MELISSA, layerOwnerId: MELISSA, operationType: 'ADD',
+      payload: JSON.stringify({ kind: 'text', color: '#215bc6', x: .12, y: .3, size: .032, text: '1/2 + 1/4 = 2/6' }) } });
+  await openKolin(page);
+  if (!whole) await page.evaluate(({ pupil, board }) => window.kolinPupilView('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', pupil, board, 2), { pupil: MELISSA, board: boardId });
+  const before = state.annotationWrites.length;
+  await input(page).fill(whole ? 'Что неправильно решила Мелисса?' : 'Проверь задание у Мелиссы'); await input(page).press('Enter');
+  await expect(panel(page).getByText(/Мелисса, страница 3: 1\/2/)).toBeVisible({ timeout: 30000 });
+  expect(state.posts[0].body.boardReview).toMatchObject({ studentId: MELISSA, boardId, pageNumber: whole ? 1 : 3, documentVersion: 7, scope: whole ? 'workbook' : 'current_page' });
+  expect(state.posts[0].body.boardReview.additionalPages).toHaveLength(whole ? 2 : 0);
+  expect(state.posts[0].body.boardReview.imageDataUrl.length).toBeGreaterThan(10000);
+  expect(state.annotationWrites).toHaveLength(before);
+  await panel(page).getByRole('button', { name: `Открыть проверенную страницу: Мелисса, страница ${whole ? 1 : 3}` }).click();
+  if (whole) await page.getByRole('combobox', { name: 'Проверенная страница' }).selectOption('3');
+  const dialog = page.getByRole('dialog', { name: 'Мелисса, страница 3' });
+  await expect(dialog).toBeVisible();
+  expect(await dialog.getByRole('img').evaluate(image => image.naturalWidth)).toBe(1600);
+  await page.screenshot({ path: testInfo.outputPath('kolyn-melissa-reviewed-page.png'), fullPage: true });
+  await page.keyboard.press('Escape'); await expect(dialog).not.toBeVisible();
+  expect(state.errors).toEqual([]);
+});
 
 async function bounds(page) {
   return { main: await page.locator('.online-class-room__stage > .online-class-room__main').boundingBox(), panel: await panel(page).boundingBox() };
@@ -346,7 +387,8 @@ test('each answer keeps its own transcript coverage and does not resend transcri
   await expect(notes.last()).toContainText(/неактивна/i);
   expect(state.posts[1].body.history).toEqual([{ role: 'user', text: 'Объясни последнюю ошибку' }, { role: 'assistant', text: firstReply }]);
   for (const post of state.posts) assertCompact(post.body);
-  expect(state.requests.filter(request => request.path.includes('/kolin/')).map(request => request.method)).toEqual(['GET', 'POST', 'POST']);
+  expect(state.requests.filter(request => request.path.includes('/kolin/') && !request.path.endsWith('/review-target')).map(request => request.method)).toEqual(['GET', 'POST', 'POST']);
+  expect(state.requests.filter(request => request.path.endsWith('/review-target'))).toHaveLength(2);
   expect(state.errors).toEqual([]);
 });
 

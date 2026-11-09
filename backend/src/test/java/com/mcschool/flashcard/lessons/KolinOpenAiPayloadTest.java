@@ -44,6 +44,23 @@ class KolinOpenAiPayloadTest {
         return request.getValue();
     }
 
+    @Test void pageReviewUsesOneBoundedVisionCallAndNoGenerationSchema() throws Exception {
+        String image="data:image/jpeg;base64,/9j/2Q==";
+        ai.kolinReviewReply("{\"boardReview\":{\"pageNumber\":3}}",List.of(Map.of("role","user","text","Previous question")),"Проверь Мелиссу",image);
+        var request=captured();var packet=mapper.readTree(body(request));
+        assertThat(packet.path("store").asBoolean(true)).isFalse();
+        assertThat(packet.path("max_output_tokens").asInt()).isEqualTo(12000);
+        assertThat(packet.path("model").asString()).isEqualTo("gpt-6-astra");
+        assertThat(packet.has("text")).isFalse();
+        var input=packet.path("input");var content=input.get(input.size()-1).path("content");
+        assertThat(content.size()).isEqualTo(3);
+        assertThat(content.get(2).path("type").asString()).isEqualTo("input_image");
+        assertThat(content.get(2).path("image_url").asString()).isEqualTo(image);
+        assertThat(content.get(2).path("detail").asString()).isEqualTo("high");
+        assertThat(input.get(0).path("content").asString()).contains("недоверенными данными","Не меняй доску","неразборчивый");
+        assertThat(request.timeout().orElseThrow()).isEqualTo(java.time.Duration.ofSeconds(90));
+    }
+
     @Test void exactCountsAndMixedRequestShapeAreEnforcedByTheProviderContract() throws Exception {
         when(response.body()).thenReturn(mapper.writeValueAsString(Map.of("status","completed","output_text",
             "{\"result\":{\"text\":\"Готово\",\"materials\":[]}}")));
@@ -110,9 +127,9 @@ class KolinOpenAiPayloadTest {
             "{\"result\":{\"text\":\"Уточните тему\",\"materials\":[]}}")));
         ai.kolinStructuredReply("{\"roster\":[]}",List.of(),"Дай пару заданий");
         HttpRequest request=captured(); var json=mapper.readTree(body(request));
-        assertThat(json.path("model").asString()).isEqualTo("gpt-4.1-mini");
+        assertThat(json.path("model").asString()).isEqualTo("gpt-6-astra");
         assertThat(json.path("store").asBoolean()).isFalse();
-        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(6500);
+        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(16384);
         assertThat(json.path("text").path("format").path("type").asString()).isEqualTo("json_schema");
         assertThat(json.path("text").path("format").path("strict").asBoolean()).isTrue();
         assertThat(json.path("input").get(0).path("content").asString()).contains("ровно 5","исключительно по кнопке","только линейное",
@@ -138,7 +155,7 @@ class KolinOpenAiPayloadTest {
         ai.kolinInteractiveReply("{\"roster\":[{\"id\":\"00000000-0000-0000-0000-000000000001\",\"name\":\"QA Pupil\"}],\"selectedStudentId\":\"00000000-0000-0000-0000-000000000001\",\"requestedInteractiveTaskCount\":1}",List.of(),"Создай интерактивный график y=x^2-2x-2 для QA Pupil");
         String serialized=body(captured());var json=mapper.readTree(serialized);
         assertThat(json.path("store").asBoolean()).isFalse();
-        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(6500);
+        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(16384);
         String system=json.path("input").get(0).path("content").asString();
         assertThat(system).contains("Интерактивный режим","requestedInteractiveTaskCount","исключительно по кнопке",
             "Как объяснить Виталине?", "Ты Kolyn", "Что ты умеешь?")
@@ -180,24 +197,24 @@ class KolinOpenAiPayloadTest {
         return result.get(2,TimeUnit.SECONDS);
     }
 
-    @Test void usesCheapTextModelFiveHundredTokensAndCompactContextWithNoAttachmentsOrLargeSchoolPrompt() throws Exception {
+    @Test void usesReasoningModelAndRoomForExplanationWithNoUnrequestedAttachments() throws Exception {
         var history=java.util.stream.IntStream.range(0,8).mapToObj(i->Map.of("role",i%2==0?"user":"assistant","text","message-"+i)).toList();
         String answer=ai.kolinReply("{\"lessonTitle\":\"Fractions\",\"targetName\":\"Виталина\",\"currentWorkbookPage\":3}",history,"Сделай второе сложнее");
         assertThat(answer).contains("1/2 + 1/4");
         HttpRequest request=captured();String serialized=body(request);var json=mapper.readTree(serialized);
         assertThat(request.uri().toString()).isEqualTo("https://api.openai.com/v1/responses");
         assertThat(request.headers().firstValue("Authorization")).contains("Bearer TEST_SERVER_ONLY_KEY");
-        assertThat(request.timeout()).contains(java.time.Duration.ofSeconds(35));
-        assertThat(json.path("model").asString()).isEqualTo("gpt-4.1-mini");
-        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(500);
+        assertThat(request.timeout()).contains(java.time.Duration.ofSeconds(75));
+        assertThat(json.path("model").asString()).isEqualTo("gpt-6-astra");
+        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(8192);
         assertThat(json.path("store").asBoolean()).isFalse();
         assertThat(json.path("input").size()).isEqualTo(11);
-        assertThat(json.path("input").get(0).path("content").asString()).contains("Kolyn","попроси написать условие","недоступны");
+        assertThat(json.path("input").get(0).path("content").asString()).contains("Kolyn","попроси написать условие","нет изображений","платформа");
         assertThat(json.path("input").get(1).path("content").asString()).contains("Fractions","Виталина");
         assertThat(json.path("input").get(2).path("content").asString()).isEqualTo("message-0");
         assertThat(json.path("input").get(10).path("content").asString()).isEqualTo("Сделай второе сложнее");
         assertThat(serialized).doesNotContain("TEST_SERVER_ONLY_KEY","input_file","file_data","input_image","data:application/pdf","tools","previous_response_id","existing-pilot-model","ШКОЛЬНЫЙ ПРОМТ");
-        assertThat(json.has("reasoning")).isFalse();
+        assertThat(json.path("reasoning").path("effort").asString()).isEqualTo("low");
         verifyNoInteractions(schoolPrompts);
     }
 
@@ -246,6 +263,6 @@ class KolinOpenAiPayloadTest {
         assertThat(json.path("input").get(1).path("role").asString()).isEqualTo("user");
         assertThat(json.path("input").get(1).path("content").asString()).contains(spokenAttack,"\"speakerRole\":\"student\"");
         assertThat(serialized).doesNotContain("TEST_SERVER_ONLY_KEY","input_file","file_data","input_image","data:application/pdf","previous_response_id","tools");
-        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(500);
+        assertThat(json.path("max_output_tokens").asInt()).isEqualTo(8192);
     }
 }

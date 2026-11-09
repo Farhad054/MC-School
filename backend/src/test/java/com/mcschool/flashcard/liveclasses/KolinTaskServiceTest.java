@@ -29,6 +29,41 @@ class KolinTaskServiceTest {
     private final UUID clientId=UUID.randomUUID(),artifact=UUID.randomUUID(),attempt=UUID.randomUUID();
     private final KolinTranscriptContextService.Metadata metadata=KolinTranscriptContextService.unavailable(room).metadata();
 
+    @org.junit.jupiter.api.BeforeEach void dialogueDefault() {
+        when(ai.kolinDialogue(anyString(),anyList(),anyString())).thenReturn(new AiLessonPilotService.KolinDialogue("generate","Задания"));
+    }
+
+    @Test void ordinaryQuestionsNeverEnterTheWorksheetGenerator() throws Exception {
+        reserve();
+        when(ai.kolinDialogue(anyString(),anyList(),anyString())).thenReturn(new AiLessonPilotService.KolinDialogue("answer","Для Abitur это лишь разминка. Вот как оценить сложность."));
+        send("Это такие лёгкие задания в Abitur?");
+        verify(ai,never()).kolinStructuredReply(anyString(),anyList(),anyString());
+        verifyNoInteractions(renderer);
+        verify(store).complete(eq(host),eq(room.getId()),eq(artifact),eq(attempt),eq("text"),contains("разминка"),eq(metadata),
+                isNull(),isNull(),eq(0),eq(0),isNull(),isNull());
+    }
+
+    @Test void reviewUsesVisionOnceAndCachedRetryKeepsTheOriginalPageWithoutAnyBoardWrites() throws Exception {
+        var reviews=mock(KolinBoardReviewService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"reviews",reviews);
+        var snapshot=new KolinBoardReviewService.Snapshot(pupil.getId(),PersonalBoard.targetIdFor(pupil.getId()),1,2,4,
+                Instant.now(),Instant.now(),"data:image/jpeg;base64,/9j/2Q==");
+        var board=new KolinBoardReviewService.Metadata(pupil.getId(),pupil.getFullName(),snapshot.boardId(),1,2,4,snapshot.capturedAt(),
+                "a".repeat(64),"current_page",1,List.of(new KolinBoardReviewService.PageMetadata(1,4,"a".repeat(64))));
+        var request=new KolinChatService.Request("Проверь Виталину",List.of(),null,clientId,snapshot);
+        var answer=new KolinChatService.Reply("text","Страница 1: ответ 3/4",metadata);
+        when(store.begin(eq(host),eq(room.getId()),eq(clientId),anyString()))
+                .thenReturn(new KolinWorksheetStore.Reservation(artifact,attempt,null),new KolinWorksheetStore.Reservation(artifact,attempt,answer));
+        when(ai.kolinReviewReply(anyString(),anyList(),anyString(),anyList())).thenReturn(answer.text());
+        when(store.complete(eq(host),eq(room.getId()),eq(artifact),eq(attempt),eq("text"),eq(answer.text()),eq(metadata),
+                eq(pupil.getId()),eq(pupil.getFullName()),eq(0),eq(0),isNull(),isNull())).thenReturn(answer);
+        for(int i=0;i<2;i++) assertThat(service.reply(host,room,request,new LinkedHashMap<>(),List.of(),request.text(),metadata,board).boardContext()).isEqualTo(board);
+        verify(reviews).requireCurrent(host,room.getId(),snapshot);
+        verify(ai).kolinReviewReply(anyString(),anyList(),anyString(),argThat((List<Map<String,Object>> images)->images.size()==1 && images.get(0).get("pageNumber").equals(1)));
+        verify(ai,never()).kolinDialogue(anyString(),anyList(),anyString());
+        verifyNoInteractions(renderer,roster);verify(store,never()).append(any(),any(),any());
+    }
+
     @Test void interactiveTemplateUsesOneProviderCallWithoutPdfRenderingOrAutomaticAppend()throws Exception {
         reserve();
         var content=new KolinTaskService.Content("interactive","Graph",pupil.getId().toString(),List.of(

@@ -33,6 +33,12 @@ public class KolinChatController {
         return chat.status(caller, classId);
     }
 
+    @PostMapping("/review-target")
+    public ResponseEntity<KolinBoardReviewService.Target> reviewTarget(@AuthenticationPrincipal AuthenticatedUser caller,
+            @PathVariable UUID classId,@Valid @RequestBody KolinBoardReviewService.TargetRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(chat.reviewTarget(caller,classId,request));
+    }
+
     @PostMapping("/messages")
     public KolinChatService.Reply send(@AuthenticationPrincipal AuthenticatedUser caller, @PathVariable UUID classId,
                                       @Valid @RequestBody KolinChatService.Request request) {

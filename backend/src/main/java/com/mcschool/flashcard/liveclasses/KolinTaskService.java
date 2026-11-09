@@ -20,7 +20,10 @@ public class KolinTaskService {
     public record Content(String kind,String text,String studentId,List<Task> tasks,List<Content> materials) {
         public Content(String kind,String text,String studentId,List<Task> tasks) { this(kind,text,studentId,tasks,null); }
     }
-    private record Fingerprint(String text,List<KolinChatService.HistoryMessage> history,KolinChatService.Context context) {}
+    private record Fingerprint(String text,List<KolinChatService.HistoryMessage> history,KolinChatService.Context context,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) KolinBoardReviewService.Metadata board) {}
+    @org.springframework.beans.factory.annotation.Autowired
+    private KolinBoardReviewService reviews;
     private final AiLessonPilotService ai;
     private final KolinTaskRoster roster;
     private final KolinWorksheetStore store;
@@ -34,18 +37,42 @@ public class KolinTaskService {
     public KolinChatService.Reply reply(AuthenticatedUser teacher,OnlineClass room,KolinChatService.Request request,
             Map<String,Object> context,List<Map<String,String>> history,String question,
             KolinTranscriptContextService.Metadata transcript) throws Exception {
+        return reply(teacher,room,request,context,history,question,transcript,null);
+    }
+    public KolinChatService.Reply reply(AuthenticatedUser teacher,OnlineClass room,KolinChatService.Request request,
+            Map<String,Object> context,List<Map<String,String>> history,String question,
+            KolinTranscriptContextService.Metadata transcript,KolinBoardReviewService.Metadata board) throws Exception {
         String hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsString(
-                new Fingerprint(question,history.stream().map(item -> new KolinChatService.HistoryMessage(item.get("role"),item.get("text"))).toList(),request.context()))
+                new Fingerprint(question,history.stream().map(item -> new KolinChatService.HistoryMessage(item.get("role"),item.get("text"))).toList(),request.context(),board))
                 .getBytes(StandardCharsets.UTF_8)));
         var reserved=store.begin(teacher,room.getId(),request.clientMessageId(),hash);
-        if(reserved.cached()!=null) return reserved.cached();
+        if(reserved.cached()!=null) return reserved.cached().withBoard(board);
         String stage="ROSTER";
         try {
+            if(board!=null) {
+                stage="REVIEW_SOURCE";
+                reviews.requireCurrent(teacher,room.getId(),request.boardReview());
+                stage="REVIEW_MODEL";
+                var images=new ArrayList<Map<String,Object>>();
+                images.add(Map.of("pageNumber",request.boardReview().pageNumber(),"imageDataUrl",request.boardReview().imageDataUrl()));
+                if(request.boardReview().additionalPages()!=null) for(var page:request.boardReview().additionalPages())
+                    images.add(Map.of("pageNumber",page.pageNumber(),"imageDataUrl",page.imageDataUrl()));
+                String answer=ai.kolinReviewReply(mapper.writeValueAsString(context),history,question,images);
+                stage="STORE";
+                return store.complete(teacher,room.getId(),reserved.id(),reserved.attemptId(),"text",answer,transcript,
+                        board.studentId(),board.studentName(),0,0,null,null).withBoard(board);
+            }
             var pupils=roster.read(room);
             context.put("roster",pupils);
             String previous=store.previousDraft(teacher,room.getId());
             Content previousContent=previous==null?null:mapper.readValue(previous,Content.class);
             if(previousContent!=null) context.put("lastGeneratedWorksheet",previousContent);
+            stage="DIALOGUE";
+            var dialogue=ai.kolinDialogue(mapper.writeValueAsString(context),history,question);
+            if("answer".equals(dialogue.mode())) {
+                return store.complete(teacher,room.getId(),reserved.id(),reserved.attemptId(),"text",dialogue.text(),transcript,
+                        null,null,0,0,null,null);
+            }
             int pdfCount=requestedCount(question,previousCount(previousContent,"worksheet"),5),
                 interactiveCount=requestedCount(question,previousCount(previousContent,"interactive"),1);
             context.put("requestedPdfTaskCount",pdfCount);

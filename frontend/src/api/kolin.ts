@@ -42,6 +42,33 @@ export interface KolinResponse {
   transcriptContext?: KolinTranscriptContext;
   worksheet?: KolinWorksheet;
   materials?: KolinWorksheet[];
+  boardContext?: KolinBoardContext;
+}
+
+export interface KolinBoardSnapshot {
+  studentId: string;
+  boardId: string;
+  pageNumber: number;
+  documentVersion: number;
+  revision: number;
+  observedAt: string;
+  capturedAt: string;
+  imageDataUrl: string;
+  scope: 'current_page' | 'workbook';
+  totalPageCount: number;
+  additionalPages: { pageNumber: number; revision: number; imageDataUrl: string }[];
+}
+export interface KolinBoardContext extends Omit<KolinBoardSnapshot, 'observedAt' | 'imageDataUrl' | 'additionalPages'> {
+  studentName: string;
+  imageSha256: string;
+  pages: { pageNumber: number; revision: number; imageSha256: string }[];
+}
+export interface KolinReviewTarget {
+  state: 'not_requested' | 'ready' | 'clarify';
+  studentId?: string;
+  studentName?: string;
+  message?: string;
+  scope?: 'current_page' | 'workbook';
 }
 
 export function parseKolinMaterials(value: unknown): KolinWorksheet[] | undefined {
@@ -97,9 +124,12 @@ const worksheetPath = (classId: string, id: string) => `${base(classId)}/workshe
 
 export const kolinApi = {
   status: (classId: string) => request<{ configured: boolean }>('GET', `${base(classId)}/status`),
-  send: (classId: string, text: string, history: KolinHistoryMessage[], context: KolinContext, clientMessageId?: string) =>
+  reviewTarget: (classId: string, text: string, context: KolinContext) =>
+    request<KolinReviewTarget>('POST', `${base(classId)}/review-target`, { text, context }),
+  send: (classId: string, text: string, history: KolinHistoryMessage[], context: KolinContext, clientMessageId?: string, boardReview?: KolinBoardSnapshot) =>
     request<KolinResponse>('POST', `${base(classId)}/messages`, {
       text,
+      ...(boardReview ? { boardReview } : {}),
       ...(clientMessageId ? { clientMessageId } : {}),
       history: history.slice(-8).map(message => ({ role: message.role, text: message.text })),
       context: {

@@ -83,6 +83,18 @@ server {
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     }
 
+    # Kolyn may read a workbook, reason, and validate a requested material before replying.
+    location ~ ^/api/v1/online-classes/[^/]+/kolin/messages$ {
+        proxy_pass ${API_PROXY_SCHEME}://${API_PROXY_HOST}:${API_PROXY_PORT};
+        proxy_ssl_server_name on;
+        proxy_set_header Host ${API_PROXY_HOST};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 270s;
+        proxy_send_timeout 120s;
+    }
+
     # Forward API calls to the configured backend while keeping the browser same-origin.
     location /api/ {
         proxy_pass ${API_PROXY_SCHEME}://${API_PROXY_HOST}:${API_PROXY_PORT};

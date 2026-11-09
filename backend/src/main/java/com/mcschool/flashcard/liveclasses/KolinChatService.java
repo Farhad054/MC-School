@@ -28,7 +28,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class KolinChatService {
     public static final int MAX_TEXT_LENGTH = 4000;
-    private static final int MAX_HISTORY_CHARS = 16000;
+    private static final int MAX_HISTORY_CHARS = 32000;
     private final OnlineClassAccessService access;
     private final StudentGroupRepository groups;
     private final AiLessonPilotService ai;
@@ -36,6 +36,8 @@ public class KolinChatService {
     private final KolinTranscriptContextService transcripts;
     @org.springframework.beans.factory.annotation.Autowired
     private KolinTaskService tasks;
+    @org.springframework.beans.factory.annotation.Autowired
+    private KolinBoardReviewService reviews;
     private final Set<UUID> pendingTeachers = ConcurrentHashMap.newKeySet();
 
     public KolinChatService(OnlineClassAccessService access, StudentGroupRepository groups,
@@ -45,18 +47,24 @@ public class KolinChatService {
     }
 
     public record HistoryMessage(@NotBlank @Pattern(regexp="user|assistant") String role,
-                                 @NotBlank @Size(max=MAX_TEXT_LENGTH) String text) {}
+                                 @NotBlank @Size(max=10000) String text) {}
     public record Context(@Pattern(regexp="student|group") String targetType, UUID studentId,
                           @Min(1) @Max(1000) Integer currentWorkbookPage,
                           @Pattern(regexp="pdf|interactive") String format) {
         public Context(String targetType,UUID studentId,Integer currentWorkbookPage) { this(targetType,studentId,currentWorkbookPage,null); }
     }
     public record Request(@NotBlank @Size(max=MAX_TEXT_LENGTH) String text,
-                          @Size(max=8) List<@Valid HistoryMessage> history, @Valid Context context, UUID clientMessageId) {
+                          @Size(max=8) List<@Valid HistoryMessage> history, @Valid Context context, UUID clientMessageId,
+                          @Valid KolinBoardReviewService.Snapshot boardReview) {
+        public Request(String text,List<HistoryMessage> history,Context context,UUID clientMessageId) { this(text,history,context,clientMessageId,null); }
         public Request(String text,List<HistoryMessage> history,Context context) { this(text,history,context,null); }
     }
     public record Reply(String type, String text, KolinTranscriptContextService.Metadata transcriptContext,
-                        KolinWorksheetStore.Worksheet worksheet, List<KolinWorksheetStore.Worksheet> materials) {
+                        KolinWorksheetStore.Worksheet worksheet, List<KolinWorksheetStore.Worksheet> materials, KolinBoardReviewService.Metadata boardContext) {
+        public Reply(String type,String text,KolinTranscriptContextService.Metadata metadata,KolinWorksheetStore.Worksheet worksheet,List<KolinWorksheetStore.Worksheet> materials) {
+            this(type,text,metadata,worksheet,materials,null);
+        }
+        public Reply withBoard(KolinBoardReviewService.Metadata board) { return board==null?this:new Reply(type,text,transcriptContext,worksheet,materials,board); }
         public Reply(String type,String text,KolinTranscriptContextService.Metadata metadata,KolinWorksheetStore.Worksheet worksheet) {
             this(type,text,metadata,worksheet,null);
         }
@@ -69,10 +77,29 @@ public class KolinChatService {
         return Map.of("configured", ai.isConfigured());
     }
 
+    public KolinBoardReviewService.Target reviewTarget(AuthenticatedUser teacher,UUID classId,KolinBoardReviewService.TargetRequest request) {
+        return reviews.resolve(teacher,classId,request);
+    }
+
     public Reply send(AuthenticatedUser teacher, UUID classId, Request request) {
         OnlineClass room = access.requireHost(teacher, classId);
         var context = compactContext(room, request.context());
         String question = text(request.text());
+        KolinBoardReviewService.Metadata board=null;
+        if (reviews!=null) {
+            var target=reviews.resolve(room,question,request.context());
+            if (request.boardReview()!=null) {
+                if(request.clientMessageId()==null) throw KolinRequestException.reviewUnavailable();
+                board=reviews.validate(room,question,request.context(),request.boardReview());
+                context.put("targetType","student");
+                context.put("targetName",board.studentName());
+                context.put("currentWorkbookPage",board.pageNumber());
+                context.put("boardReview",board);
+            } else if (!"not_requested".equals(target.state())) {
+                return new Reply("text",target.message()!=null?target.message():
+                    "Не удалось получить текущую страницу ученика. Обновите страницу урока, попросите ученика открыть личную доску и повторите запрос.");
+            }
+        }
         List<Map<String, String>> history = history(request.history());
         if (!ai.isConfigured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                 "Kolyn пока не настроен. Обратитесь к администратору.");
@@ -80,8 +107,11 @@ public class KolinChatService {
         try {
             var transcript = transcript(room);
             context.put("transcript", transcript);
+            LoggerFactory.getLogger(getClass()).info("Kolyn context: classId={} transcriptState={} transcriptSegments={} transcriptTruncated={} transcriptionActive={} boardPages={}",
+                    classId,transcript.metadata().state(),transcript.metadata().segmentCount(),transcript.metadata().truncated(),
+                    transcript.metadata().transcriptionActive(),board==null?0:board.pages().size());
             if (request.clientMessageId()!=null)
-                return tasks.reply(teacher,room,request,context,history,question,transcript.metadata());
+                return tasks.reply(teacher,room,request,context,history,question,transcript.metadata(),board);
             return new Reply("text", ai.kolinReply(mapper.writeValueAsString(context), history, question), transcript.metadata());
         } catch (KolinRequestException | com.mcschool.flashcard.common.ConflictException ex) {
             throw ex;
@@ -137,7 +167,7 @@ public class KolinChatService {
         // Keep whole recent messages. Never cut an exercise in the middle to fit a character budget.
         for (var message : messages) {
             if (message == null || message.role() == null || !List.of("user", "assistant").contains(message.role())) throw badRequest();
-            text(message.text());
+            if(message.text()==null || message.text().isBlank() || message.text().length()>10000) throw badRequest();
         }
         for (int i=messages.size()-1; i>=0; i--) {
             var message = messages.get(i);
