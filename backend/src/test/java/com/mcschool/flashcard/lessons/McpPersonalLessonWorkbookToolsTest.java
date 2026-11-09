@@ -95,11 +95,11 @@ class McpPersonalLessonWorkbookToolsTest {
     @Test
     void catalogExposesToolsToTeachersAndAdministratorsButNotImportKeyOrStudent() {
         for (String token : List.of("owner", "admin", "other")) {
-            assertThat(toolNames(token)).contains("get_teacher_guide");
+            assertThat(toolNames(token)).contains("get_teacher_guide","show_teacher_guide");
             assertThat(toolNames(token)).contains("list_personal_lesson_workbooks", "upload_personal_lesson_workbook", "upload_personal_lesson_answers");
         }
         for (String token : List.of("import-key", "student")) {
-            assertThat(toolNames(token)).doesNotContain("get_teacher_guide");
+            assertThat(toolNames(token)).doesNotContain("get_teacher_guide","show_teacher_guide");
             assertThat(toolNames(token)).doesNotContain("list_personal_lesson_workbooks", "upload_personal_lesson_workbook", "upload_personal_lesson_answers");
         }
     }
@@ -307,7 +307,7 @@ class McpPersonalLessonWorkbookToolsTest {
     void discoveryAndInitializationExplainTwoBoardsAndTheCommonOrBlankFallback() {
         for (String method : List.of("initialize", "server/discover")) {
             Map<String, Object> discovery = request("owner", method, Map.of());
-            assertThat((Map<String, Object>) discovery.get("serverInfo")).containsEntry("version", "1.32.0");
+            assertThat((Map<String, Object>) discovery.get("serverInfo")).containsEntry("version", "1.33.0");
             assertThat(String.valueOf(discovery.get("instructions"))).contains("Shared board and My board (Моя доска)",
                     "takes priority over the common workbook", "uses the common workbook or stays blank",
                     "Shared board continues to show the common workbook to everyone");
@@ -464,6 +464,32 @@ class McpPersonalLessonWorkbookToolsTest {
                     ((Runnable) invocation.getArgument(5)).run();
                     return ((Supplier<?>) invocation.getArgument(6)).get();
                 });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void teacherGuideGalleryPreservesHiddenImagesAndRegistersItsResource() {
+        var result=call("other","show_teacher_guide",Map.of("imageIds",List.of("answers-panel")));
+        assertThat(result.get("isError")).isEqualTo(false);
+        var metadata=result.get("_meta");
+        new MindcraftiMcpContentAdvice(json).transform(new LinkedHashMap<>(Map.of("result",result)));
+        assertThat(result.get("_meta")).isSameAs(metadata);
+        assertThat(json.writeValueAsString(result.get("content"))).doesNotContain("data:image");
+        var listed=(List<Map<String,Object>>)request("other","resources/list",Map.of()).get("resources");
+        assertThat(listed).extracting(r->r.get("uri")).contains(McpTeacherGuideService.UI_RESOURCE);
+        var resource=request("other","resources/read",Map.of("uri",McpTeacherGuideService.UI_RESOURCE));
+        assertThat(((Map<?,?>)((List<?>)resource.get("contents")).get(0)).containsKey("text")).isTrue();
+        for(String token:List.of("student","import-key")) {
+            var resources=(List<Map<String,Object>>)request(token,"resources/list",Map.of()).get("resources");
+            assertThat(resources).extracting(r->r.get("uri")).doesNotContain(McpTeacherGuideService.UI_RESOURCE);
+            var rejected=(Map<String,Object>)controller.post("Bearer "+token,null,Map.of("jsonrpc","2.0","id",1,
+                "method","resources/read","params",Map.of("uri",McpTeacherGuideService.UI_RESOURCE))).getBody();
+            assertThat(rejected).containsKey("error");
+        }
+        var rejected=(Map<String,Object>)controller.post("Bearer student",null,Map.of("jsonrpc","2.0","id",1,
+            "method","tools/call","params",Map.of("name","show_teacher_guide","arguments",Map.of("imageIds",List.of("answers-panel"))))).getBody();
+        assertThat(rejected).containsKey("error");
+        verifyNoInteractions(personal,personalAnswers,receipts,shared,drive);
     }
 
     private Map<String, Object> answersUpload(byte[] pdf) {

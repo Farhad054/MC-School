@@ -154,4 +154,46 @@ class McpTeacherGuideTest {
         assertThat(McpTeacherGuideService.definition().get("annotations")).isEqualTo(
             Map.of("readOnlyHint",true,"destructiveHint",false,"idempotentHint",true,"openWorldHint",false));
     }
+    @Test void visibleGalleryKeepsOrderedJpegsOutOfModelContent()throws Exception {
+        var result=service().show(teacher,false,Map.of("imageIds",List.of("all-boards","answers-panel")));
+        var value=(Map<String,Object>)result.get("structuredContent");
+        assertThat(value).containsEntry("presentationState","prepared");
+        assertThat((List<McpTeacherGuideService.GuideImage>)value.get("images"))
+            .extracting(McpTeacherGuideService.GuideImage::id).containsExactly("all-boards","answers-panel");
+        assertThat(json.writeValueAsString(value)).doesNotContain("base64","data:image");
+        assertThat(json.writeValueAsString(result.get("content"))).doesNotContain("base64","data:image");
+        var assets=(Map<String,String>)((Map<?,?>)result.get("_meta")).get("mindcrafti/teacherGuideImages");
+        assertThat(assets).containsOnlyKeys("all-boards","answers-panel");
+        for(var source:assets.values()) {
+            assertThat(source).startsWith("data:image/jpeg;base64,");
+            assertThat(Base64.getDecoder().decode(source.substring(source.indexOf(',')+1))).startsWith((byte)0xff,(byte)0xd8,(byte)0xff);
+        }
+        assertThat(value.get("presentation").toString()).contains("does not prove","show_teacher_guide");
+        verify(access).requireActor(teacher);
+    }
+    @Test void galleryRejectsPathsDuplicatesOversizedSelectionsAndInactiveAccounts()throws Exception {
+        var service=service();
+        for(var args:List.of(Map.<String,Object>of(),Map.<String,Object>of("imageIds",List.of()),
+                Map.<String,Object>of("imageIds",List.of("answers-panel","answers-panel")),
+                Map.<String,Object>of("imageIds",List.of("../teacher-guide.json")),
+                Map.<String,Object>of("imageIds",List.of(3)),
+                Map.<String,Object>of("imageIds",List.of("a","b","c","d","e","f","g")),
+                Map.<String,Object>of("imageIds",List.of("answers-panel"),"url","https://example.test")))
+            assertThatThrownBy(()->service.show(teacher,false,args)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->service.show(teacher,true,Map.of("imageIds",List.of("answers-panel")))).isInstanceOf(AccessDeniedException.class);
+        doThrow(new AccessDeniedException("Inactive")).when(access).requireActor(teacher);
+        assertThatThrownBy(()->service.show(teacher,false,Map.of("imageIds",List.of("answers-panel")))).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(()->service.resource(teacher,false)).isInstanceOf(AccessDeniedException.class);
+    }
+    @Test void galleryUsesRegisteredUiResourceAndTextReadsNeverClaimDisplay()throws Exception {
+        var definition=McpTeacherGuideService.showDefinition();
+        assertThat(((Map<?,?>)definition.get("_meta")).containsKey("ui")).isTrue();
+        assertThat(((Map<?,?>)definition.get("_meta")).get("openai/outputTemplate")).isEqualTo(McpTeacherGuideService.UI_RESOURCE);
+        assertThat(McpTeacherGuideService.definition()).doesNotContainKey("_meta");
+        var resource=service().resource(teacher,false);
+        var item=(Map<String,Object>)((List<?>)resource.get("contents")).get(0);
+        assertThat(item).containsEntry("uri",McpTeacherGuideService.UI_RESOURCE).containsEntry("mimeType",McpTeacherGuideService.UI_MIME);
+        assertThat(item.get("text").toString()).contains("ui/notifications/tool-result","<dialog","Кнопки Mindcrafti").doesNotContain("<script src=","fetch(");
+        assertThat(service().read(teacher,false,Map.of("topicId","audio")).get("presentation").toString()).contains("Never say");
+    }
 }

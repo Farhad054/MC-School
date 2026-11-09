@@ -11,6 +11,8 @@ on:
       - 'backend/src/main/resources/db/migration/V91__*'
       - 'backend/src/main/resources/mcp/teacher-guide.json'
       - 'backend/src/main/resources/mcp/teacher-guide-images/**'
+      - 'backend/src/main/resources/mcp/teacher-guide-gallery.html'
+      - '.github/scripts/mch3-teacher-guide.test.cjs'
       - 'docs/teacher-guide-visuals/**'
       - 'docs/mch3-teacher-guide.md'
       - '.github/workflows/mch3-site-functions.yml'
@@ -28,6 +30,11 @@ jobs:
       SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: '0'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check teacher guide presentation and host compatibility
+        run: node .github/scripts/mch3-teacher-guide.test.cjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
