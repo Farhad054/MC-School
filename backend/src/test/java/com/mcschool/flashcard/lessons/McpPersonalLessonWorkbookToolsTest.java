@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -118,6 +119,28 @@ class McpPersonalLessonWorkbookToolsTest {
         var keyResponse=(Map<String,Object>)controller.post(null,"import-key",Map.of("jsonrpc","2.0","id",1,
             "method","tools/call","params",Map.of("name","get_teacher_guide","arguments",Map.of()))).getBody();
         assertRejected((Map<String,Object>)keyResponse.get("result"),403);
+        verifyNoInteractions(personal,personalAnswers,receipts);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void teacherGuideScreenshotUsesNativeImageContentAndKeepsRoleIsolation() {
+        var result=call("other","get_teacher_guide",Map.of("imageId","answers-panel"));
+        assertThat(result.get("isError")).isEqualTo(false);
+        var content=(List<Map<String,Object>>)result.get("content");
+        assertThat(content).hasSize(2);
+        assertThat(content.get(1)).containsEntry("type","image").containsEntry("mimeType","image/jpeg");
+        assertThat(content.get(0).get("text").toString()).doesNotContain("iVBOR");
+        var response=new LinkedHashMap<String,Object>();response.put("result",result);
+        new MindcraftiMcpContentAdvice(json).transform(response);
+        assertThat(result.get("content")).isSameAs(content);
+        verify(access).requireActor(otherTeacher);
+        var student=(Map<String,Object>)controller.post("Bearer student",null,Map.of("jsonrpc","2.0","id",1,
+            "method","tools/call","params",Map.of("name","get_teacher_guide","arguments",Map.of("imageId","answers-panel")))).getBody();
+        assertThat(student).containsKey("error").doesNotContainKey("result");
+        var key=(Map<String,Object>)controller.post(null,"import-key",Map.of("jsonrpc","2.0","id",1,
+            "method","tools/call","params",Map.of("name","get_teacher_guide","arguments",Map.of("imageId","answers-panel")))).getBody();
+        assertRejected((Map<String,Object>)key.get("result"),403);
         verifyNoInteractions(personal,personalAnswers,receipts);
     }
 
