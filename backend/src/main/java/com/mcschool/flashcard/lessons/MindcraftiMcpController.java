@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,7 +55,7 @@ public class MindcraftiMcpController {
 
     private static final String API_KEY_HEADER = "X-Mindcrafti-Api-Key";
     private static final String SERVER_NAME = "mindcrafti-lessons";
-    private static final String SERVER_VERSION = "1.33.0";
+    private static final String SERVER_VERSION = "1.34.0";
     private static final int MAX_DIRECT_PDF_BYTES = 15 * 1024 * 1024;
     private static final String FILE_TRANSFER_RESOURCE = "ui://mindcrafti/lesson-file-transfer-v2.html";
     private static final String FILE_TRANSFER_MIME = "text/html;profile=mcp-app";
@@ -86,6 +87,8 @@ public class MindcraftiMcpController {
     private OwnerWorkbookPdfRenderService ownerWorkbookPdfRenderService;
     private WorkbookContentService workbookContentService;
     private WorkbookDraftDownloadService workbookDraftDownloads;
+    private WorkbookGenerationJobService workbookJobs;
+    private PersonalWorkbookDraftService personalDrafts;
     private com.mcschool.flashcard.skills.SkillBoardService workbookBoards;
     private com.mcschool.flashcard.skills.SkillMasteryService workbookMastery;
     private final StoryTemplateMasterService storyTemplateMasterService;
@@ -196,6 +199,18 @@ public class MindcraftiMcpController {
     }
 
     @Autowired
+    public void setWorkbookJobs(WorkbookGenerationJobService service) {
+        this.workbookJobs=service;
+        service.setGenerator((actor,args)->{
+            User user=userRepository.findById(actor.id()).orElseThrow(()->new IllegalArgumentException("School account is unavailable"));
+            return generateLessonWorkbookDraftSynchronously(args,new AuthContext(true,false,user));
+        });
+    }
+
+    @Autowired
+    public void setPersonalDrafts(PersonalWorkbookDraftService service) { this.personalDrafts=service; }
+
+    @Autowired
     public void setWorkbookDraftDownloads(WorkbookDraftDownloadService service) {
         this.workbookDraftDownloads=service;
     }
@@ -241,6 +256,7 @@ public class MindcraftiMcpController {
             @RequestBody Map<String, Object> body) {
         AuthContext auth = authenticationContext(authorization, suppliedApiKey);
         String method = string(body.get("method"));
+        long started = System.nanoTime();
         Object id = body.get("id");
         boolean notification = id == null;
 
@@ -267,10 +283,20 @@ public class MindcraftiMcpController {
             }
             return ResponseEntity.ok(success(id, result));
         } catch (IllegalArgumentException ex) {
+            logRpcFailure(method,body,auth,ex,started);
             return ResponseEntity.ok(error(id, -32602, ex.getMessage()));
         } catch (Exception ex) {
+            logRpcFailure(method,body,auth,ex,started);
             return ResponseEntity.ok(error(id, -32603, ex.getMessage() == null ? "Internal error" : ex.getMessage()));
         }
+    }
+
+    private void logRpcFailure(String method,Map<String,Object> request,AuthContext auth,Exception error,long started) {
+        String operation=string(map(request.get("params")).get("name"));
+        if(!operation.matches("[a-z_]{1,80}"))operation="none";
+        String safeMethod=Set.of("initialize","tools/call","tools/list","resources/read","resources/list","server/discover","ping","resources/templates/list").contains(method)?method:"unknown";
+        LOG.warn("MCH3 RPC failed method={} tool={} authenticated={} role={} errorType={} durationMs={}",
+                safeMethod,operation,auth.authenticated(),auth.user()==null?"none":auth.user().getRole(),error.getClass().getSimpleName(),(System.nanoTime()-started)/1_000_000);
     }
 
     private Map<String, Object> initialize(Map<String, Object> request, boolean authenticated) {
@@ -285,7 +311,7 @@ public class MindcraftiMcpController {
         result.put("instructions", authenticated
                 ? "For the curriculum skills board, always read get_skill_board fresh before answering from it or using edit_skill_board. Edit only explicitly requested items, using the exact returned revision. Preserve unrelated content and read back after saving. A stale revision means reconcile, not blind retry. This catalog does not contain pupil mastery. Mindcrafti school tools include lessons, structured monthly plans for students and groups, school prompts, the current school Brand Guide, the current approved 3-slide Mindcrafti Stories PPTX via get_story_template_info and get_story_template_chunk, homework assignment, direct PDF homework upload, explicit replacement/update/deletion of existing homework, submitted homework PDFs, rendered submission pages, read-only student analytics and admin-only public funnel analytics. When preparing the next lesson for a student or group, use get_month_plan for the current month when a plan exists, then combine it with recent lesson/homework evidence and the current school prompt. IMPORTANT: when a teacher asks to create a lesson, homework, worksheet or other teaching material 'по промту', 'по школьному промту', 'using the prompt', or clearly asks to use the school's prompt, first call get_school_prompt with the most specific lessonType: group or individual for lesson logic, workbook for a workbook/worksheet, homework for homework, diagnostic for a diagnostic lesson, or error_correction for work on mistakes, and then follow the returned prompt as the base instruction. Apply any extra teacher instructions on top of that prompt. If the teacher explicitly says 'без промта' or 'without the prompt', do not call get_school_prompt. Do not assume or reuse an old prompt from chat history; fetch the current prompt each time the teacher asks to work 'по промту'. For ANY Mindcrafti-branded document or visual material (PDF, homework, diagnostic, worksheet, report, presentation, work-on-mistakes document, parent report, internal document or other branded artifact), first call get_brand_guide and follow the current Brand Guide for visual design. Do not reuse a Brand Guide from chat history. When ChatGPT creates homework PDFs, assign them directly with assign_homework_series using pdfBase64; Google Drive is optional."
                 : "The connector is in diagnostic mode. Sign in with Mindcrafti OAuth to access school data tools.");
-        if (authenticated) result.put("instructions", result.get("instructions") + schedulingInstructions() + McpTeacherGuideService.INSTRUCTIONS);
+        if (authenticated) result.put("instructions", result.get("instructions") + schedulingInstructions() + workbookInstructions() + McpTeacherGuideService.INSTRUCTIONS);
         return result;
     }
 
@@ -302,8 +328,12 @@ public class MindcraftiMcpController {
         result.put("instructions", authenticated
                 ? "For the curriculum skills board, always read get_skill_board fresh before answering from it or using edit_skill_board. Edit only explicitly requested items, using the exact returned revision. Preserve unrelated content and read back after saving. A stale revision means reconcile, not blind retry. This catalog does not contain pupil mastery. Mindcrafti lesson, school-prompt, Brand Guide, homework-file and school analytics tools. If the teacher says to make a lesson or homework 'по промту', fetch the current school prompt with get_school_prompt before generating. For any Mindcrafti-branded document or visual material, fetch the current Brand Guide with get_brand_guide before creating it. Extra teacher instructions override or refine the prompt for that request. If the teacher says 'без промта', do not fetch the lesson prompt."
                 : "Mindcrafti diagnostic MCP connection. No school data is exposed without authentication.");
-        if (authenticated) result.put("instructions", result.get("instructions") + schedulingInstructions());
+        if (authenticated) result.put("instructions", result.get("instructions") + schedulingInstructions() + workbookInstructions());
         return result;
+    }
+
+    private String workbookInstructions() {
+        return " Server workbook generation returns a durable jobId. Poll get_lesson_workbook_job after retryAfterSeconds; never duplicate a generation after a timeout. For several pupils, wait for all jobs and refresh get_lesson_draft for every PDF just before presenting its five-minute signed link. After explicit approval, attach server-generated personal materials with publish_personal_lesson_draft using draftId and the exact pupil. It directly stores both worksheet and private teacher answers; no file download, re-upload or widget is needed. Use publish_lesson_draft only for common lesson materials. Never claim a file was published without successful write and readback.";
     }
 
     private boolean fileTransferActorAllowed(AuthContext auth) {
@@ -627,7 +657,7 @@ public class MindcraftiMcpController {
                             "eventId", property("string", "Exact eventId from find_lessons")),
                             List.of("eventId")), readOnlyAnnotations()));
             tools.add(tool("generate_lesson_workbook_draft",
-                    "Generate two mathematically rendered branded PDFs server-side for one exact owned lesson. Reads fresh school prompt, Brand Guide, monthly plan and available student evidence itself. Never publishes. With server AI configured, eventId/instruction suffice. Without it, call prepare_workbook_context, prepare structured lessonJson from its declarative rendererContract, then supply lessonJson and contextToken here. No generator source is exposed. Returns an unpublished draft for download/review; call publish_lesson_draft only after an explicit user command to publish. Teachers should use the server-side workbook generation tool. The source-code retrieval endpoint remains owner/admin only.",
+                    "Start a durable background job producing two unpublished, mathematically checked PDFs for one exact owned lesson. Returns jobId/status quickly, NOT finished PDFs. Poll get_lesson_workbook_job after retryAfterSeconds until SUCCEEDED or FAILED. Reuse the exact idempotencyKey on identical retries; never launch duplicates after a timeout. Reads fresh school prompt, Brand Guide, monthly plan and student evidence. With server AI configured, eventId/instruction suffice. Alternatively supply lessonJson/contextToken from prepare_workbook_context. For multiple pupils, finish all jobs then refresh every get_lesson_draft immediately before presenting the five-minute links. Never publish without the user's explicit instruction.",
                     schema(Map.of("teacherId", property("string", "ADMIN selects teacher UUID; teachers may omit it for themselves"),
                             "eventId", property("string", "Exact lesson eventId from find_lessons"),
                             "instruction", property("string", "Optional additional lesson instructions, at most 6000 characters"),
@@ -635,6 +665,9 @@ public class MindcraftiMcpController {
                             "contextToken", property("string", "Required with lessonJson. Exact fresh token from prepare_workbook_context; binds lesson, current prompts, Brand Guide and student evidence."),
                             "idempotencyKey", property("string", "Stable unique key for this generation; reuse unchanged on identical retries")),
                             List.of("eventId", "idempotencyKey")), writeAnnotations()));
+            if(workbookJobs!=null)tools.add(tool("get_lesson_workbook_job",
+                    "Read your workbook generation job without regenerating anything. QUEUED/RUNNING means wait retryAfterSeconds and poll again. SUCCEEDED returns a saved draft with freshly signed PDF links. FAILED is terminal; explain errorCode and do not automatically spend another generation. Rechecks current account and exact lesson ownership. Never publishes.",
+                    schema(Map.of("jobId",property("string","Exact jobId from generate_lesson_workbook_draft")),List.of("jobId")),readOnlyAnnotations()));
         }
         if (workbookStaff(auth) && ownerWorkbookPdfRenderService != null) {
             Map<String,Object> workbookGeneration = new LinkedHashMap<>();
@@ -698,6 +731,14 @@ public class MindcraftiMcpController {
         tools.add(fileTool("prepare_lesson", "Create or update lesson preparation for the selected teacher. Its common workbook appears on Shared board and on each pupil's My board unless that pupil has a private worksheet assigned with upload_personal_lesson_workbook. Private worksheets and their annotations are preserved. Admins can write to any teacher lesson. Prefer workbookFile and answersFile for PDFs attached in ChatGPT, with school OAuth and a stable idempotencyKey; no Google Drive intermediate is needed. Legacy base64 and teacher-scoped Drive imports remain supported. Each PDF slot accepts at most one source; omitted slots and notes remain unchanged.", schema(prepareProperties, List.of("teacherId", "eventId")), writeAnnotations(), List.of("workbookFile", "answersFile")));
 
         if (personalLessonWorkbookService != null && personalWorkbookActorAllowed(auth)) {
+            if(personalDrafts!=null)tools.add(tool("publish_personal_lesson_draft",
+                    "After the user's explicit upload instruction, attach an already reviewed server-generated draft directly to ONE named lesson pupil: both personal worksheet and private teacher answers atomically. Preferred for PDFs from generate_lesson_workbook_draft/get_lesson_draft. Pass the saved draftId, exact lesson and pupil IDs. No downloading, base64, ChatGPT file objects, widget or Google Drive. Replaces only this pupil's PDFs; preserves shared materials and other pupils. Requires confirm=true and a stable idempotencyKey; exact retries reuse the receipt. Rechecks current teacher/lesson/roster and reads back filenames and sizes. Source draft remains reusable.",
+                    schema(Map.of("teacherId",property("string","Exact lesson teacher UUID"),"eventId",property("string","Exact owned lesson eventId"),
+                            "studentId",property("string","Exact current participant from list_personal_lesson_workbooks"),
+                            "draftId",property("string","Exact reviewed saved draft for this teacher and lesson"),
+                            "idempotencyKey",property("string","Stable key for this approved attachment; reuse on identical retries"),
+                            "confirm",Map.of("type","boolean","enum",List.of(true))),
+                            List.of("teacherId","eventId","studentId","draftId","idempotencyKey","confirm")),writeAnnotations()));
             Map<String, Object> personalProperties = new LinkedHashMap<>();
             personalProperties.put("teacherId", property("string", "Exact teacher UUID returned by find_lessons. Teachers access only their own lessons; ADMIN selects an accessible teacher."));
             personalProperties.put("eventId", property("string", "Exact eventId returned by find_lessons."));
@@ -935,6 +976,8 @@ public class MindcraftiMcpController {
                 yield toolResult(prepareWorkbookContext(arguments, auth));
             }
             case "generate_lesson_workbook_draft" -> toolResult(generateLessonWorkbookDraft(arguments, auth));
+            case "get_lesson_workbook_job" -> toolResult(workbookJobStatus(arguments,auth));
+            case "publish_personal_lesson_draft" -> toolResult(publishPersonalDraft(arguments,auth));
             case "generate_workbook" -> {
                 requireWorkbookStaff(auth);
                 yield toolResult(generateWorkbookCompatibility(arguments, auth));
@@ -1360,6 +1403,50 @@ public class MindcraftiMcpController {
 
     @SuppressWarnings("unchecked")
     private Map<String,Object> generateLessonWorkbookDraft(Map<String,Object> args, AuthContext auth) throws Exception {
+        // Old focused controller tests do not wire the queue. Production always injects it.
+        if(workbookJobs==null)return generateLessonWorkbookDraftSynchronously(args,auth);
+        requireWorkbookStaff(auth);
+        if(!Set.of("teacherId","eventId","instruction","lessonJson","contextToken","idempotencyKey").containsAll(args.keySet()))
+            throw new IllegalArgumentException("Unsupported workbook generation arguments");
+        AuthenticatedUser actor=personalWorkbookAccess.requireActor(auth.user());
+        AuthenticatedUser teacher=personalWorkbookAccess.requireTeacher(actor,args.containsKey("teacherId")?uuid(required(args,"teacherId"),"teacherId"):null);
+        String eventId=required(args,"eventId");
+        selectedWorkbookLesson(teacher,eventId);
+        String instruction=string(args.get("instruction"));
+        if(instruction.length()>6000)throw new IllegalArgumentException("instruction is too long");
+        if(args.containsKey("lessonJson")!=args.containsKey("contextToken"))throw new IllegalArgumentException("lessonJson and contextToken must be supplied together");
+        Map<String,Object> normalized=new TreeMap<>();
+        normalized.put("teacherId",teacher.id().toString());normalized.put("eventId",eventId);
+        normalized.put("instruction",instruction);normalized.put("idempotencyKey",required(args,"idempotencyKey"));
+        if(args.containsKey("lessonJson")) {
+            String source=required(args,"lessonJson");
+            if(source.length()>OwnerWorkbookPdfRenderService.MAX_INPUT_CHARS)throw new IllegalArgumentException("lessonJson is too large");
+            normalized.put("lessonJson",source);normalized.put("contextToken",required(args,"contextToken"));
+        }
+        Map<String,Object> job=workbookJobs.enqueue(actor,teacher.id(),eventId,required(args,"idempotencyKey"),normalized);
+        return completedWorkbookJob(job,auth);
+    }
+
+    private Map<String,Object> workbookJobStatus(Map<String,Object> args,AuthContext auth)throws Exception {
+        requireWorkbookStaff(auth);
+        if(workbookJobs==null)throw new IllegalStateException("Workbook jobs are unavailable");
+        if(!Set.of("jobId").containsAll(args.keySet()))throw new IllegalArgumentException("Unknown job parameter");
+        AuthenticatedUser actor=personalWorkbookAccess.requireActor(auth.user());
+        Map<String,Object> job=workbookJobs.status(actor,uuid(required(args,"jobId"),"jobId"));
+        AuthenticatedUser teacher=personalWorkbookAccess.requireTeacher(actor,uuid(required(job,"teacherId"),"teacherId"));
+        selectedWorkbookLesson(teacher,required(job,"eventId"));
+        return completedWorkbookJob(job,auth);
+    }
+
+    private Map<String,Object> completedWorkbookJob(Map<String,Object> job,AuthContext auth)throws Exception {
+        if(!"SUCCEEDED".equals(job.get("status")))return job;
+        Map<String,Object> result=new LinkedHashMap<>(job);
+        result.put("draft",draftInfo(Map.of("teacherId",job.get("teacherId"),"draftId",job.get("draftId")),auth));
+        result.put("nextStep","Both PDFs are saved drafts, not published. Review them. When preparing several pupils, refresh all get_lesson_draft links immediately before the final answer; signed links last five minutes.");
+        return result;
+    }
+
+    private Map<String,Object> generateLessonWorkbookDraftSynchronously(Map<String,Object> args, AuthContext auth) throws Exception {
         requireWorkbookStaff(auth);
         if (personalWorkbookAccess == null || personalWorkbookReceipts == null)
             throw new IllegalStateException("Server workbook generation is unavailable");
@@ -1688,6 +1775,14 @@ public class MindcraftiMcpController {
         }
         AuthenticatedUser actor = personalWorkbookAccess.requireActor(auth.user());
         return actor;
+    }
+
+    private Object publishPersonalDraft(Map<String,Object> args,AuthContext auth) {
+        AuthenticatedUser actor=requirePersonalWorkbookActor(auth);
+        if(personalDrafts==null)throw new IllegalStateException("Personal draft publication is unavailable");
+        if(!Set.of("teacherId","eventId","studentId","draftId","idempotencyKey","confirm").containsAll(args.keySet()))throw new IllegalArgumentException("Unknown publication parameter");
+        return personalDrafts.publish(actor,uuid(required(args,"teacherId"),"teacherId"),required(args,"eventId"),
+                uuid(required(args,"studentId"),"studentId"),uuid(required(args,"draftId"),"draftId"),required(args,"idempotencyKey"),Boolean.TRUE.equals(args.get("confirm")));
     }
 
     private Object personalLessonWorkbooks(String name, Map<String, Object> arguments, AuthContext auth) throws Exception {

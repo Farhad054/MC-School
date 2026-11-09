@@ -105,6 +105,29 @@ class WorkbookTeacherWorkflowTest {
     }
 
     @Test
+    void queuedTeacherRequestReturnsBeforeCallingAiOrRendererAndPollIsReadOnly() {
+        var jobs=mock(WorkbookGenerationJobService.class);
+        controller.setWorkbookJobs(jobs);
+        String jobId=UUID.randomUUID().toString();
+        Map<String,Object> queued=Map.of("jobId",jobId,"status","QUEUED","teacherId",a.getId().toString(),"eventId","lesson-a","published",false);
+        when(jobs.enqueue(eq(principal(a)),eq(a.getId()),eq("lesson-a"),eq("queued-one"),anyMap())).thenReturn(queued);
+        when(jobs.status(eq(principal(a)),eq(UUID.fromString(jobId)))).thenReturn(queued);
+        assertThat(call(a,"generate_lesson_workbook_draft",Map.of("eventId","lesson-a","idempotencyKey","queued-one"))).doesNotContainKey("error");
+        assertThat(call(a,"get_lesson_workbook_job",Map.of("jobId",jobId))).doesNotContainKey("error");
+        verifyNoInteractions(content,renderer,preparation,receipts);
+        verify(jobs).enqueue(eq(principal(a)),eq(a.getId()),eq("lesson-a"),eq("queued-one"),argThat(args->a.getId().toString().equals(args.get("teacherId"))));
+    }
+
+    @Test
+    void queuedGenerationStillRejectsAnotherTeachersLessonAndMalformedArguments() {
+        var jobs=mock(WorkbookGenerationJobService.class);controller.setWorkbookJobs(jobs);
+        assertThat(call(b,"generate_lesson_workbook_draft",Map.of("teacherId",a.getId().toString(),"eventId","lesson-a","idempotencyKey","forged"))).containsKey("error");
+        assertThat(call(a,"generate_lesson_workbook_draft",Map.of("eventId","lesson-a","idempotencyKey","invalid","lessonJson","{}"))).containsKey("error");
+        verify(jobs,never()).enqueue(any(),any(),anyString(),anyString(),anyMap());
+        verifyNoInteractions(content,renderer,preparation,receipts);
+    }
+
+    @Test
     void teacherBCannotGenerateTeacherALessonAndStudentsHaveNoGeneratorAccess() throws Exception {
         Map<String,Object> args=Map.of("teacherId",a.getId().toString(),"eventId","lesson-a","idempotencyKey","forged");
         assertThat(call(b,"generate_lesson_workbook_draft",args)).containsKey("error");
