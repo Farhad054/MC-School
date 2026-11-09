@@ -95,6 +95,8 @@ export interface ViewEvent extends BaseEvent {
   panY: number;
   /** Whether students are currently locked to this view. */
   follow: boolean;
+  /** Personal-page presence, so closing/hiding it immediately invalidates a review target. */
+  active?: boolean;
   /** Optional whole-document zoom/anchor; absent for legacy paged navigation. */
   documentView?: DocumentViewport;
 }
@@ -295,6 +297,7 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
         isFiniteIn(parsed.panX, -5, 0) &&
         isFiniteIn(parsed.panY, -5, 0) &&
         typeof parsed.follow === 'boolean' &&
+        (parsed.active === undefined || typeof parsed.active === 'boolean') &&
         (parsed.documentView === undefined || isDocumentViewport(parsed.documentView))
         ? (parsed as unknown as ViewEvent)
         : null;

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { kolinApi, type KolinContext, type KolinResponse, type KolinTranscriptContext, type KolinWorksheet } from '../../api/kolin';
 import { ApiRequestError } from '../../api/client';
 import { useKolinChat } from './useKolinChat';
+import { KolinReviewUnavailable } from './useKolinBoardReview';
+import type { KolinBoardSnapshot, KolinBoardContext } from '../../api/kolin';
 
 vi.mock('../../api/kolin', async importOriginal => ({ ...await importOriginal<typeof import('../../api/kolin')>(),
   kolinApi: { status: vi.fn(), send: vi.fn(), appendWorksheet: vi.fn() } }));
@@ -26,6 +28,48 @@ async function ask(result: { current: ReturnType<typeof useKolinChat> }, text: s
 }
 
 describe('private Kolyn lesson session', () => {
+  const shot: KolinBoardSnapshot = { studentId: 'melissa', boardId: 'personal-melissa', pageNumber: 3, totalPageCount: 4,
+    documentVersion: 7, revision: 12, observedAt: '2026-11-09T16:00:00Z', capturedAt: '2026-11-09T16:00:01Z',
+    imageDataUrl: 'data:image/jpeg;base64,/9j/2Q==', scope: 'current_page', additionalPages: [] };
+  const receipt: KolinBoardContext = { studentId: shot.studentId, studentName: 'Мелисса', boardId: shot.boardId,
+    pageNumber: 3, totalPageCount: 4, documentVersion: 7, revision: 12, capturedAt: shot.capturedAt, scope: shot.scope,
+    imageSha256: 'a'.repeat(64), pages: [{ pageNumber: 3, revision: 12, imageSha256: 'a'.repeat(64) }] };
+  it('retries the same snapshot with the same request key and never copies images into conversation history', async () => {
+    const prepare = vi.fn().mockResolvedValue(shot);
+    vi.mocked(kolinApi.send).mockRejectedValueOnce(new Error('Connection lost'))
+      .mockResolvedValueOnce({ type: 'text', text: 'Страница 3: ответ 3/4.', boardContext: receipt });
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true, prepare));
+    await open(result); await ask(result, 'Проверь Мелиссу');
+    await act(async () => { await result.current.retry(); });
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(vi.mocked(kolinApi.send).mock.calls[0]).toEqual(vi.mocked(kolinApi.send).mock.calls[1]);
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[1].boardPreview).toBe(shot.imageDataUrl);
+    prepare.mockResolvedValue(undefined);
+    await ask(result, 'Как лучше объяснить?');
+    expect(JSON.stringify(vi.mocked(kolinApi.send).mock.calls[2][2])).not.toContain('base64');
+  });
+  it('allows a new capture after unavailable page without duplicating the teacher message', async () => {
+    const prepare = vi.fn().mockRejectedValueOnce(new KolinReviewUnavailable()).mockResolvedValue(shot);
+    vi.mocked(kolinApi.send).mockResolvedValue({ type: 'text', text: 'Проверено', boardContext: receipt });
+    const { result } = renderHook(() => useKolinChat('class-1', 'teacher', true, prepare));
+    await open(result); await ask(result, 'Проверь Мелиссу');
+    expect(kolinApi.send).not.toHaveBeenCalled();
+    expect(result.current.failureCode).toBe('KOLIN_REVIEW_UNAVAILABLE');
+    await act(async () => { await result.current.retry(); });
+    expect(prepare).toHaveBeenCalledTimes(2); expect(result.current.messages).toHaveLength(2);
+  });
+  it('does not send a prepared image after changing lesson', async () => {
+    let finish!: (value: KolinBoardSnapshot) => void;
+    const prepare = vi.fn(() => new Promise<KolinBoardSnapshot>(resolve => { finish = resolve; }));
+    const { result, rerender } = renderHook(({ classId }) => useKolinChat(classId, 'teacher', true, prepare), { initialProps: { classId: 'class-1' } });
+    await open(result); act(() => result.current.setDraft('Проверь Мелиссу'));
+    let pending: Promise<void> | undefined;
+    act(() => { pending = result.current.send({}); });
+    rerender({ classId: 'class-2' });
+    await act(async () => { finish(shot); await pending; });
+    expect(kolinApi.send).not.toHaveBeenCalled(); expect(result.current.messages).toHaveLength(0);
+  });
   it('does no API work until the teacher opens it, and none at all for a pupil', async () => {
     const pupil = renderHook(() => useKolinChat('class-1', 'pupil', false));
     act(() => { pupil.result.current.toggle(); pupil.result.current.setDraft('hello'); });

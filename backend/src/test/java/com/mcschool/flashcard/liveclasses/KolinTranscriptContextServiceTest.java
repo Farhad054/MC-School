@@ -45,7 +45,7 @@ class KolinTranscriptContextServiceTest {
         var result = contexts.read(room);
         var page = ArgumentCaptor.forClass(Pageable.class);
         verify(rows).findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()), page.capture());
-        assertThat(page.getValue().getPageSize()).isEqualTo(121);
+        assertThat(page.getValue().getPageSize()).isEqualTo(1001);
         assertThat(page.getValue().getOffset()).isZero();
         assertThat(result.segments()).extracting(KolinTranscriptContextService.Turn::speakerName).containsExactly("Учитель", "Виталина");
         assertThat(result.segments()).extracting(KolinTranscriptContextService.Turn::speakerRole).containsExactly("teacher", "student");
@@ -56,19 +56,19 @@ class KolinTranscriptContextServiceTest {
                 "teacher@test.local", "provider-", "participantIdentity", "private-device", "untrusted label");
     }
 
-    @Test void exactlyOneHundredTwentyFitsAndTheExtraRowMarksTruncationWithoutEnteringContext() {
-        var descending = IntStream.range(0, 121).mapToObj(i -> segment(120-i, 121-i, teacher, null,
-                "turn-" + (120-i), now)).toList();
+    @Test void largeLessonFitsAndTheExtraRowMarksTruncationWithoutEnteringContext() {
+        var descending = IntStream.range(0, 1001).mapToObj(i -> segment(1000-i, 1001-i, teacher, null,
+                "turn-" + (1000-i), now)).toList();
         when(rows.findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()), any()))
-                .thenReturn(descending.subList(0, 120), descending);
+                .thenReturn(descending.subList(0, 1000), descending);
         var exact = contexts.read(room);
-        assertThat(exact.metadata().segmentCount()).isEqualTo(120);
+        assertThat(exact.metadata().segmentCount()).isEqualTo(1000);
         assertThat(exact.metadata().truncated()).isFalse();
         var more = contexts.read(room);
-        assertThat(more.metadata().segmentCount()).isEqualTo(120);
+        assertThat(more.metadata().segmentCount()).isEqualTo(1000);
         assertThat(more.metadata().truncated()).isTrue();
         assertThat(more.segments().get(0).text()).isEqualTo("turn-1");
-        assertThat(more.segments().get(119).text()).isEqualTo("turn-120");
+        assertThat(more.segments().get(999).text()).isEqualTo("turn-1000");
         assertThat(more.segments()).noneMatch(turn -> turn.text().equals("turn-0"));
     }
 
@@ -83,7 +83,7 @@ class KolinTranscriptContextServiceTest {
     }
 
     @Test void serializedEscapeExpansionCountsTowardBudgetAndKeepsWholeRecentUtterances() throws Exception {
-        String escaped = "\"\\\n".repeat(800);
+        String escaped = "\"\\\n".repeat(8000);
         var a = segment(3000, 3100, teacher, null, "new-" + escaped, now);
         var b = segment(2000, 2100, pupil, null, "middle-" + escaped, now);
         var c = segment(1000, 1100, pupil, null, "old-" + escaped, now);
@@ -93,12 +93,12 @@ class KolinTranscriptContextServiceTest {
         assertThat(result.metadata().truncated()).isTrue();
         assertThat(result.segments()).extracting(KolinTranscriptContextService.Turn::text)
                 .containsExactly(b.getText(), a.getText());
-        assertThat(mapper.writeValueAsString(result).length()).isLessThanOrEqualTo(12000);
+        assertThat(mapper.writeValueAsString(result).length()).isLessThanOrEqualTo(120000);
     }
 
     @Test void overflowingMiddleUtteranceDoesNotBackfillOlderSpeech() {
         var recent = segment(3000, 3100, teacher, null, "Newest complete task", now);
-        var huge = segment(2000, 2100, pupil, null, "\u0001".repeat(2000), now);
+        var huge = segment(2000, 2100, pupil, null, "\u0001".repeat(20000), now);
         var old = segment(1000, 1100, pupil, null, "Old task must not appear", now);
         when(rows.findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()), any())).thenReturn(List.of(recent, huge, old));
         var result = contexts.read(room);
@@ -107,7 +107,7 @@ class KolinTranscriptContextServiceTest {
     }
 
     @Test void oversizedNewestUtteranceMeansUnavailableAndNeverAnEmptyLessonOrOlderBackfill() {
-        var huge = segment(2000, 2100, teacher, null, "\u0001".repeat(2000), now);
+        var huge = segment(2000, 2100, teacher, null, "\u0001".repeat(20000), now);
         var old = segment(1000, 1100, pupil, null, "Older task", now);
         when(rows.findByOnlineClassIdOrderByStartMsDescIdDesc(eq(room.getId()), any())).thenReturn(List.of(huge, old));
         var result = contexts.read(room);

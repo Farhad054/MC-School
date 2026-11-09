@@ -14,8 +14,8 @@ import tools.jackson.databind.ObjectMapper;
 /** A bounded, current-room snapshot. Called only after Kolyn has checked the owning teacher. */
 @Service
 public class KolinTranscriptContextService {
-    static final int MAX_SEGMENTS = 120;
-    static final int MAX_SERIALIZED_CHARS = 12000;
+    static final int MAX_SEGMENTS = 1000;
+    static final int MAX_SERIALIZED_CHARS = 120000;
     private final OnlineClassTranscriptSegmentRepository segments;
     private final ObjectMapper mapper;
 

@@ -59,3 +59,11 @@
   .kolin-pdf-preview__dialog { max-height:calc(100dvh - 16px); border-radius:8px; }
   .kolin-pdf-preview__pages { padding:0 6px 6px; gap:8px; }
 }
+.kolin-review { display: grid; gap: 6px; margin: 12px 0; font-size: 12px; }
+.kolin-review__thumbnail { width: fit-content; padding: 4px; border: 1px solid #8b9fa3; border-radius: 6px; background: white; cursor: zoom-in; }
+.kolin-review__thumbnail img { display: block; width: 96px; max-height: 144px; object-fit: contain; }
+.kolin-review small { color: #becbd2; }
+.kolin-review__dialog { width: min(900px, 92vw); max-height: 92dvh; padding: 12px; border: 1px solid #687980; border-radius: 10px; background: #252b2f; color: white; }
+.kolin-review__dialog::backdrop { background: #000a; }
+.kolin-review__dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.kolin-review__dialog > img { display: block; width: 100%; height: auto; }

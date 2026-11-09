@@ -1,13 +1,17 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ApiRequestError } from '../../api/client';
 import { kolinApi, parseKolinTranscriptContext, parseKolinWorksheet, parseKolinMaterials, type KolinContext, type KolinHistoryMessage, type KolinTranscriptContext, type KolinWorksheet } from '../../api/kolin';
+import type { KolinBoardContext, KolinBoardSnapshot } from '../../api/kolin';
+import { KolinReviewUnavailable, KolinReviewTooLarge } from './useKolinBoardReview';
 
-export type KolinFailureCode = 'KOLIN_BUSY' | 'KOLIN_TASK_INVALID' | 'KOLIN_GENERATION_FAILED';
+export type KolinFailureCode = 'KOLIN_BUSY' | 'KOLIN_TASK_INVALID' | 'KOLIN_GENERATION_FAILED' | 'KOLIN_REVIEW_UNAVAILABLE' | 'KOLIN_REVIEW_TOO_LARGE';
 
 function failureCode(error: unknown): KolinFailureCode | null {
+  if (error instanceof KolinReviewUnavailable) return 'KOLIN_REVIEW_UNAVAILABLE';
+  if (error instanceof KolinReviewTooLarge) return 'KOLIN_REVIEW_TOO_LARGE';
   if (!(error instanceof ApiRequestError)) return null;
   return error.errorCode === 'KOLIN_BUSY' || error.errorCode === 'KOLIN_TASK_INVALID'
-    || error.errorCode === 'KOLIN_GENERATION_FAILED' ? error.errorCode : null;
+    || error.errorCode === 'KOLIN_GENERATION_FAILED' || error.errorCode === 'KOLIN_REVIEW_UNAVAILABLE' ? error.errorCode : null;
 }
 
 export interface KolinMessage extends KolinHistoryMessage {
@@ -19,6 +23,9 @@ export interface KolinMessage extends KolinHistoryMessage {
   materials?: KolinWorksheet[];
   materialAppendStatus?: Record<string, 'pending' | 'failed' | undefined>;
   appendStatus?: 'pending' | 'failed';
+  boardContext?: KolinBoardContext;
+  boardPreview?: string;
+  boardPreviews?: { pageNumber: number; imageDataUrl: string }[];
 }
 
 interface Submission {
@@ -26,6 +33,9 @@ interface Submission {
   text: string;
   history: KolinHistoryMessage[];
   context: KolinContext;
+  requestId?: string;
+  reviewPrepared?: boolean;
+  boardReview?: KolinBoardSnapshot;
 }
 
 interface Session {
@@ -43,7 +53,8 @@ interface Session {
 const initial = (token: object): Session => ({ token, open: false, draft: '', messages: [], availability: 'idle', pending: false, error: null, failureCode: null, failed: null });
 
 /** One private, in-page teacher thread. Closing/resizing/changing pupil never changes its scope. */
-export function useKolinChat(classId: string, teacherId: string, enabled: boolean) {
+export function useKolinChat(classId: string, teacherId: string, enabled: boolean,
+  prepareReview?: (text: string, context: KolinContext) => Promise<KolinBoardSnapshot | undefined>) {
   const token = useMemo(() => ({}), [classId, teacherId, enabled]);
   const latest = useRef(token);
   latest.current = token;
@@ -90,29 +101,53 @@ export function useKolinChat(classId: string, teacherId: string, enabled: boolea
         : current.messages.map(message => message.id === submission.messageId ? { ...message, status: 'pending' } : message),
     }));
     try {
-      const result = await kolinApi.send(classId, submission.text, submission.history, submission.context, submission.messageId);
+      if (!submission.reviewPrepared && prepareReview) {
+        submission.boardReview = await prepareReview(submission.text, submission.context);
+        submission.reviewPrepared = true;
+      }
+      if (latest.current !== token) return;
+      const args = [classId, submission.text, submission.history, submission.context, submission.requestId ?? submission.messageId] as const;
+      const result = submission.boardReview ? await kolinApi.send(...args, submission.boardReview) : await kolinApi.send(...args);
       if (result.type !== 'text' && result.type !== 'worksheet' && result.type !== 'interactive' && result.type !== 'materials' || typeof result.text !== 'string'
           || result.type === 'text' && !result.text.trim()) throw new Error('Empty response');
       const worksheet = result.type !== 'text' ? parseKolinWorksheet(result.worksheet) : undefined;
       const materials = result.type === 'materials' ? parseKolinMaterials(result.materials) : undefined;
       if (result.type === 'materials' ? !materials : result.type !== 'text' && !worksheet) throw new Error('Invalid worksheet');
       const transcriptContext = parseKolinTranscriptContext(result.transcriptContext);
+      const snapshot = submission.boardReview, board = result.boardContext;
+      const boardContext = snapshot && board && board.studentId === snapshot.studentId && board.boardId === snapshot.boardId
+        && board.pageNumber === snapshot.pageNumber && board.documentVersion === snapshot.documentVersion && board.revision === snapshot.revision
+        && Date.parse(board.capturedAt) === Date.parse(snapshot.capturedAt) && typeof board.studentName === 'string'
+        && board.scope === snapshot.scope && board.totalPageCount === snapshot.totalPageCount
+        && Array.isArray(board.pages) && board.pages.length === snapshot.additionalPages.length + 1
+        && typeof board.imageSha256 === 'string' && /^[a-f0-9]{64}$/.test(board.imageSha256) ? board : undefined;
+      if (snapshot && !boardContext) throw new Error('Invalid review receipt');
       change(current => ({ ...current, pending: false,
         draft: current.draft.trim() === submission.text ? '' : current.draft,
-        messages: [...current.messages.map(message => message.id === submission.messageId ? { ...message, status: 'complete' as const } : message),
+        messages: [...current.messages.map((message, index) => message.id === submission.messageId ? { ...message, status: 'complete' as const }
+          : index < current.messages.length - 4 ? { ...message, boardPreview: undefined, boardPreviews: undefined } : message),
           { id: crypto.randomUUID(), role: 'assistant', type: result.type, text: result.text, status: 'complete',
             ...(worksheet ? { worksheet } : {}),
             ...(materials ? { materials } : {}),
+            ...(boardContext ? { boardContext, boardPreview: snapshot!.imageDataUrl,
+              boardPreviews: [{ pageNumber: snapshot!.pageNumber, imageDataUrl: snapshot!.imageDataUrl }, ...snapshot!.additionalPages]
+                .sort((a, b) => a.pageNumber - b.pageNumber).map(({ pageNumber, imageDataUrl }) => ({ pageNumber, imageDataUrl })) } : {}),
             ...(transcriptContext ? { transcriptContext } : {}) }],
       }));
     } catch (error) {
+      if (failureCode(error) === 'KOLIN_REVIEW_UNAVAILABLE') {
+        // A changed workbook requires a fresh snapshot and request key. Network retries keep both.
+        submission.boardReview = undefined;
+        submission.reviewPrepared = false;
+        submission.requestId = crypto.randomUUID();
+      }
       change(current => ({ ...current, pending: false, error: 'response', failureCode: failureCode(error), failed: submission,
         messages: current.messages.map(message => message.id === submission.messageId ? { ...message, status: 'failed' } : message),
       }));
     } finally {
       if (responseFlight.current === token) responseFlight.current = null;
     }
-  }, [classId, enabled, token, change]);
+  }, [classId, enabled, token, change, prepareReview]);
 
   const send = useCallback((context: KolinContext) => {
     const current = state.current;

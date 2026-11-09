@@ -11,7 +11,9 @@ import {
   toPixels,
 } from './annotations';
 import { buildPdf, dataUrlToBytes, type JpegPage } from './pdfWriter';
-import type { PdfDoc } from './pdfDocument';
+import { openPdf, type PdfDoc } from './pdfDocument';
+import { personalBoardId, personalWorkbookBoardId } from './boards';
+import type { KolinBoardSnapshot } from '../../api/kolin';
 import { penOutline, strokeWidthPixels, tracePenOutline } from './freehand';
 import { shapeTextSizePx, textStyleFor } from './textStyles';
 import { A4_PORTRAIT_ASPECT } from './boardPaper';
@@ -239,6 +241,61 @@ export async function exportBoardPdf({
   }
 
   return new Blob([buildPdf(pages) as BlobPart], { type: 'application/pdf' });
+}
+
+/** An on-demand saved-board snapshot; it never opens or navigates a visible board. */
+export async function captureBoardPage(classId: string, studentId: string, boardId: string, pageIndex: number,
+  observedAt: string, scope: 'current_page' | 'workbook' = 'current_page'): Promise<KolinBoardSnapshot> {
+  if (!Number.isSafeInteger(pageIndex) || pageIndex < 0 || pageIndex >= 1000) throw new Error('Invalid review page');
+  const privateBoard = personalWorkbookBoardId(studentId);
+  const privateVersion = (await onlineClassesApi.documentVersion(classId, privateBoard)).version;
+  const expectedBoard = privateVersion > 0 ? privateBoard : personalBoardId(studentId);
+  if (scope === 'current_page' && boardId !== expectedBoard) throw new Error('Review source changed');
+  boardId = expectedBoard;
+  const version = privateVersion > 0 ? privateVersion : (await onlineClassesApi.documentVersion(classId, boardId)).version;
+  let pdf: PdfDoc | null = null;
+  try {
+    if (version > 0) {
+      const bytes = await onlineClassesApi.documentBytes(classId, boardId);
+      if (!bytes) throw new Error('Review PDF unavailable');
+      pdf = await openPdf(bytes);
+    }
+    const documents = (await onlineClassesApi.listAnnotationDocuments(classId))
+      .filter(item => item.targetType === 'WHITEBOARD' && item.targetId === boardId);
+    const totalPageCount = annotationPageCount(documents, 'WHITEBOARD', boardId, pdf?.pageCount ?? 1);
+    if (scope === 'workbook' && totalPageCount > 40) throw new Error('REVIEW_TOO_LARGE');
+    if (scope === 'workbook') pageIndex = Math.min(pageIndex, totalPageCount - 1);
+    const indices = scope === 'workbook' ? Array.from({ length: totalPageCount }, (_, i) => i) : [pageIndex];
+    const captured: KolinBoardSnapshot['additionalPages'] = [];
+    let imageChars = 0;
+    Konva = (await import('konva')).default;
+    for (const index of indices) {
+      const entry = documents.find(item => item.pageIndex === index);
+      if (!entry && index >= (pdf?.pageCount ?? 1) && scope !== 'workbook') throw new Error('Review page unavailable');
+      const operations = entry ? await replayPage(classId, entry.id, entry.revision) : [];
+      let background: CanvasImageSource | null = null;
+      let aspect = entry?.sourceWidth && entry?.sourceHeight ? entry.sourceWidth / entry.sourceHeight : A4_PORTRAIT_ASPECT;
+      if (pdf && index < pdf.pageCount) {
+        const rendered = await pdf.renderPage(index, EXPORT_WIDTH);
+        background = rendered.canvas;
+        aspect = rendered.aspect;
+      }
+      if (!Number.isFinite(aspect) || aspect <= 0) throw new Error('Invalid review dimensions');
+      const width = Math.min(EXPORT_WIDTH, Math.floor(2400 * aspect));
+      const height = Math.round(width / aspect);
+      if (width < 32 || height < 32) throw new Error('Invalid review dimensions');
+      const imageDataUrl = renderPage(foldOperations(operations), width, height, aspect, background);
+      imageChars += imageDataUrl.length;
+      if (dataUrlToBytes(imageDataUrl).length > 1_500_000 || imageChars > 16_000_000) throw new Error('REVIEW_TOO_LARGE');
+      captured.push({ pageNumber: index + 1, revision: operations.at(-1)?.sequence ?? 0, imageDataUrl });
+    }
+    const afterPrivate = (await onlineClassesApi.documentVersion(classId, privateBoard)).version;
+    const after = afterPrivate > 0 ? afterPrivate : (await onlineClassesApi.documentVersion(classId, boardId)).version;
+    if (afterPrivate !== privateVersion || after !== version) throw new Error('Review source changed');
+    const primary = captured.find(page => page.pageNumber === pageIndex + 1)!;
+    return { studentId, boardId, ...primary, documentVersion: version, scope, totalPageCount,
+      additionalPages: captured.filter(page => page !== primary), observedAt, capturedAt: new Date().toISOString() };
+  } finally { pdf?.destroy(); }
 }
 
 /** Hands a file to the browser's download flow. */

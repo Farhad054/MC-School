@@ -3,6 +3,7 @@ import { useI18n } from '../../i18n/I18nContext';
 import type { KolinContext, KolinTranscriptContext } from '../../api/kolin';
 import type { KolinFailureCode, useKolinChat } from './useKolinChat';
 import { KolinWorksheetCard } from './KolinWorksheetCard';
+import { KolinReviewCard } from './KolinReviewCard';
 import './kolin-panel.css';
 
 function lessonTime(milliseconds: number) {
@@ -12,6 +13,12 @@ function lessonTime(milliseconds: number) {
 
 function failureMessage(code: KolinFailureCode | null, de: boolean) {
   switch (code) {
+    case 'KOLIN_REVIEW_TOO_LARGE': return de
+      ? 'Das Heft ist zu groß für eine Prüfung. Bitten Sie Kolyn, die aktuell geöffnete Seite zu prüfen.'
+      : 'Тетрадь слишком большая для одной проверки. Попросите Kolyn проверить текущую открытую страницу.';
+    case 'KOLIN_REVIEW_UNAVAILABLE': return de
+      ? 'Die aktuelle Seite ist nicht verfügbar oder wurde geändert. Bitten Sie den Schüler, seine persönliche Tafel zu öffnen, und versuchen Sie es erneut.'
+      : 'Текущая страница недоступна или изменилась. Попросите ученика открыть личную доску и повторите запрос для свежего снимка.';
     case 'KOLIN_BUSY': return de
       ? 'Kolyn bereitet die Antwort noch vor. Versuchen Sie es in ein paar Sekunden erneut.'
       : 'Kolyn ещё готовит ответ. Повторите через несколько секунд.';
@@ -73,11 +80,14 @@ export function KolinPanel({ chat, context }: { chat: ReturnType<typeof useKolin
         ? 'Ich bin Kolyn. Ich helfe beim Erklären, beim Besprechen von Lösungen und beim Vorbereiten von Aufgaben.'
         : 'Я Kolyn. Помогу объяснить тему, разобрать решение и подготовить задания.'}
         <p>{de ? 'Bei Ihrer Frage nutze ich das gespeicherte Transkript dieses Unterrichts. Ich gebe keine automatischen Hinweise.'
-          : 'Когда вы задаёте вопрос, я использую сохранённую расшифровку этого урока. Автоматических подсказок нет.'}</p></li>}
+          : 'Когда вы задаёте вопрос, я использую сохранённую расшифровку этого урока. Автоматических подсказок нет.'}</p>
+        <p>{de ? 'Sagen Sie zum Beispiel: Prüfe Melissas Lösung. Ich prüfe ihre aktuell geöffnete persönliche Seite.'
+          : 'Например: «Проверь задание у Мелиссы». Проверю текущую страницу её открытой личной доски.'}</p></li>}
       {chat.messages.map(message => <li key={message.id} className={`kolin-panel__message kolin-panel__message--${message.role}`}
         data-role={message.role} data-message-type={message.type}>
         <span className="kolin-panel__speaker">{message.role === 'assistant' ? 'Kolyn' : de ? 'Sie' : 'Вы'}</span>
         {message.text && <p>{message.text}</p>}
+        {message.role === 'assistant' && message.boardContext && <KolinReviewCard context={message.boardContext} preview={message.boardPreview} pages={message.boardPreviews} de={de} />}
         {message.role === 'assistant' && (message.materials ?? (message.worksheet ? [message.worksheet] : [])).map(worksheet =>
           <KolinWorksheetCard key={worksheet.id} classId={chat.classId} worksheet={worksheet}
             appendStatus={message.materials ? message.materialAppendStatus?.[worksheet.id] : message.appendStatus} de={de}

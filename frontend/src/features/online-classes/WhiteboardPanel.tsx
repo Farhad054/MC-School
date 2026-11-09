@@ -270,10 +270,19 @@ export function WhiteboardPanel({
   const { publish: publishPersonalView } = useClassEvents(classId, VIEW_TOPIC, () => undefined);
   useEffect(() => {
     if (camera || isHost || !personal || ownerId !== actorId || !active) return;
-    const send = () => void publishPersonalView(viewEvent(classId, describeView(pages, viewOf(pages), getBoardSize(), targetId, false)), true, hostUserId ? [hostUserId] : []);
+    let reported = describeView(pages, viewOf(pages), getBoardSize(), targetId, false);
+    const send = () => {
+      reported = describeView(pages, viewOf(pages), getBoardSize(), targetId, false);
+      void publishPersonalView(viewEvent(classId, { ...reported, active: document.visibilityState !== 'hidden' }), true, hostUserId ? [hostUserId] : []);
+    };
     send();
+    document.addEventListener('visibilitychange', send);
     const timer = window.setInterval(send, 2000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', send);
+      void publishPersonalView(viewEvent(classId, { ...reported, active: false }), true, hostUserId ? [hostUserId] : []);
+    };
   }, [camera, isHost, personal, ownerId, actorId, active, classId, pages, targetId, getBoardSize, publishPersonalView, hostUserId]);
 
   const view = compactPreview ? previewViews[pages.current] ?? DEFAULT_VIEW : viewOf(pages);

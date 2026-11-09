@@ -11,7 +11,7 @@ const alias = [
   { find: /^@livekit\/components-react$/, replacement: resolve(root, 'e2e/kolin-livekit-adapter.tsx') },
   { find: /^@livekit\/components-react-real$/, replacement: realLiveKit },
 ];
-await build({ root, configFile: false, plugins: [react()], resolve: { alias },
+await build({ root, configFile: false, plugins: [react()], resolve: { alias, preserveSymlinks: true },
   define: { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify('/api/v1') },
   build: { outDir, emptyOutDir: false, rollupOptions: { input: resolve(root, 'e2e/kolin-room.html') } } });
 const server = await preview({ root, configFile: false, build: { outDir },
