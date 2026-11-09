@@ -41,6 +41,7 @@ class WorkbookContentServiceTest {
                 task("expression","Kürzen","Kürze vollständig.","27/36","3/4",""),
                 task("expression","Addieren","Berechne.","2/3+1/4","11/12",""),
                 task("relation","Gleichwertigkeit","Prüfe.","2/3=4/6","",""),
+                task("relation","Unbekannter Bruch","Bestimme x.","x/3=2/6","",""),
                 task("equation","","","x-7=-11","-4",""),
                 task("expression","Subtrahieren","Berechne.","5/6-1/4","7/12",""))));
 
@@ -57,13 +58,13 @@ class WorkbookContentServiceTest {
         var firstExercise=(Map<String,Object>)((List<?>)workbookPage.get("blocks")).get(0);
         assertEquals(8,firstExercise.get("writeLines"));
         var qa=(Map<String,Object>)doc.get("qa");
-        assertEquals(5,((List<?>)qa.get("algebra")).size());
+        assertEquals(6,((List<?>)qa.get("algebra")).size());
         assertTrue(output.lessonJson().contains("linearValue"));
         assertTrue(output.lessonJson().contains("expressionValue"));
         assertTrue(output.lessonJson().contains("relationValue"));
         assertFalse(output.lessonJson().contains("x = -4"));
         assertFalse(output.lessonJson().contains("11/12"));
-        assertTrue(output.lessonJson().contains("Aufgabe 4"));
+        assertTrue(output.lessonJson().contains("Aufgabe 5"));
         assertTrue(output.lessonJson().contains("Löse die Gleichung."));
         assertEquals("Evidenced notes",output.lessonPlan());
 
