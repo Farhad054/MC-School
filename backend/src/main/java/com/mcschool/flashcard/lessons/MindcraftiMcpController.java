@@ -55,7 +55,7 @@ public class MindcraftiMcpController {
 
     private static final String API_KEY_HEADER = "X-Mindcrafti-Api-Key";
     private static final String SERVER_NAME = "mindcrafti-lessons";
-    private static final String SERVER_VERSION = "1.34.0";
+    private static final String SERVER_VERSION = "1.35.0";
     private static final int MAX_DIRECT_PDF_BYTES = 15 * 1024 * 1024;
     private static final String FILE_TRANSFER_RESOURCE = "ui://mindcrafti/lesson-file-transfer-v2.html";
     private static final String FILE_TRANSFER_MIME = "text/html;profile=mcp-app";
@@ -326,7 +326,7 @@ public class MindcraftiMcpController {
         result.put("capabilities", Map.of("tools", Map.of(), "resources", Map.of()));
         result.put("serverInfo", Map.of("name", SERVER_NAME, "version", SERVER_VERSION));
         result.put("instructions", authenticated
-                ? "For the curriculum skills board, always read get_skill_board fresh before answering from it or using edit_skill_board. Edit only explicitly requested items, using the exact returned revision. Preserve unrelated content and read back after saving. A stale revision means reconcile, not blind retry. This catalog does not contain pupil mastery. Mindcrafti lesson, school-prompt, Brand Guide, homework-file and school analytics tools. If the teacher says to make a lesson or homework 'по промту', fetch the current school prompt with get_school_prompt before generating. For any Mindcrafti-branded document or visual material, fetch the current Brand Guide with get_brand_guide before creating it. Extra teacher instructions override or refine the prompt for that request. If the teacher says 'без промта', do not fetch the lesson prompt."
+                ? "For the curriculum skills board, always read get_skill_board fresh before answering from it or using edit_skill_board. Edit only explicitly requested items, using the exact returned revision. Preserve unrelated content and read back after saving. A stale revision means reconcile, not blind retry. This catalog does not contain pupil mastery. Mindcrafti lesson, school-prompt, Brand Guide, homework-file and school analytics tools. If the teacher asks for 7-day PDF homework, use prepare_homework_context, author seven separate ChatGPT lessonJson daily pages, run generate_homework_day_draft for each day, poll get_lesson_workbook_job, then review_homework_series_drafts. Assign only after explicit teacher approval with assign_homework_series_from_drafts. No Google Drive, Railway, server AI or API keys are required. If the teacher says to make a lesson or homework 'по промту', fetch the current school prompt with get_school_prompt before generating. For any Mindcrafti-branded document or visual material, fetch the current Brand Guide with get_brand_guide before creating it. Extra teacher instructions override or refine the prompt for that request. If the teacher says 'без промта', do not fetch the lesson prompt."
                 : "Mindcrafti diagnostic MCP connection. No school data is exposed without authentication.");
         if (authenticated) result.put("instructions", result.get("instructions") + schedulingInstructions() + workbookInstructions());
         return result;
@@ -891,6 +891,44 @@ public class MindcraftiMcpController {
                             "teacherId", property("string", "Exact teacher UUID from find_lessons"),
                             "eventId", property("string", "Exact eventId from find_lessons")),
                             List.of("eventId")), readOnlyAnnotations()));
+            tools.add(tool("prepare_homework_context",
+                    "MANDATORY FIRST STEP for seven-day homework via MCH3. Returns the current HOMEWORK school prompt, the exact lesson/student evidence, Brand Guide and fresh rendererContract/contextToken. Choose the most recent actually completed lesson and inspect its transcript; do not invent errors or new topics. Teachers need ONLY MCH3.",
+                    schema(Map.of("teacherId",property("string","ADMIN selects teacher UUID, TEACHER may omit"),
+                                  "eventId",property("string","Exact most recently taught owned lesson eventId from find_lessons")),
+                            List.of("eventId")),readOnlyAnnotations()));
+            Map<String,Object> homeworkDaySchema=new LinkedHashMap<>();
+            homeworkDaySchema.put("teacherId",property("string","ADMIN selects teacher UUID; teachers may omit"));
+            homeworkDaySchema.put("eventId",property("string","Owned reference lesson eventId returned by prepare_homework_context"));
+            homeworkDaySchema.put("day",Map.of("type","integer","minimum",1,"maximum",7,
+                    "description","Day index 1..7 for a seven-day HOMEWORK series"));
+            homeworkDaySchema.put("seriesKey",property("string","One stable printable 8..128-character key, IDENTICAL for all seven days"));
+            homeworkDaySchema.put("lessonJson",property("string","REQUIRED one-A4-page student workbook plus private teacherPages and numbered qa.algebra; math and graphics are structured, no raw images. meta.homeworkEstimatedMinutes must be 1..10. Server renders one student PDF + one private teacher-answer PDF."));
+            homeworkDaySchema.put("contextToken",property("string","Exact fresh token from prepare_homework_context"));
+            homeworkDaySchema.put("idempotencyKey",property("string","Unique stable key PER DAY (reuse unchanged on retries)"));
+            tools.add(tool("generate_homework_day_draft",
+                    "One of SEVEN daily HOMEWORK drafts. ChatGPT authors content based on current homework prompt and last lesson evidence. Server strictly enforces <=2 independent tasks, <=10min, 6+ handwriting lines per task, first four days support at TOP, days 5-7 fully German/no hints, and one pupil A4 PDF with NO name/date/day label. Uses the SAME mathematically checked vector PDF renderer as lessons and saves teacher-only answers. Returns durable jobId; poll get_lesson_workbook_job. Run 7 jobs without exceeding actor's 6 pending-job cap. DO NOT ASSIGN until approved.",
+                    schema(homeworkDaySchema,List.of("eventId","day","seriesKey","lessonJson","contextToken","idempotencyKey")),writeAnnotations()));
+            Map<String,Object> homeworkDraftSchema=new LinkedHashMap<>();
+            homeworkDraftSchema.put("teacherId",property("string","ADMIN teacher UUID; TEACHER may omit"));
+            homeworkDraftSchema.put("eventId",property("string","Exact source lesson shared by all seven drafts"));
+            homeworkDraftSchema.put("seriesKey",property("string","Identical seriesKey supplied to each generation"));
+            homeworkDraftSchema.put("draftIds",Map.of("type","array","minItems",7,"maxItems",7,
+                    "items",Map.of("type","string"),
+                    "description","Exactly seven successful unpublished draft UUIDs, ordered Day 1 through Day 7"));
+            tools.add(tool("review_homework_series_drafts",
+                    "Read-only. Validate ownership, series/day markers, seven distinct saved student PDFs and refresh all seven 5-minute PDF preview links, plus private answer PDFs. No assignment; present previews to teacher for approval.",
+                    schema(homeworkDraftSchema,List.of("eventId","seriesKey","draftIds")),readOnlyAnnotations()));
+            Map<String,Object> homeworkAssignSchema=new LinkedHashMap<>(homeworkDraftSchema);
+            homeworkAssignSchema.put("targetType",Map.of("type","string","enum",List.of("student","group"),
+                    "description","Target must match the owned source lesson's student/group"));
+            homeworkAssignSchema.put("targetId",property("string","Exact student/group UUID from find_homework_targets matching source lesson"));
+            homeworkAssignSchema.put("startDate",property("string","First assigned date YYYY-MM-DD, then 6 consecutive dates"));
+            homeworkAssignSchema.put("confirm",Map.of("type","boolean","enum",List.of(true),
+                    "description","Required explicit user approval AFTER reviewing seven PDFs"));
+            homeworkAssignSchema.put("idempotencyKey",property("string","Stable key reused unchanged after uncertain assignment result"));
+            tools.add(tool("assign_homework_series_from_drafts",
+                    "ASSIGN ONLY AFTER EXPLICIT CONFIRMATION. Securely reuse seven server-generated, math/A4-verified homework draft PDFs as a dated seven-day series, no ChatGPT file download, Google Drive or base64. Revalidate ownership and exact day/series markers and verify saved homework via database readback. This operation may replace existing unsubmitted PDFs for a single student; show the plan before requesting approval.",
+                    schema(homeworkAssignSchema,List.of("eventId","seriesKey","draftIds","targetType","targetId","startDate","confirm","idempotencyKey")),writeAnnotations()));
             tools.add(tool("generate_lesson_workbook_draft",
                     "REQUIRED: first call prepare_workbook_context for the exact owned lesson, then ChatGPT writes lessonJson using rendererContract and sends lessonJson + fresh contextToken + eventId + idempotencyKey to this tool. The server performs math QA, A4 layout and TWO unpublished PDF drafts; it does NOT generate exercise content through its own AI. Calling with only eventId/instruction is invalid. Both ADMIN and TEACHER follow this same workflow; teachers need only MCH3, not Railway. Poll get_lesson_workbook_job after retryAfterSeconds, reuse idempotencyKey for identical retries. For multiple pupils refresh signed links before presenting. Never publish without explicit approval.",
                     schema(Map.of("teacherId", property("string", "ADMIN selects teacher UUID; teachers may omit it for themselves"),
@@ -1215,6 +1253,10 @@ public class MindcraftiMcpController {
                 yield toolResult(ownerWorkbookGeneratorService.source(string(arguments.get("file"))));
             }
             case "get_brand_guide" -> toolResult(schoolBrandGuideService.readForMcp());
+            case "prepare_homework_context" -> toolResult(prepareHomeworkContext(arguments,auth));
+            case "generate_homework_day_draft" -> toolResult(generateHomeworkDayDraft(arguments,auth));
+            case "review_homework_series_drafts" -> toolResult(reviewHomeworkSeriesDrafts(arguments,auth));
+            case "assign_homework_series_from_drafts" -> toolResult(assignHomeworkSeriesFromDrafts(arguments,auth));
             case "prepare_workbook_context" -> {
                 requireWorkbookStaff(auth);
                 yield toolResult(prepareWorkbookContext(arguments, auth));
@@ -1400,6 +1442,172 @@ public class MindcraftiMcpController {
                 "Workbook pilot requires a lesson linked to an actual group or student");
         String month = workbookLocalDate(lesson).withDayOfMonth(1).toString().substring(0, 7);
         MonthlyPlanResponse result = monthlyPlanService.get(teacher, type, targetId, month);
+        return result;
+    }
+
+    private Map<String,Object> prepareHomeworkContext(Map<String,Object> args, AuthContext auth) throws Exception {
+        requireWorkbookStaff(auth);
+        Map<String,Object> ctx=new LinkedHashMap<>(prepareWorkbookContext(args,auth));
+        String prompt=schoolPromptSettingsService.readForMcp().homeworkPrompt();
+        if(prompt==null || prompt.isBlank())throw new IllegalStateException("School homework prompt is not configured");
+        // The shared workbook context includes workbook-specific warnings like
+        // "do not generate homework". Do not show them to ChatGPT alongside
+        // homework instructions: replace them with the correct daily contract.
+        ctx.remove("rules");
+        Object originalContract=ctx.get("rendererContract");
+        if(originalContract instanceof Map<?,?> rawContract) {
+            Map<String,Object> dailyContract=new LinkedHashMap<>();
+            for(var entry:rawContract.entrySet())
+                if(entry.getKey() instanceof String k)dailyContract.put(k,entry.getValue());
+            dailyContract.put("pages","Exactly ONE A4 student workbookPages entry per day; 1-2 tasks, each with 6+ full-width lines at 8mm spacing. Teacher pages contain private solutions. No lesson progress bars.");
+            dailyContract.put("meta","school:MINDCRAFTI SCHOOL, subject:MATHEMATIK, durationMinutes: reference lesson's calendarDurationMinutes, homeworkEstimatedMinutes:1..10. homeworkMode/homeworkDay are set by the server; omit pupil identity/day/date from student text.");
+            dailyContract.put("publication","HOMEWORK DRAFT ONLY: render and preview seven daily PDF pairs, do not publish lesson workbooks or assign homework before explicit approval via assign_homework_series_from_drafts.");
+            ctx.put("rendererContract",dailyContract);
+        }
+        ctx.put("homeworkPrompt",prompt);
+        ctx.put("materialType","homework");
+        ctx.put("homeworkDays",7);
+        ctx.put("homeworkRules",List.of(
+            "Read actual last taught lesson/transcript and only verified mistakes. No invented errors, methods, terms or pupil skills.",
+            "Seven DIFFERENT one-page branded A4 student PDF drafts (plus seven separate private teacher-answer PDFs). Maximum TWO tasks and 10 minutes daily, including reading.",
+            "meta.homeworkEstimatedMinutes must be 1..10. Provide 6+ full-width handwriting lines under EACH task with >=8mm spacing.",
+            "Days 1..4: a short scaffold at TOP, in Russian using only already taught German math words. Days 5..7: German ONLY, no hints or examples.",
+            "Each task needs its own numeric number and matching qa.algebra assertion with that number (visualValue for graph/geometry). No hidden a/b/c tasks.",
+            "Student PDFs must not contain student/group names, dates, day/Tag labels or teacher solutions; date and pupil remain in assignment metadata only.",
+            "Call generate_homework_day_draft seven times with fresh contextToken, SAME seriesKey and unique day idempotencyKeys. Max SIX queued jobs at once: batch/poll jobs.",
+            "Use review_homework_series_drafts for seven fresh signed previews; only after EXPLICIT teacher approval call assign_homework_series_from_drafts with confirm=true. NEVER publish as a lesson workbook."
+        ));
+        ctx.put("nextStep","Author seven daily one-page lessonJson documents from current homeworkPrompt and evidence. Generate each via generate_homework_day_draft, poll get_lesson_workbook_job, preview seven via review_homework_series_drafts, then assign only after explicit approval.");
+        ctx.put("publication","HOMEWORK DRAFT ONLY. No automatic assignment.");
+        return ctx;
+    }
+
+    private Map<String,Object> generateHomeworkDayDraft(Map<String,Object> args,AuthContext auth) throws Exception {
+        requireWorkbookStaff(auth);
+        if(!Set.of("teacherId","eventId","day","seriesKey","lessonJson","contextToken","idempotencyKey").containsAll(args.keySet()))
+            throw new IllegalArgumentException("Unknown homework generation arguments");
+        AuthenticatedUser teacher=requireTeacher(args,auth);
+        String eventId=required(args,"eventId");
+        int day=integer(args.get("day"),"day");
+        String seriesKey=required(args,"seriesKey");
+        McpHomeworkDraftValidator.seriesMarker(seriesKey,day);
+        Map<String,Object> ctx=prepareWorkbookContext(Map.of("teacherId",teacher.id().toString(),"eventId",eventId),auth);
+        requireFreshWorkbookToken(ctx,required(args,"contextToken"));
+        String verified=McpHomeworkDraftValidator.normalize(objectMapper,required(args,"lessonJson"),
+                day,String.valueOf(ctx.get("targetName")));
+        Map<String,Object> forward=new LinkedHashMap<>();
+        forward.put("teacherId",teacher.id().toString());
+        forward.put("eventId",eventId);
+        forward.put("lessonJson",verified);
+        forward.put("contextToken",required(args,"contextToken"));
+        forward.put("homeworkDay",day);
+        forward.put("homeworkSeriesKey",seriesKey);
+        forward.put("idempotencyKey",required(args,"idempotencyKey"));
+        forward.put("instruction","Unpublished homework PDF draft. Do not assign.");
+        Map<String,Object> result=generateLessonWorkbookDraft(forward,auth);
+        result.put("homeworkDay",day);
+        result.put("materialType","homework");
+        result.put("published",false);
+        return result;
+    }
+
+    private List<UUID> homeworkDraftIds(Map<String,Object> args) {
+        Object value=args.get("draftIds");
+        if(!(value instanceof List<?> raw) || raw.size()!=7)
+            throw new IllegalArgumentException("Exactly seven saved homework draft IDs are required");
+        List<UUID> ids=new ArrayList<>();
+        for(Object one:raw){
+            if(!(one instanceof String id))throw new IllegalArgumentException("draftIds must contain UUID strings");
+            ids.add(uuid(id,"draftId"));
+        }
+        if(new java.util.HashSet<>(ids).size()!=7)
+            throw new IllegalArgumentException("Every homework day must have a distinct draft ID");
+        return ids;
+    }
+
+    private Map<String,Object> reviewHomeworkSeriesDrafts(Map<String,Object> args,AuthContext auth) throws Exception {
+        requireWorkbookStaff(auth);
+        if(!Set.of("teacherId","eventId","seriesKey","draftIds").containsAll(args.keySet()))
+            throw new IllegalArgumentException("Unsupported homework review arguments");
+        AuthenticatedUser actor=personalWorkbookAccess.requireActor(auth.user());
+        AuthenticatedUser teacher=personalWorkbookAccess.requireTeacher(actor,
+                args.containsKey("teacherId")?uuid(required(args,"teacherId"),"teacherId"):null);
+        String eventId=required(args,"eventId");
+        selectedWorkbookLesson(teacher,eventId);
+        String seriesKey=required(args,"seriesKey");
+        List<UUID> ids=homeworkDraftIds(args);
+        if(workbookDraftDownloads==null)throw new IllegalStateException("Private homework PDF links unavailable");
+        List<Map<String,Object>> previews=new ArrayList<>();
+        for(int i=0;i<7;i++){
+            UUID draftId=ids.get(i);
+            LessonPdfDraftService.PreviewFile pdf=lessonPdfDraftService.homeworkPreviewFile(
+                    teacher,draftId,eventId,i+1,seriesKey);
+            Map<String,Object> day=new LinkedHashMap<>();
+            day.put("day",i+1); day.put("draftId",draftId.toString());
+            day.put("studentPdf",workbookDraftDownloads.create(actor,teacher.id(),draftId,"workbook"));
+            day.put("privateTeacherAnswersPdf",workbookDraftDownloads.create(actor,teacher.id(),draftId,"answers"));
+            day.put("verifiedBytes",pdf.bytes().length);day.put("status","DRAFT");
+            previews.add(day);
+        }
+        return Map.of("status","READY_FOR_TEACHER_REVIEW","eventId",eventId,
+                "days",previews,"studentPdfs",7,"teacherAnswerPdfs",7,"assigned",false,
+                "nextStep","Show the seven PDFs for teacher inspection. Each signed preview link expires in five minutes. Do not assign until explicit approval.");
+    }
+
+    private Map<String,Object> assignHomeworkSeriesFromDrafts(Map<String,Object> args,AuthContext auth) throws Exception {
+        requireWorkbookStaff(auth);
+        if(!Set.of("teacherId","eventId","seriesKey","draftIds","targetType","targetId",
+                "startDate","confirm","idempotencyKey").containsAll(args.keySet()))
+            throw new IllegalArgumentException("Unsupported homework assignment arguments");
+        if(!Boolean.TRUE.equals(args.get("confirm")))
+            throw new IllegalArgumentException("Explicit teacher approval and confirm=true are mandatory");
+        String eventId=required(args,"eventId");
+        String targetType=normalize(required(args,"targetType"));
+        if(!Set.of("student","group").contains(targetType))
+            throw new IllegalArgumentException("targetType must be student or group");
+        UUID targetId=uuid(required(args,"targetId"),"targetId");
+        AuthenticatedUser teacher=homeworkTeacher(args,auth,targetType,targetId);
+        AuthenticatedUser actor=personalWorkbookAccess.requireActor(auth.user());
+        personalWorkbookAccess.requireTeacher(actor,teacher.id());
+        GroupLessonResponse lesson=selectedWorkbookLesson(teacher,eventId);
+        UUID boundTarget="group".equals(targetType)?lesson.groupId():lesson.studentId();
+        if(boundTarget==null || !boundTarget.equals(targetId))
+            throw new IllegalArgumentException("Homework target must match the chosen source lesson's student or group");
+        LocalDate startDate;
+        try{startDate=LocalDate.parse(required(args,"startDate"));}
+        catch(RuntimeException ex){throw new IllegalArgumentException("startDate must be YYYY-MM-DD");}
+        String seriesKey=required(args,"seriesKey");
+        List<UUID> ids=homeworkDraftIds(args);
+        Runnable recheck=()->{
+            AuthenticatedUser current=personalWorkbookAccess.requireCurrentActor(actor);
+            personalWorkbookAccess.requireTeacher(current,teacher.id());
+            selectedWorkbookLesson(teacher,eventId);
+            for(int i=0;i<7;i++)lessonPdfDraftService.homeworkPreviewFile(
+                    teacher,ids.get(i),eventId,i+1,seriesKey);
+        };
+        recheck.run();
+        List<String> filenames=new ArrayList<>();
+        for(int i=1;i<=7;i++)filenames.add("Mindcrafti_Hausaufgaben_"+String.format(Locale.ROOT,"%02d",i)+".pdf");
+        Map<String,Object> identity=new LinkedHashMap<>();
+        identity.put("teacherId",teacher.id().toString());identity.put("eventId",eventId);
+        identity.put("targetType",targetType);identity.put("targetId",targetId.toString());
+        identity.put("startDate",startDate.toString());identity.put("seriesKey",seriesKey);
+        identity.put("draftIds",ids.stream().map(UUID::toString).toList());
+        @SuppressWarnings("unchecked") Map<String,Object> result=(Map<String,Object>)personalWorkbookReceipts.execute(
+                actor,teacher.id(),"assign_homework_series_from_drafts",required(args,"idempotencyKey"),
+                identity,recheck,()->personalWorkbookAccess.asTeacher(actor,teacher,()->{
+                    try{
+                        List<byte[]> pdfs=new ArrayList<>();
+                        for(int i=0;i<7;i++)pdfs.add(lessonPdfDraftService.homeworkPreviewFile(
+                                teacher,ids.get(i),eventId,i+1,seriesKey).bytes());
+                        Map<String,Object> assigned=homeworkSeriesService.assignDirectSeries(
+                                teacher,targetType,targetId,startDate,7,pdfs,filenames);
+                        return verifyHomeworkSeriesReadBack(assigned,auth,startDate,7);
+                    }catch(RuntimeException ex){throw ex;}
+                    catch(Exception ex){throw new IllegalStateException("Approved homework assignment failed",ex);}
+                }));
+        result.put("materialType","homework");
+        result.put("approved",true);
         return result;
     }
 
@@ -1651,7 +1859,7 @@ public class MindcraftiMcpController {
         // Old focused controller tests do not wire the queue. Production always injects it.
         if(workbookJobs==null)return generateLessonWorkbookDraftSynchronously(args,auth);
         requireWorkbookStaff(auth);
-        if(!Set.of("teacherId","eventId","instruction","lessonJson","contextToken","idempotencyKey").containsAll(args.keySet()))
+        if(!Set.of("teacherId","eventId","instruction","lessonJson","contextToken","idempotencyKey","homeworkDay","homeworkSeriesKey").containsAll(args.keySet()))
             throw new IllegalArgumentException("Unsupported workbook generation arguments");
         AuthenticatedUser actor=personalWorkbookAccess.requireActor(auth.user());
         AuthenticatedUser teacher=personalWorkbookAccess.requireTeacher(actor,args.containsKey("teacherId")?uuid(required(args,"teacherId"),"teacherId"):null);
@@ -1667,6 +1875,15 @@ public class MindcraftiMcpController {
             String source=required(args,"lessonJson");
             if(source.length()>OwnerWorkbookPdfRenderService.MAX_INPUT_CHARS)throw new IllegalArgumentException("lessonJson is too large");
             normalized.put("lessonJson",source);normalized.put("contextToken",required(args,"contextToken"));
+        }
+        if(args.containsKey("homeworkDay") || args.containsKey("homeworkSeriesKey")) {
+            if(!args.containsKey("homeworkDay") || !args.containsKey("homeworkSeriesKey"))
+                throw new IllegalArgumentException("Homework needs both day and seriesKey");
+            int day=integer(args.get("homeworkDay"),"homeworkDay");
+            String seriesKey=required(args,"homeworkSeriesKey");
+            McpHomeworkDraftValidator.seriesMarker(seriesKey,day);
+            normalized.put("homeworkDay",day);
+            normalized.put("homeworkSeriesKey",seriesKey);
         }
         Map<String,Object> job=workbookJobs.enqueue(actor,teacher.id(),eventId,required(args,"idempotencyKey"),normalized);
         return completedWorkbookJob(job,auth);
@@ -1687,7 +1904,11 @@ public class MindcraftiMcpController {
         if(!"SUCCEEDED".equals(job.get("status")))return job;
         Map<String,Object> result=new LinkedHashMap<>(job);
         result.put("draft",draftInfo(Map.of("teacherId",job.get("teacherId"),"draftId",job.get("draftId")),auth));
-        result.put("nextStep","Both PDFs are saved drafts, not published. Review them. When preparing several pupils, refresh all get_lesson_draft links immediately before the final answer; signed links last five minutes.");
+        Object draftRaw=result.get("draft");
+        boolean homeworkDraft=draftRaw instanceof Map<?,?> map && Boolean.TRUE.equals(map.get("homeworkOnly"));
+        result.put("nextStep",homeworkDraft
+                ? "This ONE day has two private PDFs saved as a HOMEWORK draft. Generate the remaining days, then call review_homework_series_drafts. Never publish to a lesson or assign before explicit teacher approval."
+                : "Both PDFs are saved drafts, not published. Review them. When preparing several pupils, refresh all get_lesson_draft links immediately before the final answer; signed links last five minutes.");
         return result;
     }
 
@@ -1695,7 +1916,7 @@ public class MindcraftiMcpController {
         requireWorkbookStaff(auth);
         if (personalWorkbookAccess == null || personalWorkbookReceipts == null)
             throw new IllegalStateException("Server workbook generation is unavailable");
-        if (!java.util.Set.of("teacherId", "eventId", "instruction", "lessonJson", "contextToken", "idempotencyKey").containsAll(args.keySet()))
+        if (!java.util.Set.of("teacherId", "eventId", "instruction", "lessonJson", "contextToken", "idempotencyKey", "homeworkDay", "homeworkSeriesKey").containsAll(args.keySet()))
             throw new IllegalArgumentException("Unsupported workbook generation arguments");
         AuthenticatedUser actor = personalWorkbookAccess.requireActor(auth.user());
         UUID selected = args.containsKey("teacherId") ? uuid(required(args, "teacherId"), "teacherId") : null;
@@ -1709,8 +1930,13 @@ public class MindcraftiMcpController {
         String suppliedJson=suppliedContent?required(args,"lessonJson"):"";
         String suppliedToken=suppliedContent?required(args,"contextToken"):"";
         if(suppliedJson.length()>OwnerWorkbookPdfRenderService.MAX_INPUT_CHARS) throw new IllegalArgumentException("lessonJson is too large");
-        Map<String,Object> normalized = Map.of("teacherId", teacher.id().toString(), "eventId", eventId, "instruction", instruction,
-                "lessonJson",suppliedJson,"contextToken",suppliedToken);
+        Map<String,Object> normalized = new LinkedHashMap<>(Map.of("teacherId", teacher.id().toString(), "eventId", eventId, "instruction", instruction,
+                "lessonJson",suppliedJson,"contextToken",suppliedToken));
+        if(args.containsKey("homeworkDay") || args.containsKey("homeworkSeriesKey")) {
+            int day=integer(args.get("homeworkDay"),"homeworkDay");
+            normalized.put("homeworkDay",day);
+            normalized.put("homeworkSeriesKey",required(args,"homeworkSeriesKey"));
+        }
         Map<String,Object> result=(Map<String,Object>) personalWorkbookReceipts.execute(actor, teacher.id(), "generate_lesson_workbook_draft", key, normalized,
                 () -> {
                     selectedWorkbookLesson(personalWorkbookAccess.requireTeacher(actor, teacher.id()), eventId);
@@ -1730,13 +1956,24 @@ public class MindcraftiMcpController {
                         @SuppressWarnings("unchecked") Map<String,Object> prepared=objectMapper.readValue(suppliedJson,Map.class);
                         if(!(prepared.get("qa") instanceof Map<?,?> qa) || !(qa.get("algebra") instanceof List<?> checks) || checks.isEmpty())
                             throw new IllegalArgumentException("Prepared lessonJson must include explicit qa.algebra assertions from its actual tasks and answers");
-                        WorkbookContentService.Content content=new WorkbookContentService.Content(suppliedJson,"","");
+                        boolean homework=args.containsKey("homeworkDay");
+                        int homeworkDay=homework?integer(args.get("homeworkDay"),"homeworkDay"):0;
+                        String seriesKey=homework?required(args,"homeworkSeriesKey"):"";
+                        String verifiedJson=homework ? McpHomeworkDraftValidator.normalize(objectMapper,suppliedJson,
+                                homeworkDay,String.valueOf(context.get("targetName"))) : suppliedJson;
+                        WorkbookContentService.Content content=new WorkbookContentService.Content(verifiedJson,"","");
                         Map<String,Object> generation = new LinkedHashMap<>(scoped);
                         generation.put("contextToken", context.get("contextToken"));
                         generation.put("lessonJson", content.lessonJson());
                         generation.put("lessonPlan", content.lessonPlan());
                         generation.put("difficulties", content.difficulties());
                         Map<String,Object> draftResult = generateWorkbook(generation, auth);
+                        if(homework) {
+                            lessonPdfDraftService.markHomeworkDraft(teacher,
+                                    UUID.fromString(String.valueOf(draftResult.get("draftId"))),eventId,homeworkDay,seriesKey);
+                            draftResult.put("homeworkDay",homeworkDay);
+                            draftResult.put("homeworkDraft",true);
+                        }
                         draftResult.put("contextVersion", context.get("contextVersion"));
                         draftResult.put("published", false);
                         return draftResult;

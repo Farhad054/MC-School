@@ -189,18 +189,21 @@ function teacherBlock(b) {
 function pad2(n) { return String(n).padStart(2,'0'); }
 function pageChrome({ index, count, title, subtitle, time, teacher }) {
   const meta = lesson.meta;
-  const subjectLabel = teacher ? 'LEHRERLÖSUNGEN' : 'ARBEITSHEFT';
+  const homeworkStudent = lesson.meta.homeworkMode === true && !teacher;
+  const subjectLabel = teacher ? 'LEHRERLÖSUNGEN' : homeworkStudent ? 'HAUSAUFGABEN' : 'ARBEITSHEFT';
   const top = `<div class="brandbar"><img src="data:image/png;base64,${logo}" alt="Original Mindcrafti M logo"><div class="brand-lines"><div class="school-name">${richText(meta.school)}</div><div class="school-kind">${richText(meta.subject)} &nbsp;/&nbsp; ${subjectLabel}</div></div></div>`;
   const heading = `<div class="page-heading"><h1>${richText(title)}</h1><p class="page-subtitle">${richText(subtitle)}</p></div>`;
   const progress = teacher ? '' : `<div class="progress" style="grid-template-columns:repeat(${Math.max(1,count)},1fr)" aria-hidden="true">${Array.from({length:count}, (_,i) => `<span class="${i === index ? 'current' : i < index ? 'done' : ''}"></span>`).join('')}</div>`;
-  const pill = time ? `<div class="time-pill">${richText(time)}</div>` : '';
-  const footer = `<footer class="footer"><span>${richText(meta.school)} &nbsp;/&nbsp; ${richText(meta.group)}</span><span class="page-index">${pad2(index+1)} / ${pad2(count)} &nbsp; • &nbsp; ${richText(meta.date)}</span></footer>`;
+  const pill = time && !homeworkStudent ? `<div class="time-pill">${richText(time)}</div>` : '';
+  const footer = homeworkStudent
+    ? `<footer class="footer"><span>${richText(meta.school)} &nbsp;/&nbsp; MATHEMATIK</span><span class="page-index">${pad2(index+1)} / ${pad2(count)}</span></footer>`
+    : `<footer class="footer"><span>${richText(meta.school)} &nbsp;/&nbsp; ${richText(meta.group)}</span><span class="page-index">${pad2(index+1)} / ${pad2(count)} &nbsp; • &nbsp; ${richText(meta.date)}</span></footer>`;
   return { top, heading, progress, pill, footer };
 }
 function workbookPage(p, idx, pages) {
   if (plain) return `<article class="sheet student plain" data-page="${idx+1}"><main class="paper-content">${p.blocks.map((b,i)=>renderWorkbookBlock(b,i,idx)).join('')}</main></article>`;
   const c = pageChrome({index: idx, count: pages.length, title:p.title,subtitle:p.subtitle,time:p.time,teacher:false});
-  return `<article class="sheet student" data-page="${idx+1}">${c.top}${c.heading}${c.pill}${c.progress}<main class="paper-content">${p.blocks.map((b,i)=>renderWorkbookBlock(b,i,idx)).join('')}</main>${c.footer}</article>`;
+  return `<article class="sheet student${lesson.meta.homeworkMode===true ? ' homework' : ''}" data-page="${idx+1}">${c.top}${c.heading}${c.pill}${c.progress}<main class="paper-content">${p.blocks.map((b,i)=>renderWorkbookBlock(b,i,idx)).join('')}</main>${c.footer}</article>`;
 }
 function teacherPage(p, idx, pages) {
   if (plain) return `<article class="sheet teacher plain" data-page="${idx+1}"><main class="paper-content">${p.blocks.map(teacherBlock).join('')}</main></article>`;
@@ -383,7 +386,11 @@ function findChromium(){
 }
 await mkdir(out,{recursive:true});
 if (!plain) {
-  lesson.workbookPages = autoPaginatePages(lesson.workbookPages, false);
+  // A HOMEWORK day is exactly one A4 pupil PDF. Never silently split it into
+  // two physical pages: preflight plus WeasyPrint/PDF geometry QA must either
+  // confirm it fits or reject the draft for revision.
+  if (lesson.meta.homeworkMode !== true)
+    lesson.workbookPages = autoPaginatePages(lesson.workbookPages, false);
   lesson.teacherPages = autoPaginatePages(lesson.teacherPages, true);
 }
 preflightPages(lesson.workbookPages, false);
@@ -404,7 +411,7 @@ await writeFile(join(out,`${base}_math-qa.json`),JSON.stringify(mathQa,null,2),'
 const durationMinutes = Number(lesson.meta.durationMinutes);
 if (!Number.isInteger(durationMinutes) || durationMinutes < 30 || durationMinutes > 240) throw Error('Invalid meta.durationMinutes');
 const targets=[
-  {key:`Arbeitsheft_${durationMinutes}min`,html:doc(lesson.workbookPages.map((p,i)=>workbookPage(p,i,lesson.workbookPages)).join(''),'Mindcrafti / Gruppe 1 / Arbeitsheft')},
+  {key:`Arbeitsheft_${durationMinutes}min`,html:doc(lesson.workbookPages.map((p,i)=>workbookPage(p,i,lesson.workbookPages)).join(''),lesson.meta.homeworkMode === true ? 'Mindcrafti / Mathematik / Hausaufgaben' : 'Mindcrafti / Arbeitsheft')},
   {key:`Lehrerloesungen_${durationMinutes}min`,html:doc(lesson.teacherPages.map((p,i)=>teacherPage(p,i,lesson.teacherPages)).join(''),'Mindcrafti / Gruppe 1 / Lehrerloesungen')},
 ];
 for(const target of targets){target.htmlPath=join(out,`${base}_${target.key}.html`);target.pdfPath=join(out,`${base}_${target.key}.pdf`);await writeFile(target.htmlPath,target.html,'utf8');}
