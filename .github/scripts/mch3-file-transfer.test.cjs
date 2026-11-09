@@ -124,6 +124,68 @@ test('resolves both real IDs, completes with canonical objects, then verifies sa
   assert.ok(!JSON.stringify(env.states).includes('download_url'));
 });
 
+test('homework series resolves seven file IDs once and completes with verified database rows', async () => {
+  const homework = {
+    operation: 'assign_homework_series', teacherId: base.teacherId, targetType: 'student',
+    targetId: 'student-homework', startDate: '2026-11-10', days: 7,
+    pdfFileIds: Array.from({ length: 7 }, (_, index) => 'file_homework_' + (index + 1)),
+    filenames: Array.from({ length: 7 }, (_, index) => 'Hausaufgabe_' + (index + 1) + '.pdf'),
+    idempotencyKey: 'homework-series-001', confirm: true
+  };
+  const verifiedAssignments = Array.from({ length: 7 }, (_, index) => ({
+    studentId: homework.targetId, studentName: 'Student', assignedDate: '2026-11-' + String(10 + index).padStart(2, '0'),
+    homeworkId: 'homework-' + (index + 1), filename: homework.filenames[index], status: 'created', verified: true
+  }));
+  const env = environment(homework, { tool: async (name, args) => {
+    assert.equal(name, 'complete_homework_series_file_transfer');
+    assert.equal(args.pdfFiles.length, 7);
+    assert.ok(!Object.keys(args).includes('pdfFileIds'));
+    for (let index = 0; index < 7; index++) {
+      assert.equal(args.pdfFiles[index].file_id, homework.pdfFileIds[index]);
+      assert.equal(args.pdfFiles[index].file_name, homework.filenames[index]);
+      assert.match(args.pdfFiles[index].download_url, /^https:\/\/files\.oaiusercontent\.com\//);
+    }
+    return { structuredContent: { verified: true, verifiedAssignments } };
+  } });
+  await settled();
+  assert.deepEqual(env.downloads.map(item => item.fileId), homework.pdfFileIds);
+  assert.deepEqual(env.calls.map(call => call.name), ['complete_homework_series_file_transfer']);
+  assert.equal(env.elements.status.dataset.tone, 'success');
+  assert.match(env.rendered(), /Hausaufgabe_1\.pdf/);
+  assert.match(env.rendered(), /Hausaufgabe_7\.pdf/);
+  assert.ok(!env.rendered().includes('URL-SECRET'));
+  assert.ok(!JSON.stringify(env.states).includes('download_url'));
+});
+
+test('remounted verified homework series does not request files or repost the assignment', async () => {
+  const homework = {
+    operation: 'assign_homework_series', teacherId: base.teacherId, targetType: 'student',
+    targetId: 'student-homework', startDate: '2026-11-10', days: 7,
+    pdfFileIds: Array.from({ length: 7 }, (_, index) => 'file_homework_' + (index + 1)),
+    filenames: Array.from({ length: 7 }, (_, index) => 'Hausaufgabe_' + (index + 1) + '.pdf'),
+    idempotencyKey: 'homework-series-remount', confirm: true
+  };
+  const rows = homework.filenames.map((filename, index) => ({
+    kind: 'homework', label: 'Домашнее задание ' + (index + 1), present: true, filename,
+    sizeBytes: 0, version: 1, assignedDate: '2026-11-' + String(10 + index).padStart(2, '0')
+  }));
+  const first = environment(homework, { tool: async () => ({ structuredContent: {
+    verified: true, verifiedAssignments: rows.map((row, index) => ({
+      studentId: homework.targetId, studentName: 'Student', assignedDate: row.assignedDate,
+      homeworkId: 'hw-' + index, filename: row.filename, status: 'created', verified: true
+    }))
+  } }) });
+  await settled();
+  assert.equal(first.elements.status.dataset.tone, 'success');
+  const replay = environment(homework, { widgetState: first.window.openai.widgetState,
+    tool: async () => { throw new Error('remount must not repost'); } });
+  await settled();
+  assert.equal(replay.downloads.length, 0);
+  assert.equal(replay.calls.length, 0);
+  assert.equal(replay.elements.status.dataset.tone, 'success');
+  assert.match(replay.rendered(), /Hausaufgabe_7\.pdf/);
+});
+
 test('global updates do not duplicate an in-flight upload', async () => {
   const waiting = [];
   const env = environment(base, { download: args => new Promise(resolve => waiting.push(() => resolve({
