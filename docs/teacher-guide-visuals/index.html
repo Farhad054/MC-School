@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>Mindcrafti: иллюстрации справки</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#e8e4dd;font-family:Arial,sans-serif;color:#182638}.card{width:960px;height:540px;padding:36px 42px;background:#faf8f4;position:relative;overflow:hidden}.brand{font-size:13px;font-weight:700;letter-spacing:2px;color:#a74613;display:flex;justify-content:space-between}.line{width:42px;height:4px;background:#f37b35;margin:21px 0 18px}h1{font-size:36px;letter-spacing:-1px;margin:0 0 12px;line-height:1.12}.description{font-size:19px;line-height:1.45;margin:0;max-width:840px;color:#47556a}.visual{height:208px;margin-top:20px;background:#ede9e2;border-radius:18px;border:1px solid #e2dbd1;display:flex;align-items:center;justify-content:center;overflow:hidden}.crop{position:relative;overflow:hidden;border-radius:10px;box-shadow:0 10px 24px #18263822;flex-shrink:0}.crop img{position:absolute;max-width:none}.focus{position:absolute;border:3px solid #ff904d;border-radius:8px;box-shadow:0 0 0 2px #1d2735a0;pointer-events:none}.where{margin-top:16px;display:flex;align-items:flex-start;gap:10px;font-size:16px;line-height:1.35;color:#3e4a5c}.dot{width:23px;height:23px;border-radius:50%;background:#df6b2e;color:white;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px;font-weight:bold}footer{position:absolute;bottom:19px;left:42px;right:42px;display:flex;justify-content:space-between;font-size:11px;letter-spacing:.2px;color:#7b817e}
+</style>
+<main class="card" id="card"><div class="brand"><span>MINDCRAFTI · ДЛЯ ПРЕПОДАВАТЕЛЯ</span><span id="counter"></span></div><div class="line"></div><h1 id="title"></h1><p class="description" id="description"></p><div class="visual"><div class="crop" id="crop"><img id="source" alt="Фрагмент настоящего интерфейса"><div class="focus" id="focus"></div></div></div><div class="where"><span class="dot">↗</span><span id="where"></span></div><footer><span>Снимок тестового урока · нужная кнопка выделена</span><span>Проверено 09.11.2026</span></footer></main>
+<script>
+fetch('cards.json').then(r=>r.json()).then(cards=>{
+ const id=new URLSearchParams(location.search).get('id')||cards[0].id;
+ const card=cards.find(c=>c.id===id);if(!card)throw new Error('Unknown illustration');
+ document.title=card.title+' · Mindcrafti';
+ for(const [target,value] of Object.entries({title:card.title,description:card.text,where:card.where,counter:String(cards.indexOf(card)+1).padStart(2,'0')}))document.getElementById(target).textContent=value;
+ const [x,y,w,h]=card.crop,[fx,fy,fw,fh]=card.focus;
+ const scale=Math.min(2.1,830/w,180/h);
+ const crop=document.getElementById('crop');crop.style.width=w*scale+'px';crop.style.height=h*scale+'px';
+ const image=document.getElementById('source');image.onload=()=>{image.style.width=image.naturalWidth*scale+'px';document.body.dataset.ready='true'};
+ image.style.left=-x*scale+'px';image.style.top=-y*scale+'px';image.src='source/'+card.source;
+ const focus=document.getElementById('focus');Object.assign(focus.style,{left:(fx-x)*scale+'px',top:(fy-y)*scale+'px',width:fw*scale+'px',height:fh*scale+'px'});
+});
+</script></html>

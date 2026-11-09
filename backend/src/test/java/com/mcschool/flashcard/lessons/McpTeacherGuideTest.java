@@ -73,6 +73,15 @@ class McpTeacherGuideTest {
             assertThat(matches).as(entry.getKey()).extracting(McpTeacherGuideService.Article::id).contains(entry.getValue());
         }
     }
+    @Test void workbookPreparationStartsInChatGptAndSeparatesDraftFromAttachment()throws Exception {
+        var service=service();
+        for(String query:List.of("Как создать рабочие тетради в ChatGPT через коннектор?","Сделать тетрадь по школьному промпту","Arbeitsheft erstellen")) {
+            var articles=(List<McpTeacherGuideService.Article>)service.read(teacher,false,Map.of("query",query)).get("articles");
+            assertThat(articles).as(query).extracting(McpTeacherGuideService.Article::id).contains("generator");
+        }
+        var article=((List<McpTeacherGuideService.Article>)service.read(teacher,false,Map.of("topicId","generator")).get("articles")).get(0);
+        assertThat(article.body()).contains("ChatGPT с подключённым MCH3","отдельный PDF с решениями","Сначала покажи готовые файлы","Прикрепи эти тетради", "команда на оба действия");
+    }
     @Test void screenshotsAreOptInDecodableAndNeverDuplicatedInsideText()throws Exception {
         var service=service();
         for(var args:List.of(Map.<String,Object>of(),Map.<String,Object>of("query","Где решения?"),Map.<String,Object>of("topicId","answers"))) {
@@ -84,21 +93,33 @@ class McpTeacherGuideTest {
         }
         var topic=service.read(teacher,false,Map.of("topicId","answers"));
         assertThat((List<McpTeacherGuideService.GuideImage>)topic.get("images"))
-            .extracting(McpTeacherGuideService.GuideImage::id).containsExactly("answers-panel");
+            .extracting(McpTeacherGuideService.GuideImage::id).contains("answers-panel","upload-solutions");
         try(var input=new ClassPathResource("mcp/teacher-guide.json").getInputStream()) {
             for(var image:json.readValue(input,McpTeacherGuideService.Guide.class).images()) {
                 var result=service.call(teacher,false,Map.of("imageId",image.id()));
                 var content=(List<Map<String,Object>>)result.get("content");
                 assertThat(content).hasSize(2);
-                assertThat(content.get(1)).containsEntry("type","image").containsEntry("mimeType","image/png");
+                assertThat(content.get(1)).containsEntry("type","image").containsEntry("mimeType","image/jpeg");
                 var bytes=Base64.getDecoder().decode(content.get(1).get("data").toString());
                 assertThat(bytes.length).isBetween(8,500_000);
+                assertThat(bytes).startsWith((byte)0xff,(byte)0xd8,(byte)0xff);
                 var decoded=javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
                 assertThat(decoded).isNotNull();
                 assertThat(decoded.getWidth()).isGreaterThanOrEqualTo(600);
                 assertThat(json.writeValueAsString(result.get("structuredContent"))).doesNotContain("iVBOR","base64","studentId");
                 assertThat(content.get(0).get("text").toString()).contains(image.description());
+                assertThat(image.controls()).isNotEmpty();
             }
+        }
+    }
+    @Test void classroomStepsHaveSpecificControlIllustrations()throws Exception {
+        var service=service();
+        for(var entry:Map.of("answers",List.of("Ответы","Загрузить PDF решений"),
+                "boards",List.of("Общая группа","Имя ученика","Все"),
+                "audio",List.of("Сказать всем","Вернуться к ученику"),
+                "saving",List.of("Сохранить документы урока","Выйти","Завершить урок для всех","Все документы")).entrySet()) {
+            var images=(List<McpTeacherGuideService.GuideImage>)service.read(teacher,false,Map.of("topicId",entry.getKey())).get("images");
+            assertThat(images.stream().flatMap(i->i.controls().stream()).toList()).containsAll(entry.getValue());
         }
     }
     @Test void screenshotReadsUseTheSameAccessAndArgumentBoundaries()throws Exception {

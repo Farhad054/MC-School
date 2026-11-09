@@ -129,7 +129,7 @@ class McpPersonalLessonWorkbookToolsTest {
         assertThat(result.get("isError")).isEqualTo(false);
         var content=(List<Map<String,Object>>)result.get("content");
         assertThat(content).hasSize(2);
-        assertThat(content.get(1)).containsEntry("type","image").containsEntry("mimeType","image/png");
+        assertThat(content.get(1)).containsEntry("type","image").containsEntry("mimeType","image/jpeg");
         assertThat(content.get(0).get("text").toString()).doesNotContain("iVBOR");
         var response=new LinkedHashMap<String,Object>();response.put("result",result);
         new MindcraftiMcpContentAdvice(json).transform(response);
