@@ -48,7 +48,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Real HTTP filters, MCP dispatch, method-security proxies and migrated PostgreSQL; no production writes. */
 @SpringBootTest(properties = {"app.online-classes.enabled=true", "MINDCRAFTI_LESSON_IMPORT_API_KEY=mcp-test-import-secret",
-        "app.online-classes.idle-sweep-initial-ms=86400000"})
+        "app.online-classes.idle-sweep-initial-ms=86400000","app.workbook-jobs.initial-ms=86400000"})
 @AutoConfigureMockMvc
 @EnabledIf("databaseAvailable")
 class McpSiteFunctionsTransportIntegrationTest {
@@ -116,6 +116,70 @@ class McpSiteFunctionsTransportIntegrationTest {
         return result.get("structuredContent");
     }
 
+    private Map<String,Object> personalDraft(byte[] answers) throws Exception {
+        String event=value(call("teacher-a","create_lesson",Map.of("title","Draft test","date","2026-11-10","startTime","16:00",
+                "durationMinutes",60,"targetType","student","targetId",studentA.getId().toString(),"idempotencyKey","draft-test-lesson"))).path("eventId").asText();
+        UUID id=UUID.randomUUID();byte[] workbook=transcriptPdf("Five fraction exercises");
+        jdbc.update("INSERT INTO lesson_pdf_drafts(id,teacher_id,event_id,workbook_filename,answers_filename,workbook_pdf,answers_pdf,task_count) VALUES (?,?,?,'reviewed-workbook.pdf','reviewed-answers.pdf',?,?,5)",
+                id,teacherA.getId(),event,workbook,answers);
+        return Map.of("teacherId",teacherA.getId().toString(),"eventId",event,"studentId",studentA.getId().toString(),"draftId",id.toString(),"idempotencyKey","publish-reviewed-pupil-draft","confirm",true);
+    }
+    private void rpcFailure(String token,String tool,Map<String,Object> args)throws Exception {
+        String body=http.perform(post("/api/v1/mcp").header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("jsonrpc","2.0","id",1,"method","tools/call","params",Map.of("name",tool,"arguments",args)))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(body).has("error")).as(body).isTrue();
+    }
+
+    @Test void teacherCanAttachBothSavedDraftPdfsDirectlyOnceWithoutFileTransport()throws Exception {
+        var args=personalDraft(transcriptPdf("Teacher answers"));
+        var result=value(call("teacher-a","publish_personal_lesson_draft",args));
+        assertThat(result.path("published").asBoolean()).isTrue();
+        assertThat(result.path("workbookFilename").asText()).isEqualTo("reviewed-workbook.pdf");
+        assertThat(result.path("answersFilename").asText()).isEqualTo("reviewed-answers.pdf");
+        assertThat(value(call("teacher-a","publish_personal_lesson_draft",args))).isEqualTo(result);
+        var roster=value(call("teacher-a","list_personal_lesson_workbooks",Map.of("teacherId",teacherA.getId().toString(),"eventId",args.get("eventId"))));
+        assertThat(roster.path("students").get(0).path("hasAnswers").asBoolean()).isTrue();
+        assertThat(roster.path("students").get(0).path("version").asLong()).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM mcp_operation_receipts WHERE operation='publish_personal_lesson_draft'",Integer.class)).isEqualTo(1);
+        var preparation=preparations.findByTeacherIdAndEventId(teacherA.getId(),(String)args.get("eventId")).orElseThrow();
+        assertThat(preparation.hasWorkbook()).isFalse();assertThat(preparation.hasAnswers()).isFalse();
+        verify(chatGptPdfResolver,never()).resolve(any());
+    }
+
+    @Test void personalDraftAttachmentRejectsMissingApprovalForeignTeachersPupilsAndLessons()throws Exception {
+        var args=personalDraft(transcriptPdf("Teacher answers"));
+        var unconfirmed=new HashMap<>(args);unconfirmed.put("confirm",false);
+        rpcFailure("teacher-a","publish_personal_lesson_draft",unconfirmed);
+        rpcFailure("teacher-b","publish_personal_lesson_draft",args);
+        var wrongPupil=new HashMap<>(args);wrongPupil.put("studentId",studentB.getId().toString());
+        rpcFailure("teacher-a","publish_personal_lesson_draft",wrongPupil);
+        var wrongLesson=new HashMap<>(args);wrongLesson.put("eventId","another-lesson");
+        rpcFailure("teacher-a","publish_personal_lesson_draft",wrongLesson);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM personal_lesson_workbooks",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM personal_lesson_answers",Integer.class)).isZero();
+    }
+
+    @Test void invalidAnswerPdfRollsBackTheWorksheetAndReceiptTogether()throws Exception {
+        var args=personalDraft(new byte[]{1,2,3});
+        rpcFailure("teacher-a","publish_personal_lesson_draft",args);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM personal_lesson_workbooks",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM personal_lesson_answers",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM mcp_operation_receipts WHERE operation='publish_personal_lesson_draft'",Integer.class)).isZero();
+    }
+
+    @Test void teacherHttpGenerationQueuesWithoutAiAndCanPollOnlyTheirOwnJob()throws Exception {
+        var args=personalDraft(transcriptPdf("Teacher answers"));
+        var queued=value(call("teacher-a","generate_lesson_workbook_draft",Map.of("eventId",args.get("eventId"),"idempotencyKey","queued-http")));
+        assertThat(queued.path("status").asText()).isEqualTo("QUEUED");assertThat(queued.has("draftId")).isFalse();
+        var statusArgs=Map.<String,Object>of("jobId",queued.path("jobId").asText());
+        assertThat(value(call("teacher-a","get_lesson_workbook_job",statusArgs)).path("status").asText()).isEqualTo("QUEUED");
+        rpcFailure("teacher-b","get_lesson_workbook_job",statusArgs);
+        for(var tool:request("teacher-a","tools/list",Map.of()).path("tools"))if("publish_personal_lesson_draft".equals(tool.path("name").asText())) {
+            assertThat(tool.path("_meta").has("openai/fileParams")).isFalse();assertThat(tool.path("inputSchema").path("properties").has("draftId")).isTrue();
+        }
+    }
+
     private void rejected(JsonNode result, int code) {
         assertThat(result.path("isError").asBoolean()).as(result.toString()).isTrue();
         assertThat(result.path("structuredContent").path("status").asInt()).isEqualTo(code);
@@ -150,7 +214,7 @@ class McpSiteFunctionsTransportIntegrationTest {
         assertThat(execute.path("inputSchema").path("properties").path("file").path("required").toString())
                 .contains("download_url", "file_id");
         JsonNode state = value(call("admin", "mindcrafti_status", Map.of()));
-        assertThat(state.path("version").asText()).isEqualTo("1.33.0");
+        assertThat(state.path("version").asText()).isEqualTo("1.34.0");
         assertThat(state.path("availableToolCount").asInt()).isEqualTo(names.size());
         JsonNode catalog = value(call("admin", "list_site_functions", Map.of("limit", 100)));
         assertThat(catalog.path("total").asInt()).isGreaterThan(150);

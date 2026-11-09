@@ -6,6 +6,11 @@ on:
       - 'backend/src/main/java/com/mcschool/flashcard/lessons/**Mcp*'
       - 'backend/src/main/java/com/mcschool/flashcard/lessons/Mcp*'
       - 'backend/src/main/java/com/mcschool/flashcard/lessons/LessonTranscript*'
+      - 'backend/src/main/java/com/mcschool/flashcard/lessons/WorkbookGenerationJobService.java'
+      - 'backend/src/main/java/com/mcschool/flashcard/lessons/PersonalWorkbookDraftService.java'
+      - 'backend/src/test/java/com/mcschool/flashcard/lessons/WorkbookTeacherWorkflowTest.java'
+      - 'backend/src/test/java/com/mcschool/flashcard/lessons/WorkbookDraftDownloadServiceTest.java'
+      - 'backend/src/main/resources/db/migration/V102__*'
       - 'backend/src/main/java/com/mcschool/flashcard/auth/Mcp*'
       - 'backend/src/test/java/com/mcschool/flashcard/lessons/*Mcp*'
       - 'backend/src/main/resources/db/migration/V91__*'
@@ -41,7 +46,7 @@ jobs:
           java-version: '17'
           cache: maven
       - name: Check real MCP transport, role isolation, durable retries and native schedule
-        run: ./mvnw -B -ntp '-Dtest=Mcp*,*McpServiceTest,MindcraftiMcpContentAdviceTest' test
+        run: ./mvnw -B -ntp '-Dtest=Mcp*,*McpServiceTest,MindcraftiMcpContentAdviceTest,WorkbookTeacherWorkflowTest,WorkbookDraftDownloadServiceTest' test
         working-directory: backend
       - name: Require executed PostgreSQL and HTTP security regressions
         run: |
@@ -50,8 +55,9 @@ jobs:
           from xml.etree import ElementTree
           suites = {
               'McpOperationReceiptIntegrationTest': 13,
+              'McpWorkbookJobIntegrationTest': 6,
               'McpLessonSchedulePersistenceIntegrationTest': 4,
-              'McpSiteFunctionsTransportIntegrationTest': 13,
+              'McpSiteFunctionsTransportIntegrationTest': 17,
               'McpLessonTranscriptReadServiceTest': 16,
           }
           for name, minimum in suites.items():
