@@ -55,7 +55,7 @@ public class MindcraftiMcpController {
 
     private static final String API_KEY_HEADER = "X-Mindcrafti-Api-Key";
     private static final String SERVER_NAME = "mindcrafti-lessons";
-    private static final String SERVER_VERSION = "1.35.0";
+    private static final String SERVER_VERSION = "1.36.0";
     private static final int MAX_DIRECT_PDF_BYTES = 15 * 1024 * 1024;
     private static final String FILE_TRANSFER_RESOURCE = "ui://mindcrafti/lesson-file-transfer-v2.html";
     private static final String FILE_TRANSFER_MIME = "text/html;profile=mcp-app";
@@ -906,7 +906,7 @@ public class MindcraftiMcpController {
             homeworkDaySchema.put("contextToken",property("string","Exact fresh token from prepare_homework_context"));
             homeworkDaySchema.put("idempotencyKey",property("string","Unique stable key PER DAY (reuse unchanged on retries)"));
             tools.add(tool("generate_homework_day_draft",
-                    "One of SEVEN daily HOMEWORK drafts. ChatGPT authors content based on current homework prompt and last lesson evidence. Server strictly enforces <=2 independent tasks, <=10min, 6+ handwriting lines per task, first four days support at TOP, days 5-7 fully German/no hints, and one pupil A4 PDF with NO name/date/day label. Uses the SAME mathematically checked vector PDF renderer as lessons and saves teacher-only answers. Returns durable jobId; poll get_lesson_workbook_job. Run 7 jobs without exceeding actor's 6 pending-job cap. DO NOT ASSIGN until approved.",
+                    "One of SEVEN daily HOMEWORK drafts. ChatGPT authors content based on current homework prompt and last lesson evidence. Server strictly enforces <=2 independent tasks, <=10min, 6+ handwriting lines per task, first four days support at TOP, days 5-7 fully German/no hints, and one pupil A4 PDF with NO name/date/day label. Uses the SAME mathematically checked vector PDF renderer as lessons and saves teacher-only answers. Returns durable jobId; poll get_lesson_workbook_job. Queue accepts up to 24 active jobs per account (60 school-wide) and processes up to three jobs concurrently; all seven daily jobs may be submitted without batching. DO NOT ASSIGN until approved.",
                     schema(homeworkDaySchema,List.of("eventId","day","seriesKey","lessonJson","contextToken","idempotencyKey")),writeAnnotations()));
             Map<String,Object> homeworkDraftSchema=new LinkedHashMap<>();
             homeworkDraftSchema.put("teacherId",property("string","ADMIN teacher UUID; TEACHER may omit"));
@@ -1168,6 +1168,8 @@ public class MindcraftiMcpController {
                 visibleNames.add("update_school_prompt");
                 visibleNames.add("update_brand_guide");
             }
+            if(auth.user()!=null && workbookJobs!=null)
+                status.put("workbookQueue",workbookJobs.capacity(new AuthenticatedUser(auth.user().getId(),auth.user().getEmail(),auth.user().getRole())));
             status.put("availableToolCount", visibleNames.size());
             status.put("availableToolNames", visibleNames);
             return toolResult(status);
@@ -1617,7 +1619,7 @@ public class MindcraftiMcpController {
             "Days 1..4: a short scaffold at TOP, in Russian using only already taught German math words. Days 5..7: German ONLY, no hints or examples.",
             "Each task needs its own numeric number and matching qa.algebra assertion with that number (visualValue for graph/geometry). No hidden a/b/c tasks.",
             "Student PDFs must not contain student/group names, dates, day/Tag labels or teacher solutions; date and pupil remain in assignment metadata only.",
-            "Call generate_homework_day_draft seven times with fresh contextToken, SAME seriesKey and unique day idempotencyKeys. Max SIX queued jobs at once: batch/poll jobs.",
+            "Call generate_homework_day_draft seven times with fresh contextToken, SAME seriesKey and unique day idempotencyKeys. The queue accepts up to 24 active jobs per account and processes up to three at once. You may submit all seven daily jobs; poll their existing jobIds instead of creating duplicates.",
             "Use review_homework_series_drafts for seven fresh signed previews; only after EXPLICIT teacher approval call assign_homework_series_from_drafts with confirm=true. NEVER publish as a lesson workbook."
         ));
         ctx.put("nextStep","Author seven daily one-page lessonJson documents from current homeworkPrompt and evidence. Generate each via generate_homework_day_draft, poll get_lesson_workbook_job, preview seven via review_homework_series_drafts, then assign only after explicit approval.");
