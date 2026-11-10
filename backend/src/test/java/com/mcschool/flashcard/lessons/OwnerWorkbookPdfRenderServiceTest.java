@@ -30,48 +30,47 @@ class OwnerWorkbookPdfRenderServiceTest {
     }
 
     @Test
-    void fifthConcurrentRenderIsRejectedBeforeBrandIoOrDraftCreationAndSlotsAreReleased() throws Exception {
+    void fifthConcurrentRenderIsRejectedWhileRuntimeInitializesAndSlotsAreReleased() throws Exception {
         ObjectMapper json = new ObjectMapper();
         LessonPdfDraftService drafts = mock(LessonPdfDraftService.class);
         SchoolBrandGuideService brand = mock(SchoolBrandGuideService.class);
         var service = new OwnerWorkbookPdfRenderService(json, drafts, brand);
         var teacher = new AuthenticatedUser(UUID.randomUUID(), "teacher@test.local", Role.TEACHER);
         String lesson = json.writeValueAsString(document(60));
-        CountDownLatch entered = new CountDownLatch(4), release = new CountDownLatch(1);
-        when(brand.readForStaff(teacher)).thenAnswer(invocation -> {
-            entered.countDown();
-            if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Timed out waiting for test release");
-            throw new IllegalStateException("Controlled brand read failure");
-        });
+        // The image-logo dependency has been removed. Hold runtime initialization
+        // instead of the old mocked Brand Guide fetch to deterministically occupy
+        // all four slots without any network or branded image read.
+        var lockField = OwnerWorkbookPdfRenderService.class.getDeclaredField("runtimeLock");
+        lockField.setAccessible(true);
+        Object runtimeLock = lockField.get(service);
+        var slotsField = OwnerWorkbookPdfRenderService.class.getDeclaredField("renderSlots");
+        slotsField.setAccessible(true);
+        var slots = (java.util.concurrent.Semaphore) slotsField.get(service);
         var workers = Executors.newFixedThreadPool(4);
+        var futures = new java.util.ArrayList<java.util.concurrent.Future<?>>();
         try {
-            var first = workers.submit(() -> assertThrows(IllegalStateException.class,
-                    () -> service.create(teacher, "lesson-one", lesson, "", "")));
-            var second = workers.submit(() -> assertThrows(IllegalStateException.class,
-                    () -> service.create(teacher, "lesson-two", lesson, "", "")));
-            var third = workers.submit(() -> assertThrows(IllegalStateException.class,
-                    () -> service.create(teacher, "lesson-three", lesson, "", "")));
-            var fourth = workers.submit(() -> assertThrows(IllegalStateException.class,
-                    () -> service.create(teacher, "lesson-four", lesson, "", "")));
-            assertTrue(entered.await(5, TimeUnit.SECONDS), "All four renderer permits should be occupied");
-            ResponseStatusException busy = assertThrows(ResponseStatusException.class,
-                    () -> service.create(teacher, "lesson-five", lesson, "", ""));
-            assertEquals(503, busy.getStatusCode().value());
-            assertTrue(busy.getReason().contains("same idempotencyKey"));
-            verify(brand, times(4)).readForStaff(teacher);
-            verify(brand, never()).pdfForStaff(any());
-            verifyNoInteractions(drafts);
-            release.countDown();
-            first.get(5, TimeUnit.SECONDS);
-            second.get(5, TimeUnit.SECONDS);
-            third.get(5, TimeUnit.SECONDS);
-            fourth.get(5, TimeUnit.SECONDS);
+            synchronized (runtimeLock) {
+                for (int i=0; i<4; i++) {
+                    final int request=i;
+                    futures.add(workers.submit(() -> assertThrows(IllegalStateException.class,
+                            () -> service.create(teacher, "lesson-"+request, lesson, "", ""))));
+                }
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (slots.availablePermits() > 0 && System.nanoTime() < deadline)
+                    Thread.sleep(10);
+                assertEquals(0, slots.availablePermits(), "All four renderer permits must be held");
+                ResponseStatusException busy=assertThrows(ResponseStatusException.class,
+                        () -> service.create(teacher, "lesson-five", lesson, "", ""));
+                assertEquals(503, busy.getStatusCode().value());
+                assertTrue(busy.getReason().contains("same idempotencyKey"));
+                verifyNoInteractions(brand,drafts);
+            }
+            for (var f : futures) f.get(5, TimeUnit.SECONDS);
+            assertEquals(4, slots.availablePermits(), "All permits must be released");
             assertThrows(IllegalStateException.class,
                     () -> service.create(teacher, "lesson-after-release", lesson, "", ""));
-            verify(brand, times(5)).readForStaff(teacher);
-            verifyNoInteractions(drafts);
+            verifyNoInteractions(brand,drafts);
         } finally {
-            release.countDown();
             workers.shutdownNow();
         }
     }
@@ -90,30 +89,17 @@ class OwnerWorkbookPdfRenderServiceTest {
     }
 
     @Test
-    void logoExtractionIsCachedOnlyWhileCurrentBrandGuideRevisionIsUnchanged() throws Exception {
+    void logoFreeGeneratorDoesNotReadBrandGuideOrExtractArtwork() throws Exception {
         LessonPdfDraftService drafts=mock(LessonPdfDraftService.class);
         SchoolBrandGuideService brand=mock(SchoolBrandGuideService.class);
         ObjectMapper json=new ObjectMapper();
         var service=new OwnerWorkbookPdfRenderService(json,drafts,brand);
         var teacher=new AuthenticatedUser(UUID.randomUUID(),"teacher@test.local",Role.TEACHER);
-        BufferedImage image=new BufferedImage(160,120,BufferedImage.TYPE_INT_RGB);
-        byte[] guidePdf=LessonPdfDraftService.render("Guide","Staff",List.of(
-                new LessonPdfDraftService.Task("Question","Answer",2)),image,false,"");
-        Instant first=Instant.parse("2026-11-05T10:00:00Z");
-        when(brand.readForStaff(teacher)).thenReturn(new SchoolBrandGuideResponse("Brand","guide.pdf",true,guidePdf.length,first));
-        when(brand.pdfForStaff(teacher)).thenReturn(new SchoolBrandGuideService.BrandGuidePdf("guide.pdf",guidePdf));
         String lesson=json.writeValueAsString(document(60));
-        // The module directory has not been injected in this unit test. That runtime
-        // failure must occur lazily after a fresh guide read, without saving a draft.
+        // The modules path is intentionally unset. Check the generator fails
+        // without loading artwork or saving a draft.
         assertThrows(IllegalStateException.class,()->service.create(teacher,"one",lesson,"",""));
-        assertThrows(IllegalStateException.class,()->service.create(teacher,"two",lesson,"",""));
-        verify(brand,times(2)).readForStaff(teacher);
-        verify(brand,times(1)).pdfForStaff(teacher);
-        when(brand.readForStaff(teacher)).thenReturn(new SchoolBrandGuideResponse("Brand changed","guide.pdf",true,guidePdf.length,first.plusSeconds(1)));
-        assertThrows(IllegalStateException.class,()->service.create(teacher,"three",lesson,"",""));
-        verify(brand,times(3)).readForStaff(teacher);
-        verify(brand,times(2)).pdfForStaff(teacher);
-        verifyNoInteractions(drafts);
+        verifyNoInteractions(brand,drafts);
     }
 
     @Test
