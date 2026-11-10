@@ -67,6 +67,18 @@ public class KolinTaskService {
             String previous=store.previousDraft(teacher,room.getId());
             Content previousContent=previous==null?null:mapper.readValue(previous,Content.class);
             if(previousContent!=null) context.put("lastGeneratedWorksheet",previousContent);
+            // Explanations are read-only: answer directly like a normal chat, without
+            // first paying for a structured answer-vs-generator classification call.
+            // Keep actual material creation and editing behind the existing guarded path.
+            if (isReadOnlyExplanation(question)) {
+                stage="TEXT_MODEL";
+                String explanation=ai.kolinReply(mapper.writeValueAsString(context),history,question);
+                if (explanation==null || explanation.isBlank() || explanation.length()>10000)
+                    throw new IllegalStateException("Invalid Kolyn explanation");
+                stage="STORE";
+                return store.complete(teacher,room.getId(),reserved.id(),reserved.attemptId(),"text",explanation,transcript,
+                    null,null,0,0,null,null);
+            }
             stage="DIALOGUE";
             var dialogue=ai.kolinDialogue(mapper.writeValueAsString(context),history,question);
             if("answer".equals(dialogue.mode())) {
@@ -207,8 +219,8 @@ public class KolinTaskService {
                 material.studentId(),material.studentName(),saved.tasks().size(),material.pageCount(),material.pdf(),material.preview(),mapper.writeValueAsString(saved));
         } catch(Exception ex) {
             var log=org.slf4j.LoggerFactory.getLogger(getClass());
-            log.warn("Kolyn generation failed: classId={} artifactId={} stage={} errorType={} reason={}",
-                    room.getId(),reserved.id(),stage,ex.getClass().getSimpleName(),validationReason(ex));
+            log.warn("Kolyn generation failed: classId={} artifactId={} stage={} errorType={} reason={} providerStatus={}",
+                    room.getId(),reserved.id(),stage,ex.getClass().getSimpleName(),validationReason(ex),providerStatus(ex));
             try { store.fail(teacher,room.getId(),reserved.id(),reserved.attemptId()); }
             catch(RuntimeException recovery) {
                 log.warn("Kolyn failure receipt unavailable: classId={} artifactId={} errorType={}",
@@ -223,6 +235,22 @@ public class KolinTaskService {
                 throw KolinRequestException.invalid();
             throw KolinRequestException.failed();
         }
+    }
+
+    /**
+     * Conservative, non-mutating shortcut. A pure explanation must not depend on
+     * JSON-mode intent routing; generation/editing verbs keep their guarded path.
+     * The teacher's current document/transcript context is still supplied in full.
+     */
+    static boolean isReadOnlyExplanation(String question) {
+        if (question == null) return false;
+        boolean explain=java.util.regex.Pattern.compile(
+            "(?iu)^\\s*(?:об[ъь]?[яе]сн\\p{L}*|поясн\\p{L}*|почему\\b|разъясн\\p{L}*|erkl[aä]r\\p{L}*|explain\\b|why\\b)"
+        ).matcher(question).find();
+        boolean mutate=java.util.regex.Pattern.compile(
+            "(?iu)(?:создай|создать|сделай|добавь|добавить|измени|изменить|подготовь|сгенерируй|генерир|нарисуй|построй|перенеси|загрузи|erstelle|create|generate|add\\s+to|modify|edit)"
+        ).matcher(question).find();
+        return explain && !mutate;
     }
 
     /** Validation assertions are built from the exact expressions displayed to pupils. */
@@ -306,6 +334,24 @@ public class KolinTaskService {
         if(value==null || value.isBlank() || value.length()>maximum) throw new IllegalArgumentException("Invalid task text");
     }
     /** Only application-owned constant reasons may enter logs; never provider text or renderer output. */
+    /** Error classification only: never log provider bodies, task content or API credentials. */
+    static String providerStatus(Exception error) {
+        Throwable current=error;
+        for(int depth=0;current!=null && depth<8;depth++,current=current.getCause()) {
+            if(current instanceof java.net.http.HttpTimeoutException ||
+                    current instanceof java.net.SocketTimeoutException) return "TIMEOUT";
+            if(current instanceof java.io.IOException) return "TRANSPORT_ERROR";
+            String message=current.getMessage();
+            if(message==null) continue;
+            var status=java.util.regex.Pattern.compile("OpenAI API вернул HTTP ([1-5][0-9]{2})\\b").matcher(message);
+            if(status.find()) return "HTTP_"+status.group(1);
+            if("Incomplete dialogue".equals(message) || "Kolyn response incomplete".equals(message))
+                return "INCOMPLETE_RESPONSE";
+            if("Invalid dialogue".equals(message)) return "INVALID_DIALOGUE";
+        }
+        return "UNKNOWN";
+    }
+
     static String validationReason(Exception error) {
         return switch(Objects.toString(error.getMessage(),"")) {
             case "Math belongs in the checked expression field" -> "MATH_IN_INSTRUCTION";
