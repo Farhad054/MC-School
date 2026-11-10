@@ -22,10 +22,31 @@ class InteractiveTemplateSpecTest {
         var extra=new HashMap<>(graph());extra.put("html","<script>alert(1)</script>");
         for(var spec:List.of(extra,Map.of("template","triangle","language","ru","vertices",List.of(List.of(0,0),List.of(1,1),List.of(2,2))),
             Map.of("template","fractionCircle","language","ru","parts",12,"selected",List.of(1,1)),
-            Map.of("template","fractionCircle","language","ru","parts",12,"selected",List.of(12)),
+            Map.of("template","fractionCircle","language","ru","parts",12,"selected",List.of(48)),
             Map.of("template","graph","language","ru","function","linear","coefficients",List.of(Double.NaN,0)),
             Map.of("template","graph","function","linear","coefficients",List.of(1,0))))
             assertThatThrownBy(()->InteractiveTemplateSpec.validate(spec)).isInstanceOf(ConflictException.class);
+    }
+    @Test void acceptsCustomNumeratorAndDenominatorIncludingImproperFractions() {
+        var pizza=Map.<String,Object>of("template","fractionCircle","language","ru","parts",4,
+            "selected",List.of(0,1,2,3,4,5,6));
+        assertThat(InteractiveTemplateSpec.validate(pizza)).isEqualTo(pizza);
+        var full=Map.<String,Object>of("template","fractionCircle","language","de","parts",24,
+            "selected",java.util.stream.IntStream.range(0,96).boxed().toList());
+        assertThat(InteractiveTemplateSpec.validate(full)).isEqualTo(full);
+        assertThatCode(()->InteractiveTemplateSpec.validate(
+            Map.of("template","fractionCircle","language","ru","parts",1,"selected",List.of(0,1))))
+            .doesNotThrowAnyException();
+    }
+    @Test void forbidsFractionsWithZeroDenominatorOrMoreThanFourPizzas() {
+        for(var invalid:List.of(
+            Map.<String,Object>of("template","fractionCircle","language","ru","parts",0,"selected",List.of()),
+            Map.<String,Object>of("template","fractionCircle","language","ru","parts",4,
+                "selected",java.util.stream.IntStream.range(0,17).boxed().toList()),
+            Map.<String,Object>of("template","fractionCircle","language","ru","parts",4,"selected",List.of(16)),
+            Map.<String,Object>of("template","fractionCircle","language","ru","parts",4,"selected",List.of(0,0)),
+            Map.<String,Object>of("template","fractionCircle","language","ru","parts",25,"selected",List.of(0))
+        )) assertThatThrownBy(()->InteractiveTemplateSpec.validate(invalid)).isInstanceOf(ConflictException.class);
     }
     @Test void annotationUpdatesRequireARevisionAndCannotChangeTheFrame() {
         var mapper=JsonMapper.builder().build();var validator=new AnnotationPayloadValidator(mapper);
