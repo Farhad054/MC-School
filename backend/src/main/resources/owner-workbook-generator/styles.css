@@ -366,3 +366,21 @@ body { font-family: Inter, Arial, 'Liberation Sans', sans-serif; -webkit-print-c
 .sheet:not(.plain) .teacher-note { background: #fff8f1; border-radius: 0; border-left: .7mm solid #ff6a00; }
 .sheet:not(.plain) .teacher-schedule { border: 0; border-radius: 0; padding: 2mm 0; }
 .sheet:not(.plain) .example-box { border: 0; border-radius: 0; background: #fff8f1; }
+
+/* Compact, borderless graph and coordinate-grid sections.
+   Keep diagrams vector-based and leave geometry styling unchanged. */
+.sheet:not(.plain) .diagram-block--graph {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+.sheet:not(.plain) .diagram-block--graph .diagram-eyebrow {
+  margin-bottom: 1mm;
+}
+.sheet:not(.plain) .diagram-block--graph .graph-legend {
+  margin-bottom: .5mm;
+}
+.sheet:not(.plain) .diagram-block--graph .diagram-caption {
+  margin-top: .5mm;
+}
