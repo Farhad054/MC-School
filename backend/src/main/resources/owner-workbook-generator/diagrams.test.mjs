@@ -8,6 +8,8 @@ assert.ok(Math.abs(functionAt({kind:'sine',amplitude:2,frequency:1},Math.PI/2)-2
 assert.ok(Math.abs(functionAt({kind:'cosine',amplitude:3,frequency:1},0)-3)<1e-10);
 const line={type:'graph',label:'LINEAR',xRange:[-5,5],yRange:[-5,5],series:[{kind:'linear',m:1,b:0,label:'f(x) = x'}],points:[{x:2,y:2,label:'P'}]};
 const grid=graphSvg(line);
+assert.ok(graphSvg({...line,layoutAlignment:'left'}).includes('preserveAspectRatio="xMinYMid meet"'), 'left option anchors the SVG plot, not only its container');
+assert.ok(graphSvg({...line,layoutAlignment:'center'}).includes('preserveAspectRatio="xMidYMid meet"'), 'center option remains available');
 assert.ok(grid.includes('clipPath'));
 assert.ok(grid.includes('polyline'));
 assert.ok(grid.includes('graph-legend'));
