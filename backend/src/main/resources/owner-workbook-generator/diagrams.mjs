@@ -430,7 +430,9 @@ export function graphSvg(spec) {
   // Crop unused SVG margins while leaving room for tick/axis labels.
   // Equal x/y world-unit scaling is preserved; only the viewport changes.
   const viewBox=[left-22,top-16,plotW+50,plotH+45].map(fmt).join(' ');
-  return `${legend?`<div class="graph-legend"${warnings.length?` data-graph-warnings="${esc(JSON.stringify(warnings))}"`:''}>${legend}</div>`:''}<svg class="diagram-svg" viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(spec.alt || (empty?'Leeres Koordinatensystem':'Koordinatensystem mit Funktionsgraphen'))}">
+  // align the *plot artwork* inside its wide SVG viewport, not just the outer element
+  const aspectRatio=spec.layoutAlignment==='left'?'xMinYMid meet':'xMidYMid meet';
+  return `${legend?`<div class="graph-legend"${warnings.length?` data-graph-warnings="${esc(JSON.stringify(warnings))}"`:''}>${legend}</div>`:''}<svg class="diagram-svg" viewBox="${viewBox}" preserveAspectRatio="${aspectRatio}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(spec.alt || (empty?'Leeres Koordinatensystem':'Koordinatensystem mit Funktionsgraphen'))}">
 <defs><clipPath id="${id}"><rect x="${fmt(left)}" y="${fmt(top)}" width="${fmt(plotW)}" height="${fmt(plotH)}"/></clipPath></defs>
 <rect x="${fmt(left)}" y="${fmt(top)}" width="${fmt(plotW)}" height="${fmt(plotH)}" fill="${FAINT}" stroke="${GRID}" stroke-width="1"/>
 ${grid.join('')}${axes.join('')}<g clip-path="url(#${id})">${curves.join('')}</g>${markers.join('')}
