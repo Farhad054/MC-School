@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "meta": {"school":"MINDCRAFTI SCHOOL","subject":"MATHEMATIK","group":"Lineare Funktionen","date":"05.11.2026","durationMinutes":60},
+  "qa":{"algebra":[{"kind":"solution","equation":"2*x-1=5-x","solution":{"x":2}},{"kind":"equivalence","expression":"(x+3)^2","answer":"x^2+6*x+9"}]},
+  "workbookPages":[
+    {"title":"Funktionen im Blick","subtitle":{"type":"richText","content":[{"text":"Untersuche "},{"math":"y=2x-1"},{"text":" und "},{"math":"y=5-x"}]},"blocks":[
+      {"type":"studentHeader"},
+      {"type":"split","columns":["42%","58%"],"gap":"6mm","left":[
+        {"type":"taskCard","number":"1","title":"Zwei Geraden","description":{"type":"richText","content":[{"text":"Bestimme den Schnittpunkt von "},{"math":"y=2x-1"},{"text":" und "},{"math":"y=5-x"},{"text":"."}]},"children":[{"type":"answerLines","lines":3,"label":"Schnittpunkt:"}]}
+      ],"right":[{"type":"graph","xRange":[-1,5],"yRange":[-2,6],"series":[{"kind":"linear","m":2,"b":-1},{"kind":"linear","m":-1,"b":5}]}]},
+      {"type":"grid","columns":2,"gap":"4mm","children":[
+        {"type":"taskCard","number":"2a","title":"Binomische Formel","children":[{"type":"math","expression":{"latex":"(x+3)^2"}},{"type":"answerBox","height":"18mm","label":"Ausmultipliziert:"}]},
+        {"type":"taskCard","number":"2b","title":"Bruchterm","children":[{"type":"math","expression":{"latex":"\\frac{x^2-9}{x-3}"}},{"type":"answerBox","height":"18mm","label":"Definitionsmenge und Ergebnis:"}]}
+      ]},
+      {"type":"conclusionBox","title":"Mein Fazit","text":"Graphisches Lösen einer Gleichung bedeutet ...","lines":2}
+    ]},
+    {"title":"Selbst zeichnen","subtitle":"Nutze die Koordinaten sorgfältig.","blocks":[
+      {"type":"matching","title":"Verbinde die Gleichung mit ihrer Lösung.","left":[{"type":"richText","content":[{"math":"2x=4"}]},{"type":"richText","content":[{"math":"x+1=5"}]}],"right":[{"type":"richText","content":[{"math":"x=4"}]},{"type":"richText","content":[{"math":"x=2"}]}]},
+      {"type":"taskCard","number":"3","title":"Zeichne zwei Geraden","description":{"type":"richText","content":[{"text":"Zeichne "},{"math":"y=x+1"},{"text":" und "},{"math":"y=3-x"},{"text":". Markiere den Schnittpunkt."}]},"children":[{"type":"coordinateGrid","xRange":[-5,5],"yRange":[-5,5],"gridStep":1,"showAxisLabels":true}]},
+      {"type":"conclusionBox","text":"So überprüfe ich meinen Schnittpunkt:","lines":2}
+    ]}
+  ],
+  "teacherPages":[{"title":"Lösungen und Hinweise","subtitle":"Lineare Funktionen und Bruchterme","blocks":[
+    {"type":"teacherNote","label":"HINWEIS","text":{"type":"richText","content":[{"text":"Die Probe in beiden Gleichungen zeigt "},{"math":"y=3"},{"text":"."}]}},
+    {"type":"intersectionResult","graph":{"type":"graph","xRange":[-1,5],"yRange":[-2,6],"series":[{"kind":"linear","m":2,"b":-1},{"kind":"linear","m":-1,"b":5}]}},
+    {"type":"solutions","title":"Ergebnisse","items":[{"label":"2a","math":{"latex":"x^2+6x+9"}},{"label":"2b","math":{"latex":"x+3,\\quad x\\ne3"}},{"label":"3","text":{"type":"richText","content":[{"text":"Der Schnittpunkt ist "},{"math":"S(1|2)"},{"text":"."}]}}]},
+    {"type":"matching","title":"Zuordnung","left":["2x = 4","x + 1 = 5"],"right":["x = 4","x = 2"],"showConnections":true,"matches":[[0,1],[1,0]]}
+  ]}]
+}

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { CardSummary, DailyReviewHistoryItem, Homework, StudentInvitation, StudentListItem } from '../../api/types';
+import type { CardSummary, DailyReviewHistoryItem, Homework, StudentInvitation, StudentListItem, SchoolType } from '../../api/types';
 import { useI18n } from '../../i18n/I18nContext';
 import { toErrorMessage } from '../../lib/errors';
 import { TeacherIcon } from '../../components/TeacherIcon';
@@ -16,6 +16,8 @@ export function StudentsPage() {
   const [students, setStudents] = useState<StudentListItem[]>([]);
   const [summaries, setSummaries] = useState<Record<string, CardSummary>>({});
   const [todayCompletion, setTodayCompletion] = useState<Record<string, TodayCompletion>>({});
+  const [grade, setGrade] = useState('5');
+  const [school, setSchool] = useState<SchoolType>('GYMNASIUM');
   const [fullName, setFullName] = useState('');
   const [createdStudent, setCreatedStudent] = useState<StudentInvitation | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -62,6 +64,7 @@ export function StudentsPage() {
     setError(null);
     try {
       const created = await api.students.create(fullName.trim(), '');
+      await api.students.updateLearningProfile(created.student.id, { grade: Number(grade), schoolType: school, learningPace: null, learningStrengths: '', learningDifficulties: '', explanationStyle: '', learningNotes: '' }).catch(e => setError(toErrorMessage(e, t)));
       setCreatedStudent(created);
       setFullName('');
       setCreateOpen(false);
@@ -187,7 +190,7 @@ export function StudentsPage() {
 
       {error && <div className="banner banner--error">{error}</div>}
 
-      {createOpen && <section className="teacher-create-student" id="teacher-add-student">
+      {createOpen && <section className="teacher-create-student teacher-student-popover" id="teacher-add-student" role="dialog" aria-label={language === 'DE' ? 'Schüler hinzufügen' : 'Добавить ученика'} onKeyDown={e => { if (e.key === 'Escape') setCreateOpen(false); }}>
         <h2>{language === 'DE' ? 'Neuen Schüler hinzufügen' : 'Добавить нового ученика'}</h2>
         <form onSubmit={onCreate}>
           <div className="teacher-create-grid">
@@ -196,6 +199,7 @@ export function StudentsPage() {
               <input className="input" autoFocus disabled={creating} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={language === 'DE' ? 'Name eingeben' : 'Введите имя ученика'} required />
             </label>
           </div>
+          <div className="teacher-create-grid"><label className="field"><span>Класс / Klasse</span><select className="input" value={grade} onChange={e => setGrade(e.target.value)}>{Array.from({length:13},(_,i)=><option key={i} value={i+1}>{i+1}</option>)}</select></label><label className="field"><span>Школа / Schule</span><select className="input" value={school} onChange={e => setSchool(e.target.value as SchoolType)}>{(['GYMNASIUM','REALSCHULE','MITTELSCHULE','WIRTSCHAFTSSCHULE','FACHOBERSCHULE','GESAMTSCHULE','WERKREALSCHULE','OTHER'] as SchoolType[]).map(value=><option key={value} value={value}>{schoolTypeLabel(value,language)}</option>)}</select></label></div><button type="button" className="teacher-popover-close teacher-icon-button" aria-label="Закрыть" onClick={()=>setCreateOpen(false)}>×</button>
           <p className="teacher-form-hint"><span>ⓘ</span>{language === 'DE' ? 'Der Schüler ist sofort vollständig im System verfügbar. Login und Passwort können später weitergegeben werden.' : 'Ученик сразу полностью доступен в системе. Логин и пароль можно передать ему позже.'}</p>
           <button className="btn teacher-primary-btn" type="submit" disabled={creating}>{language === 'DE' ? 'Schüler hinzufügen' : 'Добавить ученика'}</button>
         </form>
@@ -204,7 +208,7 @@ export function StudentsPage() {
         {language === 'DE' ? 'Schüler erstellt. Login' : 'Ученик создан. Логин'}: <strong>{createdStudent.student.username}</strong>.{' '}
         {language === 'DE' ? 'Das Passwort kann über das Menü festgelegt werden.' : 'Пароль можно задать через меню ученика.'}
       </div>}
-      <div className="teacher-section-label"><span>{visibleStudents.length} {language === 'DE' ? 'Schüler' : studentCountWord(visibleStudents.length)}</span><span>{language === 'DE' ? 'Aufgabenstatus heute' : 'Статус заданий на сегодня'}</span></div>
+      <div className="teacher-section-label"><span>{visibleStudents.length} {language === 'DE' ? 'Schüler' : studentCountWord(visibleStudents.length)}</span></div>
 
       {loading ? <p className="muted">{t('common.loading')}</p> : visibleStudents.length === 0 ? (
         <div className="teacher-empty-state">

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { TeacherIcon } from '../../components/TeacherIcon';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CreateLessonPanel } from './CreateLessonPanel';
 import { Link } from 'react-router-dom';
-import { isNativeLesson } from '../../lib/lessonSchedule';
 import { api } from '../../api/client';
 import { ApiRequestError } from '../../api/client';
 import { driveApi, type DriveItem } from '../../api/drive';
@@ -34,6 +34,8 @@ const SONIOX_NOTIFICATION_PREFIX = 'mindcrafti.sonioxStopNotification.';
 
 export function GroupLessonsPage() {
   const { language, t } = useI18n();
+  const [calendarView, setCalendarView] = useState<'week' | 'month'>(() => localStorage.getItem('mindcrafti.calendarView') === 'month' ? 'month' : 'week');
+  const [readiness, setReadiness] = useState<Record<string, boolean>>({});
   const [connection, setConnection] = useState<GoogleCalendarConnection | null>(null);
   const [teacher, setTeacher] = useState<User | null>(null);
   const [lessons, setLessons] = useState<GroupLesson[]>([]);
@@ -41,6 +43,14 @@ export function GroupLessonsPage() {
   const [groups, setGroups] = useState<StudentGroup[]>([]);
   const [briefs, setBriefs] = useState<BriefMap>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [briefError, setBriefError] = useState<string | null>(null);
+  const [briefRetry, setBriefRetry] = useState(0);
+  const loadGeneration = useRef(0);
+  const mounted = useRef(false);
+  const scheduleLoaded = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [createdLesson, setCreatedLesson] = useState<GroupLesson | null>(null);
   const [editDate, setEditDate] = useState('');
@@ -111,47 +121,70 @@ export function GroupLessonsPage() {
   }, []);
 
   async function loadAll() {
-    setLoading(true);
+    if (!mounted.current) return;
+    const epoch = ++loadGeneration.current;
+    const live = () => mounted.current && epoch === loadGeneration.current;
+    if (!scheduleLoaded.current) setLoading(true);
     setError(null);
-    try {
-      const [googleConnection, currentTeacher, studentList, groupList] = await Promise.all([
-        api.lessons.googleCalendarConnection().catch(() => ({ connected: false, authorizationUrl: null })),
-        api.auth.me(),
-        api.students.list(),
-        api.groups.list(),
-      ]);
-      setConnection(googleConnection);
-      setTeacher(currentTeacher);
-      setStudents(studentList);
-      setGroups(groupList);
-      const lessonList = await api.lessons.groupLessons();
-      setLessons(lessonList);
-      const groupIds = Array.from(new Set(lessonList.map((lesson) => lesson.groupId).filter((id): id is string => Boolean(id))));
-      const entries = await Promise.all(groupIds.map(async (groupId) => {
-        const group = groupList.find((item) => item.id === groupId) ?? await api.groups.get(groupId);
-        const studentBriefs = await Promise.all(group.students.map(async (student) => {
-          const [homeworks, history, summary] = await Promise.all([
-            api.homeworks.listForStudent(student.id),
-            api.students.reviewHistory(student.id),
-            api.cards.summaryForStudent(student.id),
-          ]);
-          return buildStudentBrief(student.id, student.fullName, homeworks, history, summary.dueNow + summary.awaitingRepetition);
-        }));
-        const allHomeworks = (await Promise.all(group.students.map((student) => api.homeworks.listForStudent(student.id)))).flat();
-        const recentWorksheet = allHomeworks
-          .filter((homework) => homework.hasWorksheet)
-          .sort((a, b) => b.startDate.localeCompare(a.startDate) || b.createdAt.localeCompare(a.createdAt))[0] ?? null;
-        return [groupId, { group, students: studentBriefs, recentWorksheet }] as const;
-      }));
-      setBriefs(Object.fromEntries(entries));
-    } catch (e) {
-      setError(toErrorMessage(e, t));
-    } finally {
-      setLoading(false);
-    }
+    setOptionsError(null);
+    setOptionsLoading(true);
+    setRefreshing(true);
+    setBriefs({});
+    let freshApplied = false;
+    const saved = api.lessons.savedGroupLessons().then(rows => {
+      if (live() && !freshApplied && (rows.length || scheduleLoaded.current)) {
+        scheduleLoaded.current = true; setLessons(rows); setLoading(false);
+      }
+    }).catch(() => { /* The normal refresh can still provide the timetable. */ });
+    const refresh = api.lessons.groupLessons().then(rows => {
+      freshApplied = true;
+      if (live()) { scheduleLoaded.current = true; setLessons(rows); setLoading(false); }
+    }).catch(async failure => {
+      await saved;
+      if (live()) { setError(toErrorMessage(failure, t)); setLoading(false); }
+    }).finally(() => { if (live()) setRefreshing(false); });
+    const options = Promise.all([
+      api.lessons.googleCalendarConnection().catch(() => ({ connected: false, authorizationUrl: null })),
+      api.auth.me(), api.students.list(), api.groups.list(),
+    ]).then(([googleConnection, currentTeacher, studentList, groupList]) => {
+      if (!live()) return;
+      setConnection(googleConnection); setTeacher(currentTeacher); setStudents(studentList); setGroups(groupList);
+    }).catch(failure => { if (live()) setOptionsError(toErrorMessage(failure, t)); })
+      .finally(() => { if (live()) setOptionsLoading(false); });
+    await Promise.all([saved, refresh, options]);
   }
 
-  useEffect(() => { void loadAll(); }, [t]);
+  useEffect(() => {
+    mounted.current = true;
+    void loadAll();
+    return () => { mounted.current = false; loadGeneration.current++; };
+  }, [t]);
+
+  const expandedGroupId = lessons.find(lesson => lesson.eventId === expandedLessonId)?.groupId ?? null;
+
+  // Student homework/history are needed only inside the expanded lesson card.
+  useEffect(() => {
+    if (optionsLoading || !expandedLessonId) return;
+    const groupId = expandedGroupId;
+    if (!groupId || briefs[groupId]) return;
+    let active = true;
+    setBriefError(null);
+    const load = async () => {
+      const group = groups.find(item => item.id === groupId) ?? await api.groups.get(groupId);
+      const members = [...new Map(group.students.map(student => [student.id, student])).values()];
+      const entries = await Promise.all(members.map(async student => {
+        const [homeworks, history, summary] = await Promise.all([
+          api.homeworks.listForStudent(student.id), api.students.reviewHistory(student.id), api.cards.summaryForStudent(student.id),
+        ]);
+        return { homeworks, brief: buildStudentBrief(student.id, student.fullName, homeworks, history, summary.dueNow + summary.awaitingRepetition) };
+      }));
+      const recentWorksheet = entries.flatMap(entry => entry.homeworks).filter(homework => homework.hasWorksheet)
+        .sort((a, b) => b.startDate.localeCompare(a.startDate) || b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+      if (active) setBriefs(current => ({ ...current, [groupId]: { group, students: entries.map(entry => entry.brief), recentWorksheet } }));
+    };
+    void load().catch(failure => { if (active) setBriefError(toErrorMessage(failure, t)); });
+    return () => { active = false; };
+  }, [expandedGroupId, optionsLoading, groups, briefRetry, t]);
 
   useEffect(() => {
     if (!startedLessonId) return;
@@ -190,12 +223,16 @@ export function GroupLessonsPage() {
     return map;
   }, [lessons]);
 
-  const scheduleDays = useMemo<ScheduleDay[]>(() => Array.from({ length: 7 }, (_, offset) => {
-    const date = addDays(weekCursor, offset);
-    const key = localDateKey(date);
-    return { key, date, lessons: lessonsByDay.get(key) ?? [] };
-  }), [weekCursor, lessonsByDay]);
+  const scheduleDays = useMemo<ScheduleDay[]>(() => {
+    const selected = dateFromKey(selectedDayKey);
+    const first = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1));
+    const start = calendarView === 'month' ? startOfWeekMonday(first) : weekCursor;
+    const count = calendarView === 'month' ? Math.ceil((((first.getUTCDay()+6)%7)+new Date(Date.UTC(selected.getUTCFullYear(),selected.getUTCMonth()+1,0)).getUTCDate())/7)*7 : 7;
+    return Array.from({length:count},(_,offset)=>{const date=addDays(start,offset);const key=localDateKey(date);return {key,date,lessons:lessonsByDay.get(key)??[]};});
+  }, [weekCursor, lessonsByDay, calendarView, selectedDayKey]);
   const selectedLessons = lessonsByDay.get(selectedDayKey) ?? [];
+  const visibleLessonIds = selectedLessons.map(item=>item.eventId).join('|');
+  useEffect(()=>{let cancelled=false;const ids=visibleLessonIds.split('|').filter(Boolean);void Promise.all(ids.map(async id=>{try{const prep=await lessonPreparationApi.get(id);return [id,prep.hasWorkbook && prep.hasAnswers] as const;}catch{return null;}})).then(rows=>{if(!cancelled)setReadiness(current=>({...current,...Object.fromEntries(rows.filter((row):row is readonly [string,boolean]=>row!==null))}));});return()=>{cancelled=true;};},[visibleLessonIds]);
   const selectedDate = dateFromKey(selectedDayKey);
   const todayKey = berlinDateKey(new Date().toISOString());
   function selectDate(key: string) {
@@ -203,7 +240,7 @@ export function GroupLessonsPage() {
     setWeekCursor(startOfWeekMonday(dateFromKey(key)));
     setExpandedLessonId(null);
   }
-  function moveWeek(offset: number) { selectDate(localDateKey(addDays(selectedDate, offset * 7))); }
+  function moveWeek(offset: number) { if(calendarView === 'week') { selectDate(localDateKey(addDays(selectedDate, offset * 7))); return; } const first=new Date(Date.UTC(selectedDate.getUTCFullYear(),selectedDate.getUTCMonth()+offset,1)); const last=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate(); first.setUTCDate(Math.min(selectedDate.getUTCDate(),last)); selectDate(localDateKey(first)); }
 
   const returnedLesson = returnedLessonId ? lessons.find((lesson) => lesson.eventId === returnedLessonId) ?? null : null;
   const returnedGroup = returnedLesson?.groupId
@@ -342,26 +379,19 @@ export function GroupLessonsPage() {
     const expanded = expandedLessonId === lesson.eventId;
     const finished = finishedLessonId === lesson.eventId;
 
-    const native = isNativeLesson(lesson);
-    const past = native ? berlinDateKey(lesson.startsAt) < todayKey : new Date(lesson.endsAt).getTime() < Date.now();
     const kind = lesson.groupId ? (language === 'DE' ? 'Gruppenunterricht' : 'Групповое занятие')
       : lesson.studentId ? (language === 'DE' ? 'Einzelunterricht' : 'Индивидуальное занятие')
         : (language === 'DE' ? 'Probeunterricht' : 'Пробный урок');
     return (
       <article key={lesson.eventId} className="lesson-agenda-card">
         <div className="lesson-agenda-card__row">
-          <div className="lesson-agenda-card__when">
-            <strong>{formatStartTime(lesson.startsAt, language)}</strong>
-            <span>{(language === 'DE' ? 'bis ' : 'до ') + formatStartTime(lesson.endsAt, language)}</span>
-          </div>
-          <div className="lesson-agenda-card__info">
-            <h3>{lesson.title}</h3><p>{kind}{lesson.meetUrl ? ' · Google Meet' : ''}</p>
-            <span className={'lesson-agenda-status' + (past ? ' is-past' : '')}>{past ? (language === 'DE' ? 'Vergangen' : 'Прошедший') : (language === 'DE' ? 'Geplant' : 'Запланирован')}</span>
-          </div>
-          <div className="lesson-agenda-card__actions">
-            <Link className="btn" to={'/teacher/lessons/' + encodeURIComponent(lesson.eventId)}>{language === 'DE' ? 'Unterricht öffnen' : 'Открыть урок'}</Link>
-            <button className="teacher-icon-button" type="button" aria-label={(language === 'DE' ? 'Unterrichtseinstellungen: ' : 'Настройки урока: ') + lesson.title} aria-expanded={expanded} aria-controls={'lesson-options-' + lesson.eventId} onClick={() => expanded ? setExpandedLessonId(null) : openTimeEditor(lesson)}>⋯</button>
-          </div>
+          <Link className="lesson-agenda-card__link" to={'/teacher/lessons/' + encodeURIComponent(lesson.eventId)} aria-label={(language==='DE'?'Unterricht öffnen: ':'Открыть урок: ')+lesson.title}>
+            <div className="lesson-agenda-card__when"><strong>{formatStartTime(lesson.startsAt,language)}</strong><span>{formatStartTime(lesson.endsAt,language)}</span></div>
+            <div className="lesson-agenda-card__info"><h3>{lesson.title}</h3><p>{lesson.groupName || kind}{lesson.groupId && (lesson.participantStudentIds?.length || brief?.group.students.length) ? ' · '+(lesson.participantStudentIds?.length || brief?.group.students.length)+' '+(language==='DE'?'Schüler':'ученика') : ''}</p></div>
+            <span className="lesson-row-readiness">{readiness[lesson.eventId] !== undefined && <span className={readiness[lesson.eventId]?'material-ready':'material-reminder'}>{!readiness[lesson.eventId] && <TeacherIcon name="difficulties"/>}{readiness[lesson.eventId]?(language==='DE'?'Materialien bereit':'Материалы готовы'):(language==='DE'?'Materialien fehlen':'Материалы не готовы')}</span>}</span>
+            <TeacherIcon name="chevronRight" />
+          </Link>
+          <button className="teacher-icon-button lesson-row-menu" type="button" aria-label={(language === 'DE' ? 'Unterrichtseinstellungen: ' : 'Настройки урока: ') + lesson.title} aria-expanded={expanded} aria-controls={'lesson-options-' + lesson.eventId} onClick={() => expanded ? setExpandedLessonId(null) : openTimeEditor(lesson)}>⋯</button>
         </div>
         {expanded && <div className="lesson-agenda-card__options" id={'lesson-options-' + lesson.eventId}>
           <div className="stack" style={{ gap: 8, marginBottom: 14 }}>
@@ -389,6 +419,7 @@ export function GroupLessonsPage() {
             {lesson.meetUrl && <button className="btn" type="button" data-mindcrafti-lesson-id={lesson.eventId} data-mindcrafti-group-id={lesson.groupId ?? ''} data-mindcrafti-student-id={lesson.studentId ?? ''} onClick={() => void requestStartLesson(lesson)}>{language === 'DE' ? 'Unterricht starten' : 'Начать урок'}</button>}
             {lesson.calendarUrl && <a className="btn btn--ghost" href={lesson.calendarUrl} target="_blank" rel="noreferrer">Google Calendar</a>}
           </div>
+        {expanded && linkedGroup && !brief && <p role={briefError ? 'alert' : 'status'}>{briefError || (language === 'DE' ? 'Schülerdaten werden geladen…' : 'Загружаем сведения об учениках…')}{briefError && <button type="button" onClick={() => setBriefRetry(value => value + 1)}>{language === 'DE' ? 'Erneut versuchen' : 'Повторить'}</button>}</p>}
         {expanded && linkedGroup && brief && lesson.groupId && (
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
             <div style={{ fontWeight: 750, marginBottom: 8 }}>{language === 'DE' ? 'Kurz vor dem Unterricht' : 'Кратко перед уроком'}</div>
@@ -415,10 +446,10 @@ export function GroupLessonsPage() {
   return (
     <div className="teacher-lessons-page">
       <div className="teacher-page-heading lesson-agenda-heading">
-        <div><h1>{language === 'DE' ? 'Unterricht' : 'Уроки'}</h1>
+        <div><h1>{language === 'DE' ? 'Online-Unterricht' : 'Онлайн-уроки'}</h1>
           <p>{language === 'DE' ? 'Stundenplan und Unterrichtsmaterialien' : 'Расписание и переход к материалам урока'}</p>
         </div>
-        <CreateLessonPanel students={students} groups={groups} selectedDate={selectedDayKey} disabled={loading} onCreated={async (created) => {
+        <CreateLessonPanel students={students} groups={groups} selectedDate={selectedDayKey} disabled={optionsLoading || Boolean(optionsError)} onCreated={async (created) => {
           const lesson = created[0];
           if (!lesson) return;
           selectDate(berlinDateKey(lesson.startsAt));
@@ -433,6 +464,7 @@ export function GroupLessonsPage() {
       </div>}
 
       {error && <div className="banner banner--error">{error}</div>}
+      {optionsError && <div className="banner banner--error" role="alert">{optionsError} <button type="button" onClick={() => void loadAll()}>{language === 'DE' ? 'Erneut versuchen' : 'Повторить загрузку'}</button></div>}
       {unsafeReturnContext && (
         <div className="banner banner--error" style={{ marginBottom: 14 }}>
           {language === 'DE'
@@ -459,23 +491,23 @@ export function GroupLessonsPage() {
         </div>
       )}
 
+      <div className="calendar-view-control"><span>{language === 'DE' ? 'Kalenderansicht' : 'Вид календаря'}</span><div role="group" aria-label={language === 'DE' ? 'Kalenderansicht' : 'Вид календаря'}>{(['week','month'] as const).map(view=><button className="btn btn--secondary" type="button" key={view} aria-pressed={calendarView===view} onClick={()=>{setCalendarView(view);localStorage.setItem('mindcrafti.calendarView',view);}}>{view==='week' ? (language==='DE'?'Woche':'Неделя') : (language==='DE'?'Monat':'Месяц')}</button>)}</div></div>
       <section className="lesson-agenda" aria-label={language === 'DE' ? 'Unterrichtsplan' : 'Расписание уроков'} aria-busy={loading}>
-        <div className="lesson-agenda-navigation">
-          <button className="lesson-agenda-arrow" type="button" aria-label={language === 'DE' ? 'Vorherige Woche' : 'Предыдущая неделя'} onClick={() => moveWeek(-1)}>‹</button>
-          <label className="lesson-agenda-month" title={language === 'DE' ? 'Datum auswählen' : 'Выбрать дату'}>
-            <strong>{formatMonthTitle(selectedDate, language)}</strong>
-            <input type="date" aria-label={language === 'DE' ? 'Zu Datum wechseln' : 'Перейти к дате'} value={selectedDayKey} onClick={(event) => event.currentTarget.showPicker?.()} onChange={(event) => { if (event.target.value) selectDate(event.target.value); }} />
-          </label>
-          <button className="lesson-agenda-arrow" type="button" aria-label={language === 'DE' ? 'Nächste Woche' : 'Следующая неделя'} onClick={() => moveWeek(1)}>›</button>
+        <div className="lesson-calendar-panel" data-view={calendarView}><div className="lesson-agenda-navigation">
+          <button className="lesson-agenda-arrow" type="button" aria-label={calendarView==='month' ? (language==='DE'?'Vorheriger Monat':'Предыдущий месяц') : (language==='DE'?'Vorherige Woche':'Предыдущая неделя')} onClick={() => moveWeek(-1)}><TeacherIcon name="chevronLeft" /></button>
+          <strong className="lesson-agenda-month">{formatMonthTitle(selectedDate,language)}{language === 'RU' ? ' г.' : ''}</strong>
+          <button className="lesson-agenda-arrow" type="button" aria-label={calendarView==='month' ? (language==='DE'?'Nächster Monat':'Следующий месяц') : (language==='DE'?'Nächste Woche':'Следующая неделя')} onClick={() => moveWeek(1)}><TeacherIcon name="chevronRight" /></button>
         </div>
-        <div className="lesson-agenda-days" role="group" aria-label={language === 'DE' ? 'Unterrichtstag auswählen' : 'Выбрать день уроков'}>
-          {scheduleDays.map((day, index) => <button type="button" key={day.key} className={'lesson-agenda-day' + (day.key === todayKey ? ' is-today' : '')}
+        {calendarView === 'month' && <div className="lesson-calendar-weekdays" aria-hidden="true">{weekdayLabels(language).map(label=><span key={label}>{label}</span>)}</div>}
+        <div className={"lesson-agenda-days" + (calendarView === 'month' ? ' lesson-agenda-days--month' : '')} role="group" aria-label={language === 'DE' ? 'Unterrichtstag auswählen' : 'Выбрать день уроков'}>
+          {scheduleDays.map((day, index) => <button type="button" key={day.key} className={'lesson-agenda-day' + (day.key === todayKey ? ' is-today' : '') + (calendarView === 'month' && day.date.getUTCMonth() !== selectedDate.getUTCMonth() ? ' is-outside-month' : '')}
             aria-pressed={selectedDayKey === day.key} aria-label={formatAgendaDate(day.key, language) + ', ' + lessonCountText(day.lessons.length, language)} onClick={() => selectDate(day.key)}>
-            <span>{weekdayLabels(language)[index]}</span><strong>{day.date.getUTCDate()}</strong>
+            {calendarView === 'week' && <span>{weekdayLabels(language)[index % 7]}</span>}<strong>{day.date.getUTCDate()}</strong>
             <i className={day.lessons.length > 0 ? 'has-lessons' : ''} aria-hidden="true" />
           </button>)}
         </div>
-        <div className="lesson-agenda-day-heading"><h2>{formatAgendaDate(selectedDayKey, language)}</h2><span>{lessonCountText(selectedLessons.length, language)}</span></div>
+        </div><div className="lesson-agenda-day-heading"><h2>{formatAgendaDate(selectedDayKey, language)}</h2><span>{lessonCountText(selectedLessons.length, language)}</span></div>
+        {refreshing && !loading && <p className="muted" role="status">{language === 'DE' ? 'Stundenplan wird aktualisiert…' : 'Обновляем расписание…'}</p>}
         {loading ? <p className="muted">{t('common.loading')}</p>
           : selectedLessons.length ? <div className="lesson-agenda-list">{selectedLessons.map(renderLessonCard)}</div>
           : error ? <div className="teacher-empty-state"><button className="btn btn--secondary" type="button" onClick={() => void loadAll()}>{language === 'DE' ? 'Erneut versuchen' : 'Повторить загрузку'}</button></div>

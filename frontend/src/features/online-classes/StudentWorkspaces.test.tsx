@@ -29,9 +29,11 @@ function camera(ownerId: string, cameraId = `camera-${ownerId}`): NotebookCamera
 function surface(props: Partial<ComponentProps<typeof StudentWorkspaces>> = {}) {
   return <StudentWorkspaces students={pupils} camerasByOwner={new Map([['p1', camera('p1')], ['p3', camera('p3')]])}
     activeBoard="all-student-boards" overview visible onSelect={vi.fn()} onOverview={vi.fn()}
-    renderBoard={(id, active, compact) => <div data-testid={`board-${id}`} data-active={String(active)} data-compact={String(compact)}>Доска {id}</div>}
-    renderCameraBoard={(id, active, compact, source) => <div data-testid={`camera-board-${id}`}
-      data-active={String(active)} data-compact={String(compact)} data-source={String(Boolean(source))}>Тетрадь {id}</div>}
+    renderBoard={(id, active, compact, following) => <div data-testid={`board-${id}`}
+      data-active={String(active)} data-compact={String(compact)} data-following={String(following)}>Доска {id}</div>}
+    renderCameraBoard={(id, active, compact, source, following) => <div data-testid={`camera-board-${id}`}
+      data-active={String(active)} data-compact={String(compact)} data-source={String(Boolean(source))}
+      data-following={String(following)}>Тетрадь {id}</div>}
     {...props} />;
 }
 function cameraSource(overrides: Partial<NotebookCameraVideoSource> = {}): NotebookCameraVideoSource {
@@ -73,6 +75,82 @@ describe('pupil board and camera surfaces', () => {
     rerender(surface({ students: pupils.slice(0, 4), camerasByOwner: new Map() }));
     expect(overview()).toHaveAttribute('data-overview-count', '4');
     expect(screen.getAllByRole('region', { name: /Работа ученика:/ })).toHaveLength(4);
+  });
+
+  it('starts with independent views and toggles follow for only the selected pupil', async () => {
+    const user = userEvent.setup();
+    render(surface({ camerasByOwner: new Map() }));
+    const anna = screen.getByRole('button', { name: 'Следовать за учеником: Анна' });
+    const boris = screen.getByRole('button', { name: 'Следовать за учеником: Борис' });
+    const board = screen.getByTestId('board-p1');
+    for (const button of screen.getAllByRole('button', { name: /^Следовать за учеником:/ })) {
+      expect(button).toHaveAttribute('aria-pressed', 'false');
+    }
+    for (const pupil of pupils.slice(0, 4)) {
+      expect(screen.getByTestId(`board-${pupil.userId}`)).toHaveAttribute('data-following', 'false');
+    }
+
+    await user.click(anna);
+    expect(anna).toHaveAttribute('aria-pressed', 'true');
+    expect(anna).toHaveTextContent('Слежение включено');
+    expect(board).toHaveAttribute('data-following', 'true');
+    expect(boris).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('board-p2')).toHaveAttribute('data-following', 'false');
+    await user.click(boris);
+    await user.click(anna);
+    expect(anna).toHaveAttribute('aria-pressed', 'false');
+    expect(board).toHaveAttribute('data-following', 'false');
+    expect(boris).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('board-p2')).toHaveAttribute('data-following', 'true');
+    expect(screen.getByTestId('board-p1')).toBe(board);
+  });
+
+  it('retains each follow choice when opening a pupil, another pupil or the shared board', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(surface({ camerasByOwner: new Map() }));
+    const board = screen.getByTestId('board-p1');
+    await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Анна' }));
+    rerender(surface({ camerasByOwner: new Map(), overview: false, activeBoard: personalBoardId('p1') }));
+    expect(screen.getByRole('button', { name: 'Следовать за учеником: Анна' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('board-p1')).toBe(board);
+    expect(board).toHaveAttribute('data-compact', 'false');
+
+    rerender(surface({ camerasByOwner: new Map(), overview: false, activeBoard: personalBoardId('p2') }));
+    expect(screen.getByRole('button', { name: 'Следовать за учеником: Борис' })).toHaveAttribute('aria-pressed', 'false');
+    expect(board).toHaveAttribute('data-following', 'true');
+    rerender(surface({ camerasByOwner: new Map(), visible: false, overview: false, activeBoard: 'board-1' }));
+    expect(board).toHaveAttribute('data-following', 'true');
+
+    rerender(surface({ camerasByOwner: new Map() }));
+    expect(screen.getByRole('button', { name: 'Следовать за учеником: Анна' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('board-p1')).toBe(board);
+    expect(board).toHaveAttribute('data-compact', 'true');
+    rerender(surface({ camerasByOwner: new Map(), overview: false, activeBoard: personalBoardId('p1') }));
+    await user.click(screen.getByRole('button', { name: 'Следовать за учеником: Анна' }));
+    expect(board).toHaveAttribute('data-following', 'false');
+  });
+
+  it('uses the same pupil follow choice for paper and camera without remounting either board', async () => {
+    const user = userEvent.setup();
+    render(surface());
+    const board = screen.getByTestId('board-p1');
+    const follow = screen.getByRole('button', { name: 'Следовать за учеником: Анна' });
+    await user.click(follow);
+    available('camera-p1', true);
+    available('camera-p3', true);
+    const cameraBoard = screen.getByTestId('camera-board-p1');
+    expect(cameraBoard).toHaveAttribute('data-following', 'true');
+    expect(screen.getByTestId('camera-board-p3')).toHaveAttribute('data-following', 'false');
+    await user.click(follow);
+    expect(cameraBoard).toHaveAttribute('data-following', 'false');
+    expect(board).toHaveAttribute('data-following', 'false');
+    await user.click(follow);
+    available('camera-p1', false);
+    expect(screen.getByTestId('board-p1')).toBe(board);
+    expect(board).toHaveAttribute('data-following', 'true');
+    available('camera-p1', true);
+    expect(screen.getByTestId('camera-board-p1')).toBe(cameraBoard);
+    expect(cameraBoard).toHaveAttribute('data-following', 'true');
   });
 
   it('keeps the same video, camera annotation board and ordinary board between overview and pupil views', async () => {

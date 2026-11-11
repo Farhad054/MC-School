@@ -1,0 +1,24 @@
+{
+  "meta": {"school": "MINDCRAFTI SCHOOL", "subject": "MATHEMATIK", "group": "Kolin", "date": "07.11.2026", "durationMinutes": 60},
+  "workbookPages": [{"blocks": [{"type": "exercise", "rows": [
+    {"label": "1.", "text": "Вычисли.", "math": {"latex": "\\frac{1}{2}+\\frac{1}{4}"}, "work": false},
+    {"label": "2.", "text": "Berechne.", "math": {"latex": "\\frac{3}{5}+\\frac{4}{7}"}, "work": false},
+    {"label": "3.", "text": "Berechne.", "math": {"latex": "\\frac{7}{8}-\\frac{1}{4}"}, "work": false},
+    {"label": "4.", "text": "Реши уравнение.", "math": {"latex": "2x-1=5-x"}, "work": false},
+    {"label": "5.", "text": "Vereinfache. x != 3", "math": {"latex": "\\frac{x^2-9}{x-3}"}, "work": false}
+  ], "writeLines": 0}]}],
+  "teacherPages": [{"blocks": [{"type": "solutions", "title": "PRIVATE ANSWERS", "items": [
+    {"label": "1.", "math": {"latex": "\\frac{3}{4}"}},
+    {"label": "2.", "math": {"latex": "\\frac{41}{35}"}},
+    {"label": "3.", "math": {"latex": "\\frac{5}{8}"}},
+    {"label": "4.", "math": {"latex": "x=2"}},
+    {"label": "5.", "math": {"latex": "x+3"}}
+  ]}]}],
+  "qa": {"algebra": [
+    {"kind": "equivalence", "expression": "1/2+1/4", "answer": "3/4"},
+    {"kind": "equivalence", "expression": "3/5+4/7", "answer": "41/35"},
+    {"kind": "equivalence", "expression": "7/8-1/4", "answer": "5/8"},
+    {"kind": "linearSolution", "equation": "2x-1=5-x", "solution": {"x": "2"}},
+    {"kind": "equivalence", "expression": "(x^2-9)/(x-3)", "answer": "x+3", "restrictions": ["x != 3"]}
+  ]}
+}

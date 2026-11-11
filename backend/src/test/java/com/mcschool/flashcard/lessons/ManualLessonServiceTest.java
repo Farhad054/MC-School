@@ -135,6 +135,32 @@ class ManualLessonServiceTest {
     }
 
     @Test
+    void deactivationCleanupRemovesOnlyFutureLocalIndividualLessons() {
+        User student = User.managedStudent("Student", teacher);
+        GroupLessonResponse local = new GroupLessonResponse(
+                "local-future", "local-future", null, null, student.getId(), student.getFullName(),
+                List.of(student.getId()), "Local", start, start.plusSeconds(3600), null, null);
+        GroupLessonResponse imported = new GroupLessonResponse(
+                "google-future", "google-future", null, null, student.getId(), student.getFullName(),
+                List.of(student.getId()), "Imported", start.plusSeconds(7200), start.plusSeconds(10800), null, null);
+        LessonHistoryEntry localEntry = LessonHistoryEntry.create(teacher, local);
+        LessonHistoryEntry importedEntry = LessonHistoryEntry.create(teacher, imported);
+
+        when(history.findAllByTeacherIdAndStudentIdAndDeletedAtIsNullAndStartsAtAfterOrderByStartsAtAsc(
+                eq(teacher.getId()), eq(student.getId()), any(Instant.class)))
+                .thenReturn(List.of(localEntry, importedEntry));
+        when(history.findLockedByTeacherIdAndEventId(teacher.getId(), "local-future"))
+                .thenReturn(Optional.of(localEntry));
+        when(onlineClasses.findAllByTeacherIdAndEventIdOrderByScheduledStartAtDesc(
+                teacher.getId(), "local-future")).thenReturn(List.of());
+
+        assertThat(service.cancelFutureLocalLessonsForStudent(caller, student.getId())).isEqualTo(1);
+        assertThat(localEntry.getDeletedAt()).isNotNull();
+        assertThat(importedEntry.getDeletedAt()).isNull();
+        verify(history, never()).findLockedByTeacherIdAndEventId(teacher.getId(), "google-future");
+    }
+
+    @Test
     void deletionRequiresTheTeacherToOwnTheLesson() {
         assertThatThrownBy(() -> service.delete(caller, "local-missing"))
                 .isInstanceOf(ResourceNotFoundException.class);

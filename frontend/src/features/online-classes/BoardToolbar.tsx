@@ -31,6 +31,12 @@ interface Props {
   addPageDisabled?: boolean;
   /** Compact actions such as teacher answers and saving lesson documents. */
   primaryActions?: ReactNode;
+  /** Limit the toolbar to capabilities implemented by its drawing surface. */
+  availableTools?: readonly Tool[];
+  eraserModes?: readonly EraserMode[];
+  ariaLabel?: string;
+  clearLabel?: string;
+  colorPopoverClassName?: string;
 }
 
 const MAIN_TOOLS: Tool[] = ['pan', 'pen', 'erase', 'highlighter'];
@@ -40,7 +46,8 @@ const HOLD_MS = 400;
 
 /** One compact island with contextual tool settings below it. */
 export function BoardToolbar({ tool, onToolChange, settings, onSettingsChange, eraserMode, onEraserModeChange,
-  inputMode, onInputModeChange, canUndo, canRedo, onUndo, onRedo, onClearMine, hostActions, sharedActions, fileAction, onAddPage, addPageDisabled, primaryActions }: Props) {
+  inputMode, onInputModeChange, canUndo, canRedo, onUndo, onRedo, onClearMine, hostActions, sharedActions, fileAction, onAddPage, addPageDisabled, primaryActions,
+  availableTools, eraserModes = ['partial', 'stroke'], ariaLabel, clearLabel, colorPopoverClassName }: Props) {
   const { t, language } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -50,6 +57,7 @@ export function BoardToolbar({ tool, onToolChange, settings, onSettingsChange, e
   const [colorMenuPosition, setColorMenuPosition] = useState({ top: 64, left: 12 });
   const rootRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLButtonElement>(null);
   const fileMenuRef = useRef<HTMLDivElement>(null);
   const paletteRef = useRef<HTMLDivElement>(null);
@@ -62,6 +70,8 @@ export function BoardToolbar({ tool, onToolChange, settings, onSettingsChange, e
   const holdOpened = useRef(false);
   const moreId = useId(), settingsId = useId(), paletteId = useId(), fileId = useId();
   const activeSettings = settings[tool];
+  const mainTools = MAIN_TOOLS.filter(value => !availableTools || availableTools.includes(value));
+  const moreTools = MORE_TOOLS.filter(value => !availableTools || availableTools.includes(value));
   const definition = TOOL_DEFINITIONS.find(entry => entry.tool === tool);
   const moreLabel = language === 'DE' ? 'Weitere Werkzeuge' : 'Другие инструменты';
   const addLabel = language === 'DE' ? 'Hinzufügen' : 'Добавить';
@@ -86,7 +96,7 @@ export function BoardToolbar({ tool, onToolChange, settings, onSettingsChange, e
     }
   }, [colorsOpen]);
   useEffect(() => {
-    if (moreOpen && focusMore.current) { toolButtons.current.select?.focus(); focusMore.current = false; }
+    if (moreOpen && focusMore.current) { moreMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus(); focusMore.current = false; }
   }, [moreOpen]);
   useEffect(() => {
     if (fileOpen) fileMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
@@ -140,14 +150,14 @@ export function BoardToolbar({ tool, onToolChange, settings, onSettingsChange, e
   const hasColor = definition && !['none', 'eraser'].includes(definition.settings);
   const hasWidth = definition?.settings === 'ink' || tool === 'erase';
 
-  return <div ref={rootRef} className="board-toolbar board-toolbar--original" role="toolbar" aria-label={t('onlineClass.whiteboard')}>
+  return <div ref={rootRef} className="board-toolbar board-toolbar--original" role="toolbar" aria-label={ariaLabel ?? t('onlineClass.whiteboard')}>
     <div className="board-toolbar__island">
       <button className="board-toolbar__tool" type="button" aria-label={t('onlineClass.whiteboard.undo')} title={t('onlineClass.whiteboard.undo')}
         disabled={!canUndo} onClick={() => { closeMenus(); onUndo(); }}><BoardToolbarIcon name="undo" /></button>
       <button className="board-toolbar__tool" type="button" aria-label={t('onlineClass.whiteboard.redo')} title={t('onlineClass.whiteboard.redo')}
         disabled={!canRedo} onClick={() => { closeMenus(); onRedo(); }}><BoardToolbarIcon name="redo" /></button>
       <span className="board-toolbar__divider" aria-hidden="true" />
-      {MAIN_TOOLS.map(renderTool)}
+      {mainTools.map(renderTool)}
       {(fileAction || onAddPage) && <div className="board-toolbar__file-action"
         onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setFileOpen(false); }}>
         <button ref={fileRef} className={`board-toolbar__tool${fileOpen ? ' is-active' : ''}`} type="button"
@@ -174,16 +184,16 @@ export function BoardToolbar({ tool, onToolChange, settings, onSettingsChange, e
           onClick={() => { setMoreOpen(!moreOpen); setFileOpen(false); setMenuOpen(false); setColorsOpen(false); cancelHold(); }}
           onKeyDown={event => { if (event.key === 'ArrowDown') {
             event.preventDefault();
-            if (moreOpen) toolButtons.current.select?.focus();
+            if (moreOpen) moreMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
             else { focusMore.current = true; setMoreOpen(true); }
             setMenuOpen(false); setFileOpen(false); setColorsOpen(false);
           } }}>
           <BoardToolbarIcon name="more" />
         </button>
-        {moreOpen && <div id={moreId} className="board-toolbar__more-menu" role="group" aria-label={moreLabel} onKeyDown={navigateMenu}>
-          <div className="board-toolbar__extra-tools">{MORE_TOOLS.map(renderTool)}</div>
+        {moreOpen && <div ref={moreMenuRef} id={moreId} className="board-toolbar__more-menu" role="group" aria-label={moreLabel} onKeyDown={navigateMenu}>
+          {moreTools.length > 0 && <div className="board-toolbar__extra-tools">{moreTools.map(renderTool)}</div>}
           <div className="board-toolbar__more-actions" onClick={event => { if ((event.target as Element).closest('button')) { setMoreOpen(false); moreRef.current?.focus(); } }}>
-            <button type="button" onClick={onClearMine}><BoardToolbarIcon name="clear" />{t('onlineClass.whiteboard.clearMine')}</button>
+            <button type="button" onClick={onClearMine}><BoardToolbarIcon name="clear" />{clearLabel ?? t('onlineClass.whiteboard.clearMine')}</button>
             {hostActions}{sharedActions}
           </div>
         </div>}
@@ -215,8 +225,8 @@ export function BoardToolbar({ tool, onToolChange, settings, onSettingsChange, e
         <input type="range" aria-label={tool === 'erase' ? 'Размер ластика' : 'Толщина инструмента'} min={MIN_WIDTH_PERMILLE} max={MAX_WIDTH_PERMILLE}
           value={Math.round(activeSettings.width * 1000)} onChange={event => onSettingsChange(tool, { width: Number(event.target.value) / 1000 })} />
       </label>}
-      {tool === 'erase' && <div className="board-toolbar__eraser-modes" role="radiogroup" aria-label={t('onlineClass.board.eraserMode')}>
-        {(['partial', 'stroke'] as const).map(mode => <button key={mode} type="button" role="radio" aria-checked={eraserMode === mode}
+      {tool === 'erase' && eraserModes.length > 1 && <div className="board-toolbar__eraser-modes" role="radiogroup" aria-label={t('onlineClass.board.eraserMode')}>
+        {eraserModes.map(mode => <button key={mode} type="button" role="radio" aria-checked={eraserMode === mode}
           className={eraserMode === mode ? 'is-active' : undefined} onClick={() => onEraserModeChange(mode)}>
           {t(mode === 'partial' ? 'onlineClass.board.eraser.partial' : 'onlineClass.board.eraser.stroke')}
         </button>)}
@@ -242,7 +252,7 @@ export function BoardToolbar({ tool, onToolChange, settings, onSettingsChange, e
       </div>
     </div>}
 
-    {colorsOpen && menuOpen && hasColor && createPortal(<div ref={paletteRef} id={paletteId} className="board-toolbar__color-popover board-toolbar__color-popover--original"
+    {colorsOpen && menuOpen && hasColor && createPortal(<div ref={paletteRef} id={paletteId} className={`board-toolbar__color-popover board-toolbar__color-popover--original${colorPopoverClassName ? ` ${colorPopoverClassName}` : ''}`}
       style={{ top: colorMenuPosition.top, left: colorMenuPosition.left }} role="dialog" aria-label="Выбор цвета / Farbauswahl">
       <div className="board-toolbar__swatches" role="radiogroup" aria-label={t('onlineClass.whiteboard.color')}>
         {PALETTE.map(value => <button key={value} type="button" role="radio" aria-checked={activeSettings.color === value} aria-label={value}

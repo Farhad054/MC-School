@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Иллюстрации Mindcrafti</title>
+<style>
+  :root { font: 14px/1.5 system-ui, sans-serif; color: #192235; color-scheme: light dark; background: transparent; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px; }
+  main { max-width: 960px; margin: auto; }
+  header { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  #status, .note { font-size: 13px; color: #616b7b; }
+  #status { margin: 8px 0; }
+  #gallery { display: grid; gap: 14px; max-height: 650px; overflow: auto; padding: 2px; }
+  figure { margin: 0; min-width: 0; border: 1px solid #dce1e8; border-radius: 12px; overflow: hidden; background: #fff; }
+  button { font: inherit; cursor: pointer; color: inherit; }
+  .picture { display: block; width: 100%; padding: 0; border: 0; background: #f8f7f3; }
+  .picture img { display: block; width: 100%; height: auto; aspect-ratio: 16/9; object-fit: contain; }
+  button:focus-visible { outline: 3px solid #fa7b38; outline-offset: -3px; }
+  figcaption { padding: 12px; }
+  figcaption strong { display: block; font-size: 16px; }
+  figcaption p { margin: 4px 0; }
+  .enlarge { font-size: 12px; color: #a84a18; }
+  .error { color: #a83232; }
+  dialog { padding: 16px; border: 1px solid #dce1e8; border-radius: 14px; width: min(1050px, calc(100vw - 24px)); max-height: calc(100vh - 24px); color: inherit; background: #fff; }
+  dialog::backdrop { background: #101827a8; }
+  .dialog-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
+  #close { border: 1px solid #b9c2ce; border-radius: 8px; padding: 6px 14px; background: transparent; }
+  .zoom-scroll { overflow: auto; max-height: 70vh; }
+  #zoom-image { display: block; width: 960px; max-width: none; }
+  @media (min-width: 700px) { #gallery { grid-template-columns: 1fr 1fr; } }
+  @media (prefers-color-scheme: dark) { :root { color: #edf1f7; } figure, dialog { background: #232a33; border-color: #485261; } #status, .note { color: #b9c2cf; } .enlarge { color: #ffad85; } .error { color: #ffb1ab; } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>Кнопки Mindcrafti</h1><span class="note">Нажмите на изображение, чтобы увеличить</span></header>
+  <p id="status" role="status" aria-live="polite">Ожидаем иллюстрации из коннектора.</p>
+  <section id="gallery" aria-label="Иллюстрации кнопок"></section>
+  <p class="note">Снимки учебного урока с тестовыми данными. Это не экран текущего занятия.</p>
+</main>
+<dialog id="zoom" aria-labelledby="zoom-title">
+  <div class="dialog-head"><strong id="zoom-title"></strong><button id="close" type="button">Закрыть</button></div>
+  <div class="zoom-scroll"><img id="zoom-image" alt=""></div>
+  <p class="note">Большое изображение можно прокручивать. Escape закрывает просмотр.</p>
+</dialog>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const object = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const assetKey = 'mindcrafti/teacherGuideImages';
+  const protocolVersion = '2026-01-26';
+  let generation = 0, received = false, initialized = false, timer;
+  const post = message => window.parent.postMessage(message, '*');
+  function resize() {
+    if (initialized) post({ jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: Math.min(820, Math.ceil(document.body.scrollHeight)) } });
+  }
+  function notice(text) { $('status').textContent = text; resize(); }
+  function openImage(image, source) {
+    $('zoom-title').textContent = image.title;
+    $('zoom-image').alt = image.description;
+    $('zoom-image').src = source;
+    $('zoom').showModal();
+  }
+  $('close').addEventListener('click', () => $('zoom').close());
+  function render(result) {
+    if (!object(result)) return;
+    const data = object(result.structuredContent) ? result.structuredContent : null;
+    if (!data || !Array.isArray(data.images)) return;
+    received = true; clearTimeout(timer);
+    const current = ++generation;
+    $('zoom').close(); $('zoom-image').removeAttribute('src');
+    $('gallery').replaceChildren();
+    const images = data.images;
+    if (images.length < 1 || images.length > 6) { notice('Не удалось получить иллюстрации. Попросите чат повторить показ нужной кнопки.'); return; }
+    const assets = object(result._meta?.[assetKey]) ? result._meta[assetKey] : {};
+    let loaded = 0, failed = 0;
+    function progress() {
+      if (current !== generation) return;
+      notice(loaded + ' из ' + images.length + ' иллюстраций загружено' + (failed ? '. Часть изображений недоступна, пояснения сохранены.' : '.'));
+    }
+    for (const entry of images) {
+      const image = object(entry) ? entry : {};
+      const figure = document.createElement('figure');
+      const caption = document.createElement('figcaption');
+      const title = document.createElement('strong'); title.textContent = String(image.title || 'Иллюстрация');
+      const description = document.createElement('p'); description.textContent = String(image.description || '');
+      caption.append(title, description);
+      const source = typeof image.id === 'string' && Object.hasOwn(assets, image.id) ? assets[image.id] : null;
+      if (typeof source !== 'string' || source.length > 700000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(source)) {
+        const error = document.createElement('p'); error.className = 'error'; error.textContent = 'Картинка не передана клиентом. Попросите текстовую инструкцию или повторите показ.';
+        caption.append(error); failed++;
+      } else {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'picture'; button.setAttribute('aria-label', 'Увеличить: ' + String(image.title || 'иллюстрация'));
+        const img = document.createElement('img'); img.alt = String(image.description || image.title || 'Кнопка Mindcrafti');
+        img.addEventListener('load', () => { loaded++; progress(); });
+        img.addEventListener('error', () => { failed++; button.disabled = true; img.alt = 'Не удалось загрузить изображение'; progress(); });
+        img.src = source;
+        button.append(img); button.addEventListener('click', () => openImage(image, source));
+        figure.append(button);
+        const hint = document.createElement('span'); hint.className = 'enlarge'; hint.textContent = 'Увеличить изображение'; caption.append(hint);
+      }
+      figure.append(caption); $('gallery').append(figure);
+    }
+    progress(); resize();
+  }
+  function legacy() {
+    const api = window.openai;
+    if (!api || !object(api.toolOutput)) return;
+    const metadata = api.toolResponseMetadata;
+    const envelope = object(metadata?._meta) ? metadata._meta : metadata;
+    // Some hosts expose the canonical result envelope, others expose only _meta.
+    render({ structuredContent: api.toolOutput.structuredContent || api.toolOutput, _meta: envelope });
+  }
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || !object(event.data) || event.data.jsonrpc !== '2.0') return;
+    const message = event.data;
+    if (message.method === 'ui/notifications/tool-result' && !Object.hasOwn(message, 'id')) { render(message.params); return; }
+    if (message.method === 'ui/notifications/tool-cancelled') { if (!received) notice('Показ иллюстраций отменён.'); clearTimeout(timer); return; }
+    if (message.method === 'ping' && (typeof message.id === 'string' || Number.isFinite(message.id))) { post({ jsonrpc: '2.0', id: message.id, result: {} }); return; }
+    if (message.id === 'guide-init' && !initialized && object(message.result) && message.result.protocolVersion === protocolVersion) {
+      initialized = true; post({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }); resize();
+    }
+  });
+  window.addEventListener('openai:set_globals', legacy);
+  legacy();
+  if (window.parent !== window && typeof window.parent.postMessage === 'function') {
+    post({ jsonrpc: '2.0', id: 'guide-init', method: 'ui/initialize', params: {
+      appInfo: { name: 'mindcrafti-teacher-guide', version: '1.0.0' }, appCapabilities: {}, protocolVersion
+    } });
+    if (!received) timer = setTimeout(() => notice('Клиент не передал иллюстрации. Попросите чат повторить показ или дать текстовую инструкцию.'), 10000);
+  } else if (!received) notice('Откройте иллюстрации через MCH3 в чате с поддержкой панелей.');
+})();
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@ const STATUS_LABELS: Record<TrialLeadStatus, string> = {
   CALENDAR_OPENED: 'Открыл календарь',
   BOOKED: 'Забронирован',
   CONTACTED: 'Связались',
+  QUALIFIED_LEAD: 'Квалифицированный лид',
   CONTRACT: 'Контракт',
   NO_RESPONSE: 'Не ответили',
   DECLINED: 'Отказ',
@@ -158,6 +159,12 @@ export function TrialLeadsPage() {
               <Detail label="Источник" value={lead.source || 'Источник не передан'} wide />
             </div>
 
+            <div className="trial-lead-meta" aria-label="Отправка событий в Meta">
+              <MetaDelivery label="Запись на пробный, Schedule" sentAt={lead.metaScheduleSentAt} />
+              <MetaDelivery label="Квалифицированный лид, QualifiedLead" sentAt={lead.metaQualifiedLeadSentAt} />
+              <MetaDelivery label="Контракт, ConvertedLead" sentAt={lead.metaPurchaseSentAt} />
+            </div>
+
             <div className="trial-lead-actions">
               <a className="btn btn--primary" href={whatsapp} target="_blank" rel="noreferrer">WhatsApp</a>
               <select
@@ -188,6 +195,15 @@ function Detail({ label, value, wide = false }: { label: string; value?: string 
   return <div className={wide ? 'trial-lead-detail trial-lead-detail--wide' : 'trial-lead-detail'}>
     <span>{label}</span>
     <strong>{value || '—'}</strong>
+  </div>;
+}
+
+function MetaDelivery({ label, sentAt }: { label: string; sentAt?: string | null }) {
+  return <div>
+    <span>{label}</span>
+    {sentAt
+      ? <time dateTime={sentAt}>Отправлено {formatDate(sentAt)}</time>
+      : <span>Отправка не подтверждена</span>}
   </div>;
 }
 

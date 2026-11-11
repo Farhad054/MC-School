@@ -7,18 +7,24 @@ RUN mvn -B -DskipTests clean package
 
 # Use a Node 22 binary built against the older bullseye glibc (also compatible with jammy).
 FROM node:22-bullseye-slim AS node_runtime
+WORKDIR /opt/mindcrafti-workbook
+COPY src/main/resources/owner-workbook-generator/package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
 
 # Workbook pilot v3: same SVG -> HTML -> WeasyPrint PDF engine as ChatGPT tests.
 FROM eclipse-temurin:21-jre-jammy
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip curl \
     libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 \
-    shared-mime-info fonts-dejavu-core fonts-liberation \
+    shared-mime-info fonts-dejavu-core fonts-liberation fonts-inter \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node
+COPY src/main/resources/owner-workbook-generator/requirements.txt /tmp/workbook-requirements.txt
 RUN python3 -m venv /opt/mindcrafti-pdf && \
-    /opt/mindcrafti-pdf/bin/pip install --no-cache-dir 'weasyprint==66.0' 'pymupdf==1.26.7'
+    /opt/mindcrafti-pdf/bin/pip install --no-cache-dir -r /tmp/workbook-requirements.txt
+COPY --from=node_runtime /opt/mindcrafti-workbook/node_modules /opt/mindcrafti-workbook/node_modules
 ENV PATH="/opt/mindcrafti-pdf/bin:${PATH}"
+ENV MINDCRAFTI_WORKBOOK_MODULES="/opt/mindcrafti-workbook/node_modules"
 WORKDIR /app
 RUN groupadd --system app && useradd --system --gid app --home-dir /app app
 COPY --from=build /app/target/*.jar app.jar

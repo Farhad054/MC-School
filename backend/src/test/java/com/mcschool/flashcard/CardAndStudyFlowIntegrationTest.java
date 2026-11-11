@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.mcschool.flashcard.cards.CardStatus;
 import com.mcschool.flashcard.cards.CardRepository;
+import com.mcschool.flashcard.drive.GoogleDriveStructureService;
 import com.mcschool.flashcard.reviewhistory.DailyReviewHistoryRepository;
 import com.mcschool.flashcard.users.User;
 import com.mcschool.flashcard.users.UserRepository;
@@ -24,9 +25,12 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -34,7 +38,7 @@ import org.springframework.test.web.servlet.MvcResult;
  * End-to-end coverage of the flashcard and study flow against real PostgreSQL:
  * a teacher creates and imports cards for their student, and the student runs a
  * study session that advances the SM-2 schedule. Also covers ownership and the
- * four-card minimum.
+ * sessions with as few as one card.
  */
 class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
 
@@ -51,6 +55,9 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
     private DailyReviewHistoryRepository historyRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    // Exercise real accounts and study persistence without provisioning external Drive folders.
+    @MockitoBean
+    private GoogleDriveStructureService driveStructureService;
 
     private String teacherToken;
     private String studentToken;
@@ -64,7 +71,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         String studentInvitation = postAndReturn("/api/v1/students", teacherToken,
                 "{\"fullName\": \"Sam Student\", \"email\": \"sam@test.local\"}", status().isCreated());
         studentId = UUID.fromString(JsonPath.read(studentInvitation, "$.student.id"));
-        studentToken = activate(JsonPath.read(studentInvitation, "$.invitationToken"), "StudentPass123!");
+        studentToken = signInManagedStudent(studentInvitation, "StudentPass123!");
     }
 
     // --- Card management (teacher) ---
@@ -228,7 +235,8 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalCards").value(2))
                 .andExpect(jsonPath("$.dueCardCount").value(1))
-                .andExpect(jsonPath("$.canStartScheduled").value(false));
+                .andExpect(jsonPath("$.minCardsToStart").value(1))
+                .andExpect(jsonPath("$.canStartScheduled").value(true));
 
         createCardInHomework(teacherToken, todayHomework, "today new 2", "t2");
         createCardInHomework(teacherToken, todayHomework, "today new 3", "t3");
@@ -341,18 +349,131 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
     // --- Study flow (student) ---
 
     @Test
-    void studentCannotStartSessionWithFewerThanFourCards() throws Exception {
+    void studentCannotStartSessionWithoutCards() throws Exception {
         UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
-        createCardInHomework(teacherToken, homeworkId, "1", "one");
-        createCardInHomework(teacherToken, homeworkId, "2", "two");
-        createCardInHomework(teacherToken, homeworkId, "3", "three");
+
+        mockMvc.perform(get("/api/v1/study/today").header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.minCardsToStart").value(1))
+                .andExpect(jsonPath("$.canStartScheduled").value(false))
+                .andExpect(jsonPath("$.canPractice").value(false));
 
         mockMvc.perform(post("/api/v1/study/sessions")
                         .header("Authorization", "Bearer " + studentToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"type\": \"SCHEDULED\"}"))
                 .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("NO_CARDS_DUE"));
+
+        for (String request : List.of("{\"type\": \"PRACTICE\"}",
+                "{\"type\": \"PRACTICE\", \"homeworkId\": \"" + homeworkId + "\"}")) {
+            mockMvc.perform(post("/api/v1/study/sessions")
+                            .header("Authorization", "Bearer " + studentToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(request))
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.errorCode").value("NOT_ENOUGH_CARDS"));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3})
+    void studentCompletesScheduledPracticeAndHomeworkSessionsWithSmallDecks(int cardCount) throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        Map<UUID, String> answers = new HashMap<>();
+        for (int i = 1; i <= cardCount; i++) {
+            answers.putAll(createCardInHomework(teacherToken, homeworkId, "question " + i, "answer " + i));
+        }
+
+        mockMvc.perform(get("/api/v1/study/today").header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCards").value(cardCount))
+                .andExpect(jsonPath("$.dueCardCount").value(cardCount))
+                .andExpect(jsonPath("$.minCardsToStart").value(1))
+                .andExpect(jsonPath("$.canStartScheduled").value(true))
+                .andExpect(jsonPath("$.canPractice").value(true));
+
+        // Practice leaves scheduling untouched; the scheduled session moves
+        // these cards out of today's pool, so run it last.
+        for (String request : List.of("{\"type\": \"PRACTICE\"}",
+                "{\"type\": \"PRACTICE\", \"homeworkId\": \"" + homeworkId + "\"}", "{\"type\": \"SCHEDULED\"}")) {
+            String start = postAndReturn("/api/v1/study/sessions", studentToken, request, status().isCreated());
+            UUID sessionId = UUID.fromString(JsonPath.read(start, "$.id"));
+            String question = mockMvc.perform(get("/api/v1/study/sessions/{id}/current-question", sessionId)
+                            .header("Authorization", "Bearer " + studentToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalCards").value(cardCount))
+                    .andExpect(jsonPath("$.options.length()").value(cardCount))
+                    .andReturn().getResponse().getContentAsString();
+            List<String> options = JsonPath.read(question, "$.options");
+            assertThat(options).containsExactlyInAnyOrderElementsOf(answers.values());
+
+            playSessionAnsweringCorrectly(sessionId, answers);
+            mockMvc.perform(get("/api/v1/study/sessions/{id}/result", sessionId)
+                            .header("Authorization", "Bearer " + studentToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalCards").value(cardCount))
+                    .andExpect(jsonPath("$.correctFirstTry").value(cardCount))
+                    .andExpect(jsonPath("$.review.length()").value(cardCount));
+        }
+
+        mockMvc.perform(get("/api/v1/study/today").header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dueCardCount").value(0))
+                .andExpect(jsonPath("$.canStartScheduled").value(false))
+                .andExpect(jsonPath("$.canPractice").value(false));
+    }
+
+    @Test
+    void singleImportedCardKeepsItsSavedWrongAnswers() throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        mockMvc.perform(post("/api/v1/homeworks/{id}/cards/import", homeworkId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cards": [{"question": "2+2", "correctAnswer": "4",
+                                  "wrongAnswer1": "3", "wrongAnswer2": "5", "wrongAnswer3": "6"}]}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.length()").value(1));
+        String start = postAndReturn("/api/v1/study/sessions", studentToken,
+                "{\"type\": \"SCHEDULED\"}", status().isCreated());
+        UUID sessionId = UUID.fromString(JsonPath.read(start, "$.id"));
+        assertCurrentQuestionUsesSavedOptions(sessionId, expectedOptionsForHomework(homeworkId));
+        playSessionAnsweringCorrectly(sessionId, answersForHomework(homeworkId));
+        mockMvc.perform(get("/api/v1/study/sessions/{id}/result", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCards").value(1))
+                .andExpect(jsonPath("$.correctFirstTry").value(1));
+    }
+
+    @Test
+    void singleCardCanBeRetriedAfterWrongAnswer() throws Exception {
+        UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
+        Map<UUID, String> answers = createCardInHomework(teacherToken, homeworkId, "2+2", "4");
+        UUID cardId = answers.keySet().iterator().next();
+        String start = postAndReturn("/api/v1/study/sessions", studentToken,
+                "{\"type\": \"SCHEDULED\"}", status().isCreated());
+        UUID sessionId = UUID.fromString(JsonPath.read(start, "$.id"));
+        mockMvc.perform(post("/api/v1/study/sessions/{id}/answer", sessionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cardId\": \"" + cardId + "\", \"selectedAnswer\": \"wrong\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.correct").value(false))
+                .andExpect(jsonPath("$.sessionCompleted").value(false))
+                .andExpect(jsonPath("$.remaining").value(1));
+        mockMvc.perform(get("/api/v1/study/sessions/{id}/current-question", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cardId").value(cardId.toString()));
+        playSessionAnsweringCorrectly(sessionId, answers);
+        mockMvc.perform(get("/api/v1/study/sessions/{id}/result", sessionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalCards").value(1))
+                .andExpect(jsonPath("$.correctFirstTry").value(0));
     }
 
     @Test
@@ -641,8 +762,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         String otherStudentInvitation = postAndReturn("/api/v1/students", teacherToken,
                 "{\"fullName\": \"Other Student\", \"email\": \"other-student@test.local\"}",
                 status().isCreated());
-        String otherStudentToken = activate(JsonPath.read(otherStudentInvitation, "$.invitationToken"),
-                "OtherStudent123!");
+        String otherStudentToken = signInManagedStudent(otherStudentInvitation, "OtherStudent123!");
 
         mockMvc.perform(get("/api/v1/study/sessions/{id}", sessionId)
                         .header("Authorization", "Bearer " + otherStudentToken))
@@ -676,7 +796,7 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
     @Test
     void teacherSetsCardTimeLimitAndTimeoutScoresIncorrect() throws Exception {
         UUID homeworkId = createHomework(teacherToken, studentId, LocalDate.now());
-        // A card with a 15-second limit, plus three without, to reach the four-card minimum.
+        // A card with a 15-second limit and three cards without a limit.
         String created = mockMvc.perform(post("/api/v1/homeworks/{id}/cards", homeworkId)
                         .header("Authorization", "Bearer " + teacherToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -819,10 +939,11 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
 
     private String createActivatedTeacher(String email, String password) throws Exception {
         String adminToken = login(ADMIN_EMAIL, ADMIN_PASSWORD);
-        String invitation = postAndReturn("/api/v1/teachers", adminToken,
-                "{\"fullName\": \"Teacher\", \"email\": \"" + email + "\"}", status().isCreated());
-        // Non-student accounts must confirm their e-mail to activate.
-        return activate(JsonPath.read(invitation, "$.invitationToken"), password, email);
+        String username = email.substring(0, email.indexOf('@'));
+        postAndReturn("/api/v1/teachers", adminToken,
+                "{\"fullName\": \"Teacher\", \"email\": \"" + email + "\", \"username\": \"" + username
+                        + "\", \"password\": \"" + password + "\"}", status().isCreated());
+        return login(email, password);
     }
 
     private String login(String email, String password) throws Exception {
@@ -834,20 +955,15 @@ class CardAndStudyFlowIntegrationTest extends AbstractIntegrationTest {
         return JsonPath.read(body, "$.accessToken");
     }
 
-    private String activate(String invitationToken, String password) throws Exception {
-        return activate(invitationToken, password, null);
-    }
-
-    /** {@code email} is optional for students and required for every other role. */
-    private String activate(String invitationToken, String password, String email) throws Exception {
-        String emailField = email == null ? "" : "\"email\": \"" + email + "\", ";
-        String body = mockMvc.perform(post("/api/v1/auth/activate")
+    private String signInManagedStudent(String createdStudent, String password) throws Exception {
+        String id = JsonPath.read(createdStudent, "$.student.id");
+        String username = JsonPath.read(createdStudent, "$.student.username");
+        mockMvc.perform(put("/api/v1/students/{id}/password", id)
+                        .header("Authorization", "Bearer " + teacherToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"invitationToken\": \"" + invitationToken + "\", " + emailField
-                                + "\"password\": \"" + password + "\"}"))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(body, "$.accessToken");
+                        .content("{\"password\": \"" + password + "\"}"))
+                .andExpect(status().isNoContent());
+        return login(username, password);
     }
 
     /** POST helper returning the response body, asserting the given status. */

@@ -8,13 +8,18 @@ import { ApiRequestError } from '../../api/client';
 import type { CameraModule } from '../notebook-camera/cameraModules';
 import type { NotebookCameraGeometry } from './notebookCameraGeometry';
 import { DEFAULT_VIEW } from './boardView';
+import { capturePagedRegion } from './studentViewGeometry';
 import {
   ANNOTATION_TOPIC,
   NOTEBOOK_STROKE_TOPIC,
   STROKE_TOPIC,
+  STUDENT_VIEW_TOPIC,
   VIEW_TOPIC,
+  BOARD_PAGES_TOPIC,
+  boardPagesEvent,
   annotationEvent,
   strokeEvent,
+  studentViewEvent,
   viewEvent,
   type ClassEvent,
 } from './events';
@@ -27,6 +32,7 @@ let canvasProps: CanvasProps = {};
 const pageCanvasProps = new Map<string, CanvasProps>();
 const canvasDocumentNavigation = new Map<string, ReturnType<typeof vi.fn>>();
 const canvasSnapshot = vi.fn((mimeType?: string) => mimeType === 'image/jpeg' ? 'data:image/jpeg;base64,/9j/2Q==' : 'data:image/png;base64,AAA');
+const canvasZoomAt = vi.fn();
 vi.mock('./WhiteboardCanvas', () => ({
   WhiteboardCanvas: forwardRef((props: CanvasProps, ref) => {
     const documentNavigation = useRef(vi.fn());
@@ -37,8 +43,9 @@ vi.mock('./WhiteboardCanvas', () => ({
       toDataURL: canvasSnapshot,
       getSize: () => ({ width: 1000, height: 500 }),
       setDocumentNavigation: documentNavigation.current,
+      zoomAt: (scale: number, anchor: { x: number; y: number }) => canvasZoomAt(props.pageKey, scale, anchor),
     }));
-    return <div data-testid="canvas" data-page-key={props.pageKey} data-locked={String(props.navigationLocked)} />;
+    return <div className="whiteboard__surface" data-testid="canvas" data-page-key={props.pageKey} data-locked={String(props.navigationLocked)} />;
   }),
 }));
 
@@ -126,6 +133,10 @@ function chooseLayout(actorId: string, layout: 'continuous' | 'paged') {
 function documentObservers() {
   let notify!: IntersectionObserverCallback;
   let resize = () => {};
+  let nextFrame = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
   vi.stubGlobal('IntersectionObserver', class {
     constructor(callback: IntersectionObserverCallback) { notify = callback; }
     observe() {} disconnect() {} unobserve() {}
@@ -138,6 +149,8 @@ function documentObservers() {
     disconnect() {}
   });
   return {
+    frame: () => { const queued = [...frames.values()]; frames.clear(); queued.forEach(callback => callback(performance.now())); },
+    queuedFrames: () => frames.size,
     resize: () => resize(),
     reveal: (list: HTMLElement) => notify(Array.from(list.querySelectorAll('article'), target => ({ target, isIntersecting: true })) as unknown as IntersectionObserverEntry[], {} as IntersectionObserver),
   };
@@ -238,17 +251,127 @@ describe('WhiteboardPanel', () => {
     const { rerender, container } = render(content(false));
     await screen.findByRole('region', { name: 'Страницы доски' });
     await userEvent.click(screen.getByRole('button', { name: 'Увеличить' }));
-    expect(screen.getByText('125%')).toBeInTheDocument();
+    expect(await screen.findByText('125%')).toBeInTheDocument();
 
     rerender(content(true));
     expect(container.querySelector('.whiteboard--compact-preview')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Страницы доски' })).not.toBeInTheDocument();
     expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.view).toBe(DEFAULT_VIEW);
-    expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.navigationLocked).toBe(true);
+    expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.navigationLocked).toBe(false);
+    act(() => pageCanvasProps.get('WHITEBOARD:personal-student:0')!.onViewChange({ zoom: 2, panX: -120, panY: -80 }));
+    expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.view).toEqual({ zoom: 2, panX: -120, panY: -80 });
 
     rerender(content(false));
     expect(await screen.findByRole('region', { name: 'Страницы доски' })).toBeInTheDocument();
     expect(screen.getByText('125%')).toBeInTheDocument();
+    rerender(content(true));
+    expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.view).toEqual({ zoom: 2, panX: -120, panY: -80 });
+  });
+
+  describe('following the pupil viewport', () => {
+    const viewport = { width: 1000, height: 500 };
+    const pupilPageView = { zoom: 3, panX: -900, panY: -700 };
+    const packet = (patch = {}) => studentViewEvent('c1', {
+      boardId: 'personal-student', targetType: 'WHITEBOARD', sessionId: 'pupil-session', revision: 1,
+      page: 0, pageCount: 3, layout: 'paged', viewport,
+      region: capturePagedRegion(pupilPageView, viewport, 210 / 297)!, ...patch,
+    });
+    const receive = (patch = {}) => act(() => handlers[STUDENT_VIEW_TOPIC]({ event: packet(patch), senderIdentity: 'student|ipad' }));
+
+    it('mirrors a cached pupil crop only when enabled, keeps the same canvas and restores manual overview navigation', async () => {
+      const content = (following: boolean) => <I18nProvider><WhiteboardPanel classId="c1" actorId="teacher" isHost
+        targetId="personal-student" compactPreview canAnnotate={false} followStudent={following} /></I18nProvider>;
+      const mounted = render(content(false));
+      const canvas = await screen.findByTestId('canvas');
+      const manual = { zoom: 2, panX: -120, panY: -80 };
+      act(() => canvasProps.onViewChange(manual));
+      receive();
+      expect(canvasProps.view).toEqual(manual);
+      expect(canvasProps.navigationLocked).toBe(false);
+
+      mounted.rerender(content(true));
+      await waitFor(() => expect(canvasProps.view.zoom).toBeCloseTo(pupilPageView.zoom));
+      expect(canvasProps.view.panX).toBeCloseTo(pupilPageView.panX);
+      expect(canvasProps.view.panY).toBeCloseTo(pupilPageView.panY);
+      expect(canvasProps.navigationLocked).toBe(true);
+      expect(canvasProps.readOnly).toBe(true);
+      expect(screen.getByTestId('canvas')).toBe(canvas);
+      act(() => canvasProps.onViewChange(DEFAULT_VIEW));
+      expect(canvasProps.view.zoom).toBeCloseTo(3);
+
+      mounted.rerender(content(false));
+      expect(canvasProps.view).toEqual(manual);
+      expect(canvasProps.navigationLocked).toBe(false);
+      expect(screen.getByTestId('canvas')).toBe(canvas);
+      expect(api.appendAnnotation).not.toHaveBeenCalled();
+      expect(publish.mock.calls.some(([event]) => event.type === 'student-view')).toBe(false);
+    });
+
+    it('changes the followed page and layout without overwriting the teacher’s own page or layout preference', async () => {
+      chooseLayout('teacher', 'paged');
+      const content = (following: boolean) => <I18nProvider><WhiteboardPanel classId="c1" actorId="teacher" isHost
+        targetId="personal-student" followStudent={following} /></I18nProvider>;
+      const mounted = render(content(false));
+      await screen.findByTestId('canvas');
+      act(() => canvasProps.onViewChange({ zoom: 2, panX: -100, panY: -50 }));
+      mounted.rerender(content(true));
+      expect(screen.getByText('Ожидаем вид ученика…')).toBeInTheDocument();
+      receive({ page: 2, layout: 'continuous', viewport: { width: 800, height: 500 },
+        region: { x: .1, y: .25, width: .5, height: .4 }, pageGap: .02 });
+      await waitFor(() => expect(mounted.container.querySelector('.whiteboard__pages--continuous')).not.toBeNull());
+      await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalledWith('c1', 'WHITEBOARD', 'personal-student', 2, undefined, undefined));
+      expect(canvasProps.navigationLocked).toBe(true);
+      expect(localStorage.getItem('mc.board.pageLayout:teacher')).toBe('paged');
+      expect(screen.queryByText('Ожидаем вид ученика…')).not.toBeInTheDocument();
+
+      mounted.rerender(content(false));
+      expect(screen.queryByRole('region', { name: 'Страницы доски' })).not.toBeInTheDocument();
+      expect(pageCanvasProps.get('WHITEBOARD:personal-student:0')?.active).toBe(true);
+      expect(canvasProps.view).toEqual({ zoom: 2, panX: -100, panY: -50 });
+      expect(localStorage.getItem('mc.board.pageLayout:teacher')).toBe('paged');
+      expect(api.appendAnnotation).not.toHaveBeenCalled();
+    });
+
+    it('captures the owner’s actual continuous scroll, zoom and page gap and sends it only to the teacher', async () => {
+      const observers = documentObservers();
+      chooseLayout('student', 'continuous');
+      mount('student', { targetId: 'personal-student', document: { pageCount: 3 } as never });
+      const list = await screen.findByRole('region', { name: 'Страницы доски' });
+      const geometry = documentGeometry(list);
+      act(() => observers.resize());
+      await userEvent.click(screen.getByRole('button', { name: 'Увеличить' }));
+      act(() => observers.frame());
+      list.scrollLeft = 15; list.scrollTop = 750;
+      fireEvent.scroll(list);
+      await waitFor(() => expect(publish.mock.calls.some(([event]) => event.type === 'student-view' && event.page === 1)).toBe(true));
+      const calls = publish.mock.calls.filter(([event]) => event.type === 'student-view');
+      const [event, reliable, recipients] = calls.at(-1)!;
+      const page = geometry.pages[1];
+      expect(event.layout).toBe('continuous');
+      expect(event.viewport).toEqual({ width: 800, height: 500 });
+      expect(event.region.x).toBeCloseTo((15 + 20 - page.offsetLeft) / page.offsetWidth);
+      expect(event.region.y).toBeCloseTo((750 + 100 - page.offsetTop) / page.offsetHeight);
+      expect(event.region.width).toBeCloseTo(800 / page.offsetWidth);
+      expect(event.region.height).toBeCloseTo(500 / page.offsetHeight);
+      expect(event.pageGap).toBeCloseTo(parseFloat(geometry.rail.style.gap) / page.offsetWidth);
+      expect(reliable).toBe(true);
+      expect(recipients).toEqual(['teacher']);
+    });
+
+    it('uses reported canvas geometry for the pupil’s paged and projected notebook view', async () => {
+      mount('student', { targetId: 'personal-student', targetType: 'NOTEBOOK_CAMERA' });
+      await screen.findByTestId('canvas');
+      act(() => {
+        canvasProps.onViewportChange({ width: 600, height: 900 }, 9 / 16);
+        canvasProps.onViewChange({ zoom: 2, panX: -80, panY: -120 });
+      });
+      await waitFor(() => expect(publish.mock.calls.some(([event]) => event.type === 'student-view')).toBe(true));
+      const [event, , recipients] = publish.mock.calls.filter(([event]) => event.type === 'student-view').at(-1)!;
+      expect(event.targetType).toBe('NOTEBOOK_CAMERA');
+      expect(event.viewport).toEqual({ width: 600, height: 900 });
+      expect(event.region).toEqual(capturePagedRegion({ zoom: 2, panX: -80, panY: -120 }, { width: 600, height: 900 }, 9 / 16));
+      expect(recipients).toEqual(['teacher']);
+    });
   });
 
   it('keeps ink and undo bound to each page while switching layouts', async () => {
@@ -309,6 +432,7 @@ describe('WhiteboardPanel', () => {
       const ink = pageCanvasProps.get('WHITEBOARD:board-1:0')!.shapes;
       const openCount = api.openAnnotationDocument.mock.calls.length;
       act(() => pageCanvasProps.get('WHITEBOARD:board-1:1')!.onDocumentGesture({ scale: 2, anchor: { x: 500, y: 350 }, pan: { x: 0, y: 0 } }));
+      act(() => observers.frame());
       pages.forEach((page, index) => {
         expect(page.offsetWidth).toBeCloseTo(sizes[index].width * 2);
         expect(page.offsetHeight).toBeCloseTo(sizes[index].height * 2);
@@ -316,6 +440,7 @@ describe('WhiteboardPanel', () => {
       });
       expect(parseFloat(rail.style.gap)).toBe(48);
       await userEvent.click(screen.getByRole('button', { name: 'Увеличить' }));
+      act(() => observers.frame());
       expect(screen.getByText('250%')).toBeInTheDocument();
       expect(parseFloat(rail.style.gap)).toBe(60);
       pages.forEach((page, index) => expect(page.offsetWidth).toBeCloseTo(sizes[index].width * 2.5));
@@ -342,16 +467,99 @@ describe('WhiteboardPanel', () => {
       const anchor = { x: 500, y: 350 };
       const before = { x: list.scrollLeft + 400 - 20 - parseFloat(rail.style.width) / 2, y: list.scrollTop + 300 - 100 };
       act(() => pageCanvasProps.get('WHITEBOARD:board-1:0')!.onDocumentGesture({ scale: 3, anchor, pan: { x: 0, y: 0 } }));
+      act(() => observers.frame());
       expect((list.scrollLeft + 400 - 20 - parseFloat(rail.style.width) / 2) / 3).toBeCloseTo(before.x);
       expect((list.scrollTop + 300 - 100) / 3).toBeCloseTo(before.y);
       const scroll = { left: list.scrollLeft, top: list.scrollTop };
       act(() => pageCanvasProps.get('WHITEBOARD:board-1:0')!.onDocumentGesture({ scale: 1, anchor, pan: { x: -75, y: -120 } }));
+      act(() => observers.frame());
       expect(list.scrollLeft).toBeCloseTo(scroll.left + 75); expect(list.scrollTop).toBeCloseTo(scroll.top + 120);
       expect(pageCanvasProps.get('WHITEBOARD:board-1:0')!.view).toBe(DEFAULT_VIEW);
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it.each([false, true])('routes a gap pinch-wheel once and respects teacher navigation locking: %s', async locked => {
+  it('keeps the off-centre two-finger centroid fixed while a fit page still fits horizontally', async () => {
+    chooseLayout('teacher', 'continuous');
+    const observers = documentObservers();
+    try {
+      mount('host', { document: { pageCount: 2 } as never });
+      const list = await screen.findByRole('region', { name: 'Страницы доски' });
+      const { pages } = documentGeometry(list);
+      act(() => observers.resize());
+      const page = pages[0], canvas = screen.getAllByTestId('canvas')[0], width = page.offsetWidth;
+      const anchor = { x: 100 + page.offsetLeft + width * .7, y: 50 + page.offsetTop + page.offsetHeight * .4 };
+      documentPointer(canvas, 'pointerdown', { pointerId: 1, clientX: anchor.x - 50, clientY: anchor.y });
+      documentPointer(canvas, 'pointerdown', { pointerId: 2, clientX: anchor.x + 50, clientY: anchor.y });
+      documentPointer(canvas, 'pointermove', { pointerId: 1, clientX: anchor.x - 75, clientY: anchor.y });
+      documentPointer(canvas, 'pointermove', { pointerId: 2, clientX: anchor.x + 75, clientY: anchor.y });
+      expect(observers.queuedFrames()).toBe(1);
+      expect(page.offsetWidth).toBe(width);
+      act(() => observers.frame());
+      expect(page.offsetWidth).toBeCloseTo(width * 1.5);
+      expect((list.scrollLeft + anchor.x - 100 - page.offsetLeft) / page.offsetWidth).toBeCloseTo(.7);
+      expect((list.scrollTop + anchor.y - 50 - page.offsetTop) / page.offsetHeight).toBeCloseTo(.4);
+      expect(page.offsetWidth).toBeLessThan(800);
+      expect(api.appendAnnotation).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('applies each frame’s scroll to its own zoom when newer pinch packets arrive before React commits', async () => {
+    chooseLayout('teacher', 'continuous');
+    const observers = documentObservers();
+    try {
+      mount('host', { document: { pageCount: 3 } as never });
+      const list = await screen.findByRole('region', { name: 'Страницы доски' });
+      const { pages } = documentGeometry(list);
+      act(() => observers.resize());
+      const gesture = () => pageCanvasProps.get('WHITEBOARD:board-1:0')!.onDocumentGesture;
+      const anchor = { x: 550, y: 350 }, pan = { x: 0, y: 0 };
+      act(() => gesture()({ scale: 3, anchor, pan }));
+      act(() => observers.frame());
+      list.scrollLeft = 350; list.scrollTop = 800;
+      const page = pages[0], width = page.offsetWidth;
+      const point = () => ({ x: (list.scrollLeft + anchor.x - 100 - page.offsetLeft) / page.offsetWidth,
+        y: (list.scrollTop + anchor.y - 50 - page.offsetTop) / page.offsetHeight });
+      const before = point();
+      act(() => {
+        gesture()({ scale: 1.1, anchor, pan });
+        observers.frame();
+        // This packet targets the next frame while the first frame's React
+        // state is queued but its page dimensions have not committed yet.
+        gesture()({ scale: 1.1, anchor, pan });
+      });
+      expect(page.offsetWidth).toBeCloseTo(width * 1.1);
+      expect(point().x).toBeCloseTo(before.x); expect(point().y).toBeCloseTo(before.y);
+      expect(observers.queuedFrames()).toBe(1);
+      act(() => observers.frame());
+      expect(page.offsetWidth).toBeCloseTo(width * 1.21);
+      expect(point().x).toBeCloseTo(before.x); expect(point().y).toBeCloseTo(before.y);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('cancels an uncommitted pinch when the board becomes hidden and resumes from the visible zoom', async () => {
+    chooseLayout('teacher', 'continuous');
+    const observers = documentObservers();
+    try {
+      const content = (active: boolean) => <I18nProvider><WhiteboardPanel classId="c1" actorId="teacher" isHost active={active} /></I18nProvider>;
+      const mounted = render(content(true));
+      const list = await screen.findByRole('region', { name: 'Страницы доски' });
+      const { pages } = documentGeometry(list);
+      act(() => observers.resize());
+      const width = pages[0].offsetWidth;
+      act(() => canvasProps.onDocumentGesture({ scale: 2, anchor: { x: 500, y: 350 }, pan: { x: 0, y: 0 } }));
+      expect(observers.queuedFrames()).toBe(1);
+      mounted.rerender(content(false));
+      expect(observers.queuedFrames()).toBe(0);
+      act(() => observers.frame());
+      expect(pages[0].offsetWidth).toBe(width);
+      mounted.rerender(content(true));
+      act(() => canvasProps.onDocumentGesture({ scale: 1.5, anchor: { x: 500, y: 350 }, pan: { x: 0, y: 0 } }));
+      act(() => observers.frame());
+      expect(pages[0].offsetWidth).toBeCloseTo(width * 1.5);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each([false, true])('keeps gap scrolling native, zooms only with modifiers and respects teacher navigation locking: %s', async locked => {
     chooseLayout(locked ? 'student' : 'teacher', 'continuous');
     const observers = documentObservers();
     try {
@@ -362,19 +570,86 @@ describe('WhiteboardPanel', () => {
       act(() => observers.resize());
       if (locked) await act(async () => handlers[VIEW_TOPIC]({ event: hostView({ page: 0, documentView: { zoom: 1, x: .5, y: .5 } }), senderIdentity: 'teacher|tab' }));
       const width = pages[0].offsetWidth;
-      const ordinaryWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 80, clientX: 500, clientY: 350 });
+      const ordinaryWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -20, clientX: 500, clientY: 350 });
       fireEvent(rail, ordinaryWheel);
-      expect(ordinaryWheel.defaultPrevented).toBe(false);
+      expect(ordinaryWheel.defaultPrevented).toBe(locked);
+      act(() => observers.frame());
+      expect(pages[0].offsetWidth).toBe(width);
+      expect(parseFloat(rail.style.gap)).toBe(24);
+      expect(canvasZoomAt).not.toHaveBeenCalled();
       const pageWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -25, clientX: 500, clientY: 350 });
       fireEvent(screen.getAllByTestId('canvas')[0], pageWheel);
       expect(pageWheel.defaultPrevented).toBe(false);
       expect(pages[0].offsetWidth).toBe(width);
-      const gapWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -Math.log(1.25) / .01, clientX: 500, clientY: 350 });
+      const gapWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -50, clientX: 500, clientY: 350 });
       fireEvent(rail, gapWheel);
       expect(gapWheel.defaultPrevented).toBe(true);
-      expect(pages[0].offsetWidth).toBeCloseTo(width * (locked ? 1 : 1.25));
-      expect(parseFloat(rail.style.gap)).toBeCloseTo(locked ? 24 : 30);
+      act(() => observers.frame());
+      expect(pages[0].offsetWidth).toBeCloseTo(width * (locked ? 1 : Math.exp(.10)));
+      expect(parseFloat(rail.style.gap)).toBeCloseTo(24 * (locked ? 1 : Math.exp(.10)));
       expect(pageCanvasProps.get('WHITEBOARD:board-1:0')!.view).toBe(DEFAULT_VIEW);
+      expect(pageCanvasProps.get('WHITEBOARD:board-1:0')!.wheelAction).toBe('pan');
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each(['board-1', 'personal-student', 'personal-workbook-student'])('scrolls paged margins without zoom and keeps explicit Ctrl zoom for %s', async targetId => {
+    chooseLayout('teacher', 'paged');
+    const { container } = mount('host', { targetId });
+    await screen.findByTestId('canvas');
+    const list = container.querySelector('.whiteboard__pages')!;
+    const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -20, clientX: 500, clientY: 350 });
+    fireEvent(list, wheel);
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(canvasZoomAt).not.toHaveBeenCalled();
+    const pinch = new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -20, clientX: 500, clientY: 350 });
+    fireEvent(list, pinch);
+    expect(pinch.defaultPrevented).toBe(true);
+    expect(canvasZoomAt).toHaveBeenCalledExactlyOnceWith(`WHITEBOARD:${targetId}:0`, Math.exp(.04), { x: 500, y: 350 });
+    expect(canvasProps.wheelAction).toBe('pan');
+  });
+
+  it('keeps notebook-camera wheel scrolling outside the lesson zoom opt-in', async () => {
+    const { container } = mount('host', { targetType: 'NOTEBOOK_CAMERA', targetId: 'personal-student' });
+    await screen.findByTestId('canvas');
+    const list = container.querySelector('.whiteboard__pages')!;
+    expect(canvasProps.wheelAction).toBe('pan');
+    const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -20 });
+    fireEvent(list, wheel);
+    expect(wheel.defaultPrevented).toBe(false); expect(canvasZoomAt).not.toHaveBeenCalled();
+  });
+
+  it.each([1, 3])('scrolls vertical and jittery horizontal two-finger pointer pairs without zoom at document scale %s', async zoom => {
+    chooseLayout('teacher', 'continuous');
+    const observers = documentObservers();
+    try {
+      mount('host', { document: { pageCount: 3 } as never });
+      const list = await screen.findByRole('region', { name: 'Страницы доски' });
+      await waitFor(() => expect(list.querySelectorAll('article')).toHaveLength(3));
+      const { pages, rail } = documentGeometry(list);
+      act(() => observers.resize());
+      if (zoom !== 1) {
+        act(() => pageCanvasProps.get('WHITEBOARD:board-1:0')!.onDocumentGesture({ scale: zoom, anchor: { x: 500, y: 350 }, pan: { x: 0, y: 0 } }));
+        act(() => observers.frame());
+      }
+      const canvas = screen.getAllByTestId('canvas')[0], width = pages[0].offsetWidth;
+      const assertWidth = () => { act(() => observers.frame()); expect(pages[0].offsetWidth).toBe(width); };
+      for (const vertical of [true, false]) {
+        list.scrollTop = 400;
+        const firstX = vertical ? 300 : 200, secondX = vertical ? 300 : 400, secondY = vertical ? 500 : 300;
+        documentPointer(canvas, 'pointerdown', { pointerId: 1, clientX: firstX, clientY: 300 });
+        documentPointer(rail, 'pointerdown', { pointerId: 2, clientX: secondX, clientY: secondY });
+        documentPointer(canvas, 'pointermove', { pointerId: 1, clientX: firstX - 1.5, clientY: 240 }); assertWidth();
+        documentPointer(rail, 'pointermove', { pointerId: 2, clientX: secondX + 1.5, clientY: secondY - 60 }); assertWidth();
+        expect(list.scrollTop).toBeCloseTo(460);
+        documentPointer(canvas, 'pointermove', { pointerId: 1, clientX: firstX + 1.5, clientY: 320 }); assertWidth();
+        documentPointer(rail, 'pointermove', { pointerId: 2, clientX: secondX - 1.5, clientY: secondY + 20 }); assertWidth();
+        expect(list.scrollTop).toBeCloseTo(380);
+        documentPointer(canvas, 'pointerup', { pointerId: 1, clientX: firstX + 1.5, clientY: 320 });
+        documentPointer(rail, 'pointerup', { pointerId: 2, clientX: secondX - 1.5, clientY: secondY + 20 });
+      }
+      expect(parseFloat(rail.style.gap)).toBe(24 * zoom);
+      await act(async () => {});
+      expect(api.appendAnnotation).not.toHaveBeenCalled();
     } finally { vi.unstubAllGlobals(); }
   });
 
@@ -394,10 +669,15 @@ describe('WhiteboardPanel', () => {
       const second = documentPointer(rail, 'pointerdown', { pointerId: 2, clientX: 400, clientY: 300 });
       expect(second.defaultPrevented).toBe(true);
       for (const navigate of canvasDocumentNavigation.values()) expect(navigate).toHaveBeenLastCalledWith(true);
-      documentPointer(rail, 'pointermove', { pointerId: 2, clientX: 500, clientY: 300 });
+      documentPointer(rail, 'pointermove', { pointerId: 2, clientX: 450, clientY: 300 });
+      act(() => observers.frame());
+      pages.forEach(page => expect(page.offsetWidth).toBe(width));
+      documentPointer(firstCanvas, 'pointermove', { pointerId: 1, clientX: 250, clientY: 300 });
+      act(() => observers.frame());
       pages.forEach(page => expect(page.offsetWidth).toBeCloseTo(width * 2));
       expect(parseFloat(rail.style.gap)).toBe(48);
-      documentPointer(firstCanvas, 'pointermove', { pointerId: 1, clientX: 250, clientY: 300 });
+      documentPointer(firstCanvas, 'pointermove', { pointerId: 1, clientX: 200, clientY: 300 });
+      act(() => observers.frame());
       pages.forEach(page => expect(page.offsetWidth).toBeCloseTo(width * 2.5));
       documentPointer(rail, 'pointerup', { pointerId: 2, clientX: 500, clientY: 300 });
       for (const navigate of canvasDocumentNavigation.values()) expect(navigate).toHaveBeenLastCalledWith(true);
@@ -450,7 +730,8 @@ describe('WhiteboardPanel', () => {
       const pinch = (firstId: number) => {
         documentPointer(canvas, 'pointerdown', { pointerId: firstId, clientX: 300, clientY: 300 });
         documentPointer(rail, 'pointerdown', { pointerId: firstId + 1, clientX: 400, clientY: 300 });
-        documentPointer(rail, 'pointermove', { pointerId: firstId + 1, clientX: 500, clientY: 300 });
+        documentPointer(canvas, 'pointermove', { pointerId: firstId, clientX: 250, clientY: 300 });
+        documentPointer(rail, 'pointermove', { pointerId: firstId + 1, clientX: 450, clientY: 300 });
         documentPointer(canvas, 'pointerup', { pointerId: firstId, clientX: 300, clientY: 300 });
         documentPointer(rail, 'pointerup', { pointerId: firstId + 1, clientX: 500, clientY: 300 });
       };
@@ -464,6 +745,7 @@ describe('WhiteboardPanel', () => {
       expect(pages[0].offsetWidth).toBe(width);
       for (const navigate of canvasDocumentNavigation.values()) expect(navigate).not.toHaveBeenCalledWith(true);
       now += 2; pinch(5);
+      act(() => observers.frame());
       expect(pages[0].offsetWidth).toBeCloseTo(width * 2);
       expect(parseFloat(rail.style.gap)).toBe(48);
       for (const navigate of canvasDocumentNavigation.values()) {
@@ -485,6 +767,7 @@ describe('WhiteboardPanel', () => {
       await additionalAction(userEvent.setup(), 'Следовать за учителем');
       publish.mockClear();
       act(() => pageCanvasProps.get('WHITEBOARD:board-1:0')!.onDocumentGesture({ scale: 2, anchor: { x: 500, y: 350 }, pan: { x: 0, y: 0 } }));
+      act(() => observers.frame());
       fireEvent.scroll(list, { target: { scrollTop: pages[1].offsetTop + pages[1].offsetHeight / 2 - 100 - 250 } });
       await waitFor(() => expect(publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'view', follow: true, page: 1,
         documentView: expect.objectContaining({ zoom: 2, y: expect.any(Number) }),
@@ -705,6 +988,53 @@ describe('WhiteboardPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Добавить страницу' }));
     expect(screen.getAllByRole('status').some((node) => node.textContent === '2 / 2')).toBe(true);
+  });
+
+  it('discovers a teacher’s new personal worksheet page without navigating or changing the owner’s view', async () => {
+    const targetId = 'personal-workbook-student';
+    const user = userEvent.setup();
+    mount('student', { targetId, document: { pageCount: 2 } as never });
+    await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalledWith('c1', 'WHITEBOARD', targetId, 0, undefined, undefined));
+    await user.click(screen.getByRole('button', { name: 'Следующая страница' }));
+    await waitFor(() => expect(canvasProps.pageKey).toBe(`WHITEBOARD:${targetId}:1`));
+    const view = { zoom: 2, panX: -100, panY: -90 };
+    act(() => canvasProps.onViewChange(view));
+    api.listAnnotationDocuments.mockResolvedValue([
+      { id: 'blank-page-2', targetType: 'WHITEBOARD', targetId, pageIndex: 2 } as never,
+      { id: 'other-pupil', targetType: 'WHITEBOARD', targetId: 'personal-workbook-bob', pageIndex: 99 } as never,
+      { id: 'camera', targetType: 'NOTEBOOK_CAMERA', targetId, pageIndex: 9 } as never,
+    ]);
+    act(() => handlers[BOARD_PAGES_TOPIC]({ event: boardPagesEvent('c1', 'WHITEBOARD', targetId), senderIdentity: 'teacher|tab' }));
+    await screen.findByText('2 / 3');
+    expect(canvasProps.pageKey).toBe(`WHITEBOARD:${targetId}:1`);
+    expect(canvasProps.view).toEqual(view);
+    await user.click(screen.getByRole('button', { name: 'Следующая страница' }));
+    await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalledWith('c1', 'WHITEBOARD', targetId, 2, undefined, undefined));
+  });
+
+  it('keeps the owner’s continuous scroll position when a remote blank page extends the worksheet', async () => {
+    chooseLayout('student', 'continuous');
+    const observers = documentObservers();
+    try {
+      const targetId = 'personal-workbook-student';
+      mount('student', { targetId, document: { pageCount: 3 } as never });
+      const list = await screen.findByRole('region', { name: 'Страницы доски' });
+      await waitFor(() => expect(list.querySelectorAll('article')).toHaveLength(3));
+      const { pages } = documentGeometry(list);
+      act(() => { observers.resize(); observers.reveal(list); });
+      list.scrollTop = 650;
+      fireEvent.scroll(list);
+      await waitFor(() => expect(pages[1]).toHaveAttribute('aria-current', 'page'));
+      act(() => canvasProps.onDocumentGesture({ scale: 2, anchor: { x: 500, y: 350 }, pan: { x: 0, y: 0 } }));
+      act(() => observers.frame());
+      const scroll = { left: list.scrollLeft, top: list.scrollTop };
+      api.listAnnotationDocuments.mockResolvedValue([{ id: 'blank-page-3', targetType: 'WHITEBOARD', targetId, pageIndex: 3 } as never]);
+      act(() => handlers[BOARD_PAGES_TOPIC]({ event: boardPagesEvent('c1', 'WHITEBOARD', targetId), senderIdentity: 'teacher|tab' }));
+      await waitFor(() => expect(list.querySelectorAll('article')).toHaveLength(4));
+      expect(list.scrollLeft).toBeCloseTo(scroll.left); expect(list.scrollTop).toBeCloseTo(scroll.top);
+      expect(pages[1]).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByText('200%')).toBeInTheDocument();
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it('opens a separate annotation document for each page', async () => {
@@ -997,6 +1327,11 @@ describe('WhiteboardPanel', () => {
     });
 
     it('sends notebook ink privately on its own channel and ignores paper-board strokes and views', async () => {
+      // The backend derives both identities from the authenticated writer.
+      api.appendAnnotation.mockImplementation(async (_c, _d, operationId, operationType, payload) => ({
+        id: `r${++sequence}`, operationId, sequence, actorId: 'student', layerOwnerId: 'student',
+        operationType, payload, createdAt: '',
+      }));
       mount('student', { ...notebook, liveBackground: background() });
       await waitFor(() => expect(api.openAnnotationDocument).toHaveBeenCalled());
       await act(async () => {

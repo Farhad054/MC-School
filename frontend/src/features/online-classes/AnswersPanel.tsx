@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../../i18n/I18nContext';
 import { initialPages, nextPage, previousPage } from './boardView';
 import { PageNavigator } from './PageNavigator';
@@ -25,6 +25,8 @@ export function AnswersPanel({
   onUpload,
   uploading = false,
   uploadError = null,
+  personal = false,
+  studentName,
 }: {
   pdf: PdfState;
   view: AnswersView;
@@ -35,6 +37,8 @@ export function AnswersPanel({
   onUpload?: (file: File) => void | Promise<void>;
   uploading?: boolean;
   uploadError?: string | null;
+  personal?: boolean;
+  studentName?: string;
 }) {
   const { t, language } = useI18n();
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -42,7 +46,25 @@ export function AnswersPanel({
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const [width, setWidth] = useState(0);
   const doc = pdf.status === 'ready' ? pdf.doc : null;
-  usePinchZoom(scrollRef, view.zoom, (zoom) => onViewChange({ zoom }), MIN_ANSWERS_ZOOM, MAX_ANSWERS_ZOOM);
+  const restored = useRef(false);
+  const gestureScope = useMemo(() => ({ doc, page: view.page }), [doc, view.page]);
+  usePinchZoom(scrollRef, view.zoom, (zoom, anchor) => {
+    const canvas = canvasRef.current, container = scrollRef.current;
+    if (!anchor || !canvas || !container || !page) { onViewChange({ zoom }); return; }
+    const before = canvas.getBoundingClientRect();
+    if (!before.width || !before.height) return;
+    const x = (anchor.from.clientX - before.left) / before.width;
+    const y = (anchor.from.clientY - before.top) / before.height;
+    // Resize the existing raster now, before adjusting scroll. Waiting for the
+    // sharper async PDF would clamp against the old page size and lose the anchor.
+    canvas.style.width = `${zoom * 100}%`;
+    const after = canvas.getBoundingClientRect();
+    container.scrollLeft += after.left + x * after.width - anchor.to.clientX;
+    container.scrollTop += after.top + y * after.height - anchor.to.clientY;
+    restored.current = true;
+    onViewChange({ zoom, scrollTop: container.scrollTop, scrollLeft: container.scrollLeft });
+    onScroll(container.scrollTop, container.scrollLeft);
+  }, MIN_ANSWERS_ZOOM, MAX_ANSWERS_ZOOM, gestureScope);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -59,7 +81,6 @@ export function AnswersPanel({
 
   // Draw the rendered page into the visible canvas, then put the scroll back
   // where the teacher left it (first paint after a reopen).
-  const restored = useRef(false);
   const shownDocument = useRef(doc);
   useLayoutEffect(() => {
     if (!doc || shownDocument.current === doc) return;
@@ -99,7 +120,9 @@ export function AnswersPanel({
   return (
     <aside id="answers-panel" className="answers-panel" aria-label={t('onlineClass.answers.title')}>
       <header className="answers-panel__heading">
-        <strong>{language === 'DE' ? 'Lösungen für Lehrkräfte' : 'Решения для учителя'}</strong>
+        <strong>{personal
+          ? studentName ? `${language === 'DE' ? 'Lösungen' : 'Решения'}: ${studentName}` : (language === 'DE' ? 'Persönliche Lösungen' : 'Персональные решения')
+          : language === 'DE' ? 'Lösungen für Lehrkräfte' : 'Решения для учителя'}</strong>
       <button
         type="button"
         className="answers-panel__close"
@@ -125,16 +148,19 @@ export function AnswersPanel({
       <div
         ref={scrollRef}
         className="answers-panel__scroll"
+        style={{ overflowAnchor: 'none', scrollBehavior: 'auto' }}
         onScroll={(event) => onScroll(event.currentTarget.scrollTop, event.currentTarget.scrollLeft)}
       >
         {pdf.status === 'loading' && <p role="status">{t('onlineClass.answers.loading')}</p>}
         {pdf.status === 'error' && <p role="alert">{t('onlineClass.answers.error')}</p>}
-        {pdf.status === 'idle' && <p>{language === 'DE' ? 'Fügen Sie ein PDF mit Lösungen hinzu' : 'Добавьте PDF с решениями'}</p>}
+        {pdf.status === 'idle' && <p>{personal
+          ? (language === 'DE' ? 'Für diesen Schüler sind noch keine Lösungen hochgeladen. Fügen Sie sein Lösungs-PDF hinzu.' : 'Для этого ученика решения ещё не загружены. Добавьте его PDF решений.')
+          : language === 'DE' ? 'Fügen Sie ein PDF mit Lösungen hinzu' : 'Добавьте PDF с решениями'}</p>}
         {doc && (
           <canvas
             ref={canvasRef}
             className="answers-panel__page"
-            style={{ width: `${view.zoom * 100}%` }}
+            style={{ width: `${view.zoom * 100}%`, aspectRatio: page?.aspect }}
             aria-label={t('onlineClass.board.page.current', {
               current: view.page + 1,
               total: doc.pageCount,

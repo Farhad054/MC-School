@@ -16,11 +16,20 @@ import './pdf-homework.css';
 import './student-menu.css';
 import './student-today-status.css';
 import './teacher-theme.css';
+import './teacher-redesign.css';
 
 // mindcrafti.de is served by a host that can return its root document but does
 // not consistently fall back to index.html for direct client-side routes such
 // as /teacher/lessons. The Meet extension therefore returns through `/` and we
 // move to the React route before BrowserRouter is mounted.
+function restorePublicSkillProgressRoute() {
+  if (window.location.pathname !== '/') return;
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  const token = new URLSearchParams(hash).get('skillProgress');
+  if (!token) return;
+  window.history.replaceState({}, '', `/skill-progress#token=${encodeURIComponent(token)}`);
+}
+
 function restoreLessonReturnRoute() {
   if (window.location.pathname !== '/') return;
   const params = new URLSearchParams(window.location.search);
@@ -34,6 +43,7 @@ function restoreLessonReturnRoute() {
 
 const cameraEntryRoute = phoneCameraEntryRoute(window.location.pathname, window.location.search, window.location.hash);
 if (cameraEntryRoute) window.history.replaceState({}, '', cameraEntryRoute);
+restorePublicSkillProgressRoute();
 restoreLessonReturnRoute();
 installLessonStartFlow();
 

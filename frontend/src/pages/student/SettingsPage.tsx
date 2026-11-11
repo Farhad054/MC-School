@@ -14,6 +14,7 @@ export function SettingsPage() {
   const { t, language, setLanguage } = useI18n();
   const { user, setUser, logout } = useAuth();
   const navigate = useNavigate();
+  const [teacherTheme, setTeacherTheme] = useState(() => localStorage.getItem('mindcrafti.teacherTheme') || 'light');
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -225,6 +226,7 @@ export function SettingsPage() {
   return (
     <div className="stack">
       <h1>{t('settings.title')}</h1>
+      {user?.role === 'TEACHER' && <section className="panel teacher-theme-settings"><h2>{language === 'DE' ? 'Darstellung' : 'Оформление'}</h2><div className="row">{(['light','dark'] as const).map(value => <button type="button" className="btn btn--secondary" key={value} aria-pressed={teacherTheme === value} onClick={() => { localStorage.setItem('mindcrafti.teacherTheme', value); setTeacherTheme(value); window.dispatchEvent(new Event('teacher-theme-change')); }}>{value === 'light' ? (language === 'DE' ? 'Hell' : 'Светлая') : (language === 'DE' ? 'Dunkel' : 'Тёмная')}</button>)}</div></section>}
       {error && <div className="banner banner--error">{error}</div>}
       {saved && <div className="banner banner--success">{t('settings.saved')}</div>}
 

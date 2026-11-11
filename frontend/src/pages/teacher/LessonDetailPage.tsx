@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import { isNativeLesson, lessonDurationLabel } from '../../lib/lessonSchedule';
+import { isNativeLesson, lessonDurationLabel, schoolDateKey } from '../../lib/lessonSchedule';
 import { lessonPreparationApi, completedLessonApi, type CompletedLessonDocument } from '../../api/lessonPreparation';
 import { aiPilotApi } from '../../api/aiPilot';
 import { useAuth } from '../../auth/AuthContext';
@@ -11,6 +11,7 @@ import { useI18n } from '../../i18n/I18nContext';
 import { StartOnlineClassButton } from '../../features/online-classes/StartOnlineClassButton';
 import { LessonClassArtifacts } from '../../features/online-classes/LessonClassArtifacts';
 import { GoogleDrivePdfPicker } from './GoogleDrivePdfPicker';
+import { PersonalWorkbooksPanel } from './PersonalWorkbooksPanel';
 
 type HomeworkSummary = {
   assigned: number;
@@ -22,6 +23,7 @@ type HomeworkSummary = {
 type LessonStudent = Pick<StudentListItem, 'id' | 'fullName' | 'chatGptProjectUrl'>;
 type TextSectionKind = 'homework' | 'difficulties' | 'plan';
 type MaterialKind = 'workbook' | 'answers' | 'transcript';
+type TranscriptFile = { url: string; filename: string };
 
 type LessonHomeworkItem = {
   studentId: string;
@@ -38,6 +40,35 @@ type NoteGroup = {
 
 const NICK_AI_PILOT_TEACHER_ID = '14e3c7c1-1fc8-41bd-858a-6c20efdd957a';
 
+function manualTranscript(preparation: LessonPreparation): string {
+  // An explicit null means there is no manual transcript. Only older API
+  // responses without this field use the legacy combined display value.
+  return preparation.manualTranscriptText === undefined
+    ? preparation.transcriptText ?? ''
+    : preparation.manualTranscriptText ?? '';
+}
+
+/** Create plain UTF-8 text, never HTML, and keep each URL bound to its lesson. */
+function useAutomaticTranscriptFile(eventId: string, text: string | null | undefined, filename: string): TranscriptFile | null {
+  const [loaded, setLoaded] = useState<{ eventId: string; text: string; url: string } | null>(null);
+  useEffect(() => {
+    if (!text?.trim()) { setLoaded(null); return; }
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    setLoaded({ eventId, text, url });
+    return () => URL.revokeObjectURL(url);
+  }, [eventId, text]);
+  return loaded?.eventId === eventId && loaded.text === text ? { url: loaded.url, filename } : null;
+}
+
+function transcriptDownloadFilename(eventId: string, lesson: GroupLesson | null): string {
+  const ownedLesson = lesson?.eventId === eventId ? lesson : null;
+  const title = ownedLesson?.title.trim().replace(/[^\p{L}\p{N} _.-]/gu, '_').replace(/[ .]+$/g, '').slice(0, 80);
+  const date = ownedLesson?.startsAt && Number.isFinite(Date.parse(ownedLesson.startsAt))
+    ? schoolDateKey(new Date(ownedLesson.startsAt)) : '';
+  const fallback = eventId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120) || 'lesson';
+  return `transcript-${date ? `${date}-` : ''}${title || fallback}.txt`;
+}
+
 export function LessonDetailPage() {
   const { eventId = '' } = useParams();
   const { language, t } = useI18n();
@@ -45,8 +76,11 @@ export function LessonDetailPage() {
   const isNickAiPilot = user?.id === NICK_AI_PILOT_TEACHER_ID;
   const [lesson, setLesson] = useState<GroupLesson | null>(null);
   const hasLessonAudience = Boolean(lesson?.studentId || lesson?.groupId);
+  const modernClassroomEnabled = import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED === 'true';
   const [lessonStudents, setLessonStudents] = useState<LessonStudent[]>([]);
   const [preparation, setPreparation] = useState<LessonPreparation | null>(null);
+  const automaticTranscriptFile = useAutomaticTranscriptFile(eventId,
+    preparation?.eventId === eventId ? preparation.sonioxTranscriptText : null, transcriptDownloadFilename(eventId, lesson));
   const [coveredMaterial, setCoveredMaterial] = useState('');
   const [homeworkNotes, setHomeworkNotes] = useState('');
   const [difficulties, setDifficulties] = useState('');
@@ -88,6 +122,7 @@ export function LessonDetailPage() {
     async function load() {
       setLoading(true);
       setError(null);
+      setTranscriptUrl(null);
       try {
         const [lessons, prep, allStudents] = await Promise.all([
           api.lessons.groupLessons(),
@@ -102,7 +137,7 @@ export function LessonDetailPage() {
         setHomeworkNotes(prep.homeworkNotes ?? '');
         setDifficulties(prep.difficulties ?? '');
         setLessonPlan(prep.lessonPlan ?? '');
-        setTranscriptText(prep.transcriptText ?? '');
+        setTranscriptText(manualTranscript(prep));
 
         if (prep.hasWorkbook) {
           try { if (!cancelled) setWorkbookUrl(await lessonPreparationApi.workbookUrl(eventId)); } catch { /* page still works */ }
@@ -110,8 +145,12 @@ export function LessonDetailPage() {
         if (prep.hasAnswers) {
           try { if (!cancelled) setAnswersUrl(await lessonPreparationApi.answersUrl(eventId)); } catch { /* page still works */ }
         }
-        if (prep.hasTranscript) {
-          try { if (!cancelled) setTranscriptUrl(await lessonPreparationApi.transcriptUrl(eventId)); } catch { /* page still works */ }
+        if (prep.transcriptFilename) {
+          try {
+            const url = await lessonPreparationApi.transcriptUrl(eventId);
+            if (cancelled) URL.revokeObjectURL(url);
+            else setTranscriptUrl(url);
+          } catch { /* Automatic text remains available if the PDF cannot load. */ }
         }
         if (currentLesson) {
           const [summary, students, homeworkItems] = await Promise.all([
@@ -184,7 +223,7 @@ export function LessonDetailPage() {
     setHomeworkNotes(updated.homeworkNotes ?? '');
     setDifficulties(updated.difficulties ?? '');
     setLessonPlan(updated.lessonPlan ?? '');
-    setTranscriptText(updated.transcriptText ?? '');
+    setTranscriptText(manualTranscript(updated));
   }
 
   async function runAiPilot(action: 'prepare' | 'analyze') {
@@ -366,17 +405,21 @@ export function LessonDetailPage() {
             </button>
           )}
           {lesson?.calendarUrl && <a className="btn btn--ghost" href={lesson.calendarUrl} target="_blank" rel="noreferrer">Google Calendar</a>}
-          {lesson && hasLessonAudience && (
+          {lesson && modernClassroomEnabled && (
             <StartOnlineClassButton eventId={lesson.eventId} />
           )}
           {lesson?.meetUrl && <a className="btn btn--ghost" href={lesson.meetUrl} target="_blank" rel="noreferrer">{t('onlineClass.meetFallback')}</a>}
           {lesson && !hasLessonAudience && (
             <p className="muted" style={{ maxWidth: 340, fontSize: 13 }}>{language === 'DE'
-              ? 'Ordnen Sie diesem Unterricht einen Schüler zu, damit er teilnehmen kann.'
-              : 'Для подключения ученика назначьте его этому уроку'}</p>
+              ? (modernClassroomEnabled
+                ? 'Sie können die Tafel öffnen und den Unterricht ohne Schüler vorbereiten. Ordnen Sie einen Schüler zu und öffnen Sie den Unterricht danach erneut über «Online-Unterricht starten».'
+                : 'Ordnen Sie diesem Unterricht einen Schüler zu, damit er teilnehmen kann.')
+              : (modernClassroomEnabled
+                ? 'Можно открыть доску и подготовить урок без ученика. Для подключения ученика назначьте его этому уроку и снова нажмите «Начать онлайн-урок».'
+                : 'Для подключения ученика назначьте его этому уроку')}</p>
           )}
           {/* Retain the configured standalone board for lessons that do not use the video classroom. */}
-          {user?.role === 'TEACHER' && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && (import.meta.env.VITE_MINDCRAFTI_LIVEKIT_ENABLED !== 'true' || !hasLessonAudience) && (
+          {user?.role === 'TEACHER' && lesson && import.meta.env.VITE_MINDCRAFTI_ONLINE_ENABLED === 'true' && !modernClassroomEnabled && (
             <Link className="btn btn--secondary" to={`/lesson-board/${encodeURIComponent(eventId)}`}>
               Mindcrafti доска (тест)
             </Link>
@@ -429,6 +472,8 @@ export function LessonDetailPage() {
         </section>
       )}
 
+      <PersonalWorkbooksPanel eventId={eventId} />
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, marginBottom: 18 }}>
         <MaterialPanel
           title="Рабочая тетрадь"
@@ -454,9 +499,10 @@ export function LessonDetailPage() {
         />
         <MaterialPanel
           title="Транскрипция урока"
-          subtitle="Оригинальный PDF Soniox хранится прямо внутри этого урока"
+          subtitle="Текст и PDF транскрипции этого урока"
           filename={preparation?.transcriptFilename}
           url={transcriptUrl}
+          automaticTranscriptFile={automaticTranscriptFile}
           emptyText="PDF транскрипции ещё не добавлен"
           uploading={uploadingTranscript}
           editingInChatGpt={openingChatGpt === 'transcript'}
@@ -475,7 +521,8 @@ export function LessonDetailPage() {
             const boardId = 'manual-shared';
             const item = completedDocuments.find(doc=>doc.boardId===boardId)
               ?? completedDocuments.find(doc=>doc.boardId==='board-1')
-              ?? completedDocuments.find(doc=>doc.boardId==='imported-workbook');
+              ?? completedDocuments.find(doc=>doc.boardId==='imported-workbook')
+              ?? completedDocuments[0];
             return <div style={{border:'1px solid #e5e7eb',borderRadius:16,padding:16,marginBottom:12}}>
               <strong style={{overflowWrap:'anywhere'}}>{item?.filename ?? 'PDF ещё не загружен'}</strong>
               <div className="muted" style={{fontSize:13,marginTop:6}}>{item ? (item.boardId === 'board-1' ? 'Автоматически сохранённая общая доска. Открывается отдельно.' : 'Открывается отдельно — страница урока остаётся на месте.') : 'Загрузи PDF с результатами урока.'}</div>
@@ -494,10 +541,10 @@ export function LessonDetailPage() {
       <section className="panel" style={{padding:20,marginBottom:18}}>
         <h2 style={{marginTop:0}}>Пройденный урок</h2>
         <p className="muted">Архив общих и личных досок со всеми страницами и записями. Оригинальная рабочая тетрадь не меняется.</p>
-        {completedDocuments.length === 0 ? <p className="muted">Документы ещё не сохранены. В онлайн-уроке нажми «Сохранить документы урока».</p> :
+        {completedDocuments.length === 0 ? <p className="muted">PDF досок появятся здесь после выхода учителя или завершения урока. Во время занятия можно нажать «Сохранить документы урока».</p> :
           <div className="stack" style={{gap:8}}>{completedDocuments.map(item => (
             <div key={item.id} style={{display:'flex',gap:12,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap'}}>
-              <strong>{item.boardId === 'board-1' || item.boardId === 'manual-shared' ? 'Общая доска' : item.boardId === 'imported-workbook' ? 'Материал урока' : 'Личная доска ученика'} · {item.filename}</strong>
+              <strong>{item.boardId === 'board-1' || item.boardId === 'manual-shared' ? 'Общая доска' : item.boardId === 'imported-workbook' ? 'Материал урока' : item.boardId.startsWith('personal-workbook-') ? 'Персональный лист' : 'Личная доска ученика'} · {item.filename}</strong>
               <button type="button" className="btn btn--secondary" onClick={() => void completedLessonApi.open(eventId!, item.id)}>Открыть PDF</button>
             </div>
           ))}</div>}
@@ -594,13 +641,10 @@ export function LessonDetailPage() {
           </div>
         </section>
 
-        {transcriptText && !preparation?.hasTranscript && (
+        {transcriptText && (
           <section className="panel" style={{ padding: 20, margin: 0 }}>
-            <h2 style={{ margin: 0 }}>Старая текстовая транскрипция</h2>
-            <div className="muted" style={{ marginTop: 4, fontSize: 13 }}>
-              Это старый формат. Новые транскрипции сохраняются как PDF-документы.
-            </div>
-            <textarea className="input" rows={8} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} style={{ marginTop: 12, width: '100%', resize: 'vertical' }} />
+            <h2 style={{ margin: 0 }}>Текст транскрипции преподавателя</h2>
+            <textarea aria-label="Текст транскрипции преподавателя" className="input" rows={8} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} style={{ marginTop: 12, width: '100%', resize: 'vertical' }} />
           </section>
         )}
 
@@ -632,11 +676,12 @@ export function LessonDetailPage() {
   );
 }
 
-function MaterialPanel({ title, subtitle, filename, url, emptyText, uploading, editingInChatGpt, onUpload, onEditInChatGpt }: {
+function MaterialPanel({ title, subtitle, filename, url, automaticTranscriptFile, emptyText, uploading, editingInChatGpt, onUpload, onEditInChatGpt }: {
   title: string;
   subtitle: string;
   filename?: string | null;
   url: string | null;
+  automaticTranscriptFile?: TranscriptFile | null;
   emptyText: string;
   uploading: boolean;
   editingInChatGpt: boolean;
@@ -644,28 +689,35 @@ function MaterialPanel({ title, subtitle, filename, url, emptyText, uploading, e
   onEditInChatGpt: () => void;
 }) {
   const hasPdf = Boolean(url);
+  const hasText = Boolean(automaticTranscriptFile);
   const uploadLabel = hasPdf ? 'Заменить PDF' : 'Загрузить PDF';
 
   return (
     <section className="panel" style={{ padding: 20, margin: 0, minHeight: 210 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <div aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 12, display: 'grid', placeItems: 'center', background: 'var(--teacher-selected, #fff7ed)', fontSize: 22, flex: '0 0 auto' }}>PDF</div>
+        <div aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 12, display: 'grid', placeItems: 'center', background: 'var(--teacher-selected, #fff7ed)', fontSize: 22, flex: '0 0 auto' }}>{hasText && !hasPdf ? 'TXT' : 'PDF'}</div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>
           <div className="muted" style={{ marginTop: 3, fontSize: 12 }}>{subtitle}</div>
         </div>
-        {hasPdf && <span className="pill pill--learned">готово</span>}
+        {(hasPdf || hasText) && <span className="pill pill--learned">готово</span>}
       </div>
 
-      {hasPdf ? (
+      {hasPdf || hasText ? (
         <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 14, padding: 14, background: 'var(--teacher-surface, #fff)' }}>
-          <div style={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{filename || 'PDF-файл'}</div>
-          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Открывается отдельно — страница урока остаётся на месте.</div>
+          <div style={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{hasPdf ? filename || 'PDF-файл' : 'Автоматическая транскрипция.txt'}</div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{hasPdf
+            ? 'PDF открывается отдельно — страница урока остаётся на месте.'
+            : 'Файл открывается в новой вкладке или скачивается как TXT.'}</div>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-            <a className="btn" href={url ?? undefined} target="_blank" rel="noopener noreferrer">Открыть PDF ↗</a>
-            <button className="btn btn--secondary" type="button" onClick={onEditInChatGpt} disabled={editingInChatGpt}>
+            {automaticTranscriptFile && <>
+              <a className="btn" href={automaticTranscriptFile.url} target="_blank" rel="noopener noreferrer">Открыть файл ↗</a>
+              <a className="btn btn--secondary" href={automaticTranscriptFile.url} download={automaticTranscriptFile.filename}>Скачать TXT</a>
+            </>}
+            {hasPdf && <a className="btn" href={url ?? undefined} target="_blank" rel="noopener noreferrer">Открыть PDF ↗</a>}
+            {hasPdf && <button className="btn btn--secondary" type="button" onClick={onEditInChatGpt} disabled={editingInChatGpt}>
               {editingInChatGpt ? 'Открываем…' : 'Редактировать в ChatGPT'}
-            </button>
+            </button>}
           </div>
         </div>
       ) : (

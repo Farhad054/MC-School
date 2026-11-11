@@ -2,6 +2,7 @@ package com.mcschool.flashcard.students;
 
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
+import com.mcschool.flashcard.lessons.ManualLessonService;
 import com.mcschool.flashcard.students.dto.StudentListResponse;
 import com.mcschool.flashcard.users.Role;
 import com.mcschool.flashcard.users.User;
@@ -25,15 +26,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class StudentStatusController {
 
     private final UserRepository userRepository;
+    private final ManualLessonService manualLessonService;
 
-    public StudentStatusController(UserRepository userRepository) {
+    public StudentStatusController(UserRepository userRepository,
+                                   ManualLessonService manualLessonService) {
         this.userRepository = userRepository;
+        this.manualLessonService = manualLessonService;
     }
 
     @PutMapping("/{studentId}/deactivate")
     public StudentListResponse deactivate(@AuthenticationPrincipal AuthenticatedUser teacher,
                                           @PathVariable UUID studentId) {
         User student = requireOwnedStudent(teacher.id(), studentId);
+        manualLessonService.cancelFutureLocalLessonsForStudent(teacher, studentId);
         student.deactivateManagedStudent();
         return StudentListResponse.from(student);
     }

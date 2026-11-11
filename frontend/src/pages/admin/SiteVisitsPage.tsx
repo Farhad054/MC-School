@@ -14,6 +14,7 @@ const STATUS_LABELS: Record<TrialLeadStatus, string> = {
   CALENDAR_OPENED: 'Открыл календарь',
   BOOKED: 'Забронирован',
   CONTACTED: 'Связались',
+  QUALIFIED_LEAD: 'Квалифицированный лид',
   CONTRACT: 'Контракт',
   NO_RESPONSE: 'Не ответили',
   DECLINED: 'Отказ',

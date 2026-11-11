@@ -59,7 +59,7 @@ public class OnlineClass {
     @Column(name = "scheduled_end_at", nullable = false)
     private Instant scheduledEndAt;
 
-    /** Exactly one of student/group is set; enforced by a DB CHECK and here. */
+    /** At most one target; neither is set while the teacher prepares alone. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "student_id")
     private User student;
@@ -88,6 +88,10 @@ public class OnlineClass {
     @Enumerated(EnumType.STRING)
     @Column(name = "transcription_state", nullable = false, length = 20)
     private ClassFeatureState transcriptionState;
+
+    /** LiveKit dispatch identifier, required for correct agent shutdown. */
+    @Column(name = "transcription_dispatch_id", length = 255)
+    private String transcriptionDispatchId;
 
     @Column(name = "actual_start_at")
     private Instant actualStartAt;
@@ -122,8 +126,8 @@ public class OnlineClass {
     private OnlineClass(User teacher, String eventId, String bindingKey, String title,
                         Instant scheduledStartAt, Instant scheduledEndAt,
                         User student, StudentGroup group) {
-        if ((student == null) == (group == null)) {
-            throw new IllegalArgumentException("An online class must target exactly one student or one group");
+        if (student != null && group != null) {
+            throw new IllegalArgumentException("An online class cannot target both a student and a group");
         }
         if (!scheduledEndAt.isAfter(scheduledStartAt)) {
             throw new IllegalArgumentException("Scheduled end must be after scheduled start");
@@ -147,14 +151,44 @@ public class OnlineClass {
 
     public static OnlineClass forStudent(User teacher, String eventId, String bindingKey, String title,
                                          Instant scheduledStartAt, Instant scheduledEndAt, User student) {
+        if (student == null) throw new IllegalArgumentException("A student is required");
         return new OnlineClass(teacher, eventId, bindingKey, title, scheduledStartAt, scheduledEndAt,
                 student, null);
     }
 
     public static OnlineClass forGroup(User teacher, String eventId, String bindingKey, String title,
                                        Instant scheduledStartAt, Instant scheduledEndAt, StudentGroup group) {
+        if (group == null) throw new IllegalArgumentException("A group is required");
         return new OnlineClass(teacher, eventId, bindingKey, title, scheduledStartAt, scheduledEndAt,
                 null, group);
+    }
+
+    /** The verified lesson exists, but only its teacher may enter until an audience is assigned. */
+    public static OnlineClass forTeacherOnly(User teacher, String eventId, String bindingKey, String title,
+                                             Instant scheduledStartAt, Instant scheduledEndAt) {
+        return new OnlineClass(teacher, eventId, bindingKey, title, scheduledStartAt, scheduledEndAt, null, null);
+    }
+
+    public boolean isTeacherOnly() {
+        return student == null && group == null;
+    }
+
+    /** Only the initial assignment may retain the teacher's existing room and ink. */
+    public void promoteToStudent(User student) {
+        if (student == null) throw new IllegalArgumentException("A student is required");
+        requireTeacherOnlyPromotion();
+        this.student = student;
+    }
+
+    public void promoteToGroup(StudentGroup group) {
+        if (group == null) throw new IllegalArgumentException("A group is required");
+        requireTeacherOnlyPromotion();
+        this.group = group;
+    }
+
+    private void requireTeacherOnlyPromotion() {
+        requireNonTerminal("assign an audience to");
+        if (!isTeacherOnly()) throw new IllegalStateException("This classroom already has an audience");
     }
 
     /** Updating the lesson schedule must never change room ID or recorded attendance. */
@@ -258,6 +292,10 @@ public class OnlineClass {
 
     public void setRecordingState(ClassFeatureState state) {
         this.recordingState = state;
+    }
+
+    public void setTranscriptionDispatchId(String dispatchId) {
+        this.transcriptionDispatchId = dispatchId;
     }
 
     public void setTranscriptionState(ClassFeatureState state) {

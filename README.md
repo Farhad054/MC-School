@@ -24,6 +24,29 @@ For onboarding, use [HOW_TO_RUN.md](HOW_TO_RUN.md). The requirement traceability
 verified implementation status, and prioritized remaining work are documented in
 [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
+## Mindcrafti workbooks through MCH3
+
+Active teachers can generate an unpublished workbook/answer draft for an exact
+owned lesson with `generate_lesson_workbook_draft`. ADMIN selects the teacher.
+The server reads current school prompts, Brand Guide and available student/lesson
+evidence, then renders structured JSON with MathJax SVG, deterministic diagrams
+and WeasyPrint 70.0 with algebra/layout QA. Teachers review both PDFs before
+`publish_lesson_draft(confirm:true)` attaches the approved bytes and reads back
+the lesson. Source-code retrieval remains owner/admin only.
+
+Server AI configuration is optional: ChatGPT can prepare structured lesson JSON
+from fresh `prepare_workbook_context` data and submit it with its context token
+to the same generation tool. Rendering and QA still run on the server.
+
+For PDFs generated or attached in ChatGPT, prefer direct file input. Do not upload
+to Google Drive as an intermediate step. Use Google Drive only when the source
+document already exists there. Legacy inputs remain supported; writes use stable
+idempotency keys and preserve unrelated lesson materials. See the
+[generator documentation](backend/src/main/resources/owner-workbook-generator/README.md)
+and [MCH3 integration contract](backend/src/main/resources/owner-workbook-generator/INTEGRATION.md)
+for configuration, schema and QA coverage. These tools require deployment of the
+updated backend; a Git push alone does not verify it.
+
 ---
 
 ## Online classes (LiveKit)
@@ -46,6 +69,15 @@ Meet / Soniox flow is unchanged and no online-class endpoint is reachable.
 
 Camera and microphone require a secure context: HTTPS everywhere except
 `localhost`.
+
+The owning teacher can open and re-enter an unfinished lesson on any date,
+including before its scheduled day. LiveKit creates media when the teacher
+actually connects. Leaving or losing connection keeps the same lesson, board,
+documents, and saved transcript; later transcript segments append to it. After
+60 seconds without human participants, empty media is released while the lesson
+remains available. Calendar day and week boundaries never finish a lesson.
+Use **End for everyone** to finish it permanently. Students retain their
+existing lesson-day, reconnect-window, membership, and admission checks.
 
 ## What is implemented
 

@@ -16,6 +16,7 @@ import com.mcschool.flashcard.parents.TeacherParentController;
 import com.mcschool.flashcard.settings.SchoolBrandGuideController;
 import com.mcschool.flashcard.settings.SchoolPromptSettingsController;
 import com.mcschool.flashcard.settings.StoryTemplateMasterController;
+import com.mcschool.flashcard.settings.StoryStudioProjectController;
 import com.mcschool.flashcard.skills.SkillBoardController;
 import com.mcschool.flashcard.skills.SkillMasteryController;
 import com.mcschool.flashcard.students.StudentChatGptProjectController;
@@ -50,7 +51,7 @@ final class McpSiteFunctionRegistry {
     private static final Set<String> EXTERNAL_EFFECTS = Set.of(
             "students.createStudent", "groups.create", "groups.addMembers", "groups.createCard", "groups.importCards", "groups.createPdfHomework",
             "cards.createCardInHomework", "cards.importCardsIntoHomework", "homework.createPdfHomework", "homework.uploadWorksheet",
-            "lesson_preparation.uploadAnswers", "lesson_preparation.archiveToDrive", "lesson_preparation.assignHomeworkSeries",
+            "lesson_preparation.archiveToDrive", "lesson_preparation.assignHomeworkSeries",
             "ai_pilot.prepare", "ai_pilot.analyze", "meet_events.ensureSubscription", "drive.upload", "notebook_camera.revoke",
             "online_classes.materializeFromCalendar", "online_classes.openLobby", "online_classes.start", "online_classes.end", "online_classes.cancel",
             "online_classes.mediaDiagnostics", "online_classes.mute", "online_classes.requestUnmute", "online_classes.removeParticipant",
@@ -80,8 +81,11 @@ final class McpSiteFunctionRegistry {
         add(functions, "lessons", GroupLessonController.class, Scope.TEACHER, "listGroupLessons");
         add(functions, "lesson_preparation", LessonPreparationController.class, Scope.TEACHER,
                 "get update uploadWorkbook appendWorkbook workbook uploadAnswers uploadTranscript transcript answers archiveToDrive assignHomeworkSeries");
+        add(functions, "lesson_transcripts", LessonTranscriptController.class, Scope.TEACHER, "get");
         add(functions, "completed_documents", CompletedLessonDocumentController.class, Scope.TEACHER,
                 "list save uploadManual download");
+        add(functions, "personal_workbooks", PersonalLessonWorkbookController.class, Scope.TEACHER,
+                "list upload workbook");
         add(functions, "lesson_history", StudentLessonHistoryController.class, Scope.TEACHER,
                 "list detail completedDocuments completedDocument document");
         // The private pilot checks the actual owner's identity; an admin may not delegate into that privilege.
@@ -111,13 +115,22 @@ final class McpSiteFunctionRegistry {
         // Raw Drive IDs use the school's service account, so only school administrators may access this adapter.
         add(functions, "drive", GoogleDriveController.class, Scope.ADMIN,
                 "listSharedDrives listFolders listPdfFiles download upload");
+        // ADMIN can draft/publish the same articles that teachers and MCH3 read.
+        // The generic MCP adapter enforces OAuth admin role, confirmation, idempotency
+        // and current-account validation before invoking any write.
+        add(functions, "teacher_help", TeacherHelpCenterController.class, Scope.CALLER, "published");
+        add(functions, "teacher_help", TeacherHelpCenterController.class, Scope.ADMIN,
+                "editor history draft publish restore upload");
         add(functions, "school_prompts", SchoolPromptSettingsController.class, Scope.CALLER, "get");
         add(functions, "school_prompts", SchoolPromptSettingsController.class, Scope.ADMIN, "update");
         add(functions, "brand_guide", SchoolBrandGuideController.class, Scope.CALLER, "get pdf");
         add(functions, "brand_guide", SchoolBrandGuideController.class, Scope.ADMIN, "update");
         add(functions, "stories_template", StoryTemplateMasterController.class, Scope.ADMIN, "info upload download");
+        // Studio reads contain the real HTML/CSS/JSON project and embedded logo, not the legacy PPTX.
+        // Saving uses the existing private-owner, expected-version controller and a durable MCP receipt.
+        add(functions, "stories_studio", StoryStudioProjectController.class, Scope.ADMIN, "info chunk download save");
         add(functions, "skill_boards", SkillBoardController.class, Scope.CALLER, "get");
-        add(functions, "skill_boards", SkillBoardController.class, Scope.ADMIN, "save");
+        add(functions, "skill_boards", SkillBoardController.class, Scope.ADMIN, "save create");
         add(functions, "skill_mastery", SkillMasteryController.class, Scope.CALLER,
                 "students groups boardStudents mastery history update");
         add(functions, "account", UserController.class, Scope.CALLER, "updateSettings");
@@ -153,8 +166,9 @@ final class McpSiteFunctionRegistry {
             case "lesson_preparation" -> "get_lesson_preparation / prepare_lesson / attach_lesson_answers / attach_lesson_transcript";
             case "monthly_plans" -> "get_month_plan / update_month_plan";
             case "homework" -> "assign_homework_series / update_homework / delete_homework / find_student_homeworks / get_recent_homework_submissions";
-            case "skill_boards" -> "get_skill_board / edit_skill_board";
+            case "skill_boards" -> "list_skill_boards / get_skill_board / edit_skill_board / create_skill_board";
             case "skill_mastery" -> "get_skill_mastery / update_skill_mastery";
+            case "teacher_help" -> "get_teacher_guide / show_teacher_guide / teacher_help.draft / teacher_help.publish";
             case "brand_guide" -> "get_brand_guide / update_brand_guide";
             case "stories_template" -> "get_story_template_info / get_story_template_chunk / update_story_template_master";
             default -> "";

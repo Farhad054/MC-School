@@ -1,4 +1,5 @@
 import { useI18n } from '../../i18n/I18nContext';
+import type { ReactNode } from 'react';
 import { SHARED_BOARD_ID, personalBoardId } from './boards';
 import type { RosterStudent } from './useStudentRoster';
 
@@ -17,29 +18,44 @@ export function BoardSwitcher({
   students,
   activeId,
   onChange,
+  teacherAction,
 }: {
   isHost: boolean;
   currentUserId: string;
   students: RosterStudent[];
   activeId: string;
   onChange: (boardId: string) => void;
+  teacherAction?: ReactNode;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
 
   if (isHost) {
     return (
-      <label className="board-switcher">
-        <span className="visually-hidden">{t('onlineClass.board.switch')}</span>
-        <select value={activeId} onChange={(event) => onChange(event.target.value)}>
-          <option value={SHARED_BOARD_ID}>{t('onlineClass.board.shared')}</option>
-          <option value={ALL_STUDENT_BOARDS_ID}>Все ученики (2×2)</option>
-          {students.map((student) => (
-            <option key={student.userId} value={personalBoardId(student.userId)}>
-              {t('onlineClass.board.studentBoard', { name: student.displayName })}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="board-switcher board-switcher--teacher" role="group" aria-label={t('onlineClass.board.switch')}>
+        <button type="button" aria-pressed={activeId === SHARED_BOARD_ID}
+          className={activeId === SHARED_BOARD_ID ? 'is-active' : undefined}
+          onClick={() => onChange(SHARED_BOARD_ID)}>
+          {language === 'DE' ? 'Gemeinsame Tafel' : 'Общая группа'}
+        </button>
+        {students.map((student) => {
+          const id = personalBoardId(student.userId);
+          return <button key={student.userId} type="button" title={student.displayName}
+            aria-label={t('onlineClass.board.studentBoard', { name: student.displayName })}
+            aria-pressed={activeId === id} className={activeId === id ? 'is-active' : undefined}
+            onClick={() => onChange(id)}>{student.displayName}</button>;
+        })}
+        <button type="button" className="board-switcher__overview" aria-pressed={activeId === ALL_STUDENT_BOARDS_ID}
+          aria-label={language === 'DE' ? 'Alle Schüler (2×2)' : 'Все ученики (2×2)'}
+          title={language === 'DE' ? 'Alle Schüler (2×2)' : 'Все ученики (2×2)'}
+          onClick={() => onChange(ALL_STUDENT_BOARDS_ID)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+          </svg>
+          {language === 'DE' ? 'Alle' : 'Все'}
+        </button>
+        {teacherAction}
+      </div>
     );
   }
 

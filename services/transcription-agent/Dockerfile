@@ -23,4 +23,4 @@ EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=3).status==200 else 1)"
 
-CMD ["python", "-m", "agent.main"]
+CMD ["python", "-m", "agent.main", "start"]

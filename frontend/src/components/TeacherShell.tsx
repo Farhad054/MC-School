@@ -21,10 +21,12 @@ function Brand() {
   </div>;
 }
 
-export function TeacherShell({ children, user, isImpersonating, returningToAdmin, onlineClassesAvailable = false, onReturnToAdmin, onLogout }: Props) {
+export function TeacherShell({ children, user, isImpersonating, returningToAdmin, onReturnToAdmin, onLogout }: Props) {
   const { language, t } = useI18n();
   const de = language === 'DE';
   const location = useLocation();
+  const [theme, setTheme] = useState(() => localStorage.getItem('mindcrafti.teacherTheme') || 'light');
+  useEffect(() => { const update = () => setTheme(localStorage.getItem('mindcrafti.teacherTheme') || 'light'); window.addEventListener('teacher-theme-change', update); return () => window.removeEventListener('teacher-theme-change', update); }, []);
   const [menuOpen, setMenuOpen] = useState(false);
   const moreButton = useRef<HTMLButtonElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
@@ -33,10 +35,10 @@ export function TeacherShell({ children, user, isImpersonating, returningToAdmin
     { to: '/students', label: de ? 'Meine Schüler' : 'Мои ученики', icon: 'students' },
     { to: '/parents', label: de ? 'Eltern' : 'Родители', icon: 'parents' },
     { to: '/groups', label: de ? 'Meine Gruppen' : 'Мои группы', icon: 'groups' },
-    { to: '/teacher/lessons', label: de ? 'Unterricht' : 'Уроки', icon: 'lessons' },
-    ...(onlineClassesAvailable
-      ? [{ to: '/online-classes', label: t('nav.onlineClasses'), icon: 'video' as const }] : []),
+    { to: '/teacher/lessons', label: de ? 'Online-Unterricht' : 'Онлайн-уроки', icon: 'lessons' },
+
     { to: '/skills', label: de ? 'Kompetenzen' : 'Карта навыков', icon: 'skills' },
+    { to: '/teacher/help', label: de ? 'Hilfe' : 'Справка', icon: 'settings' },
     { to: '/teacher/settings', label: de ? 'Einstellungen' : 'Настройки', icon: 'settings' },
   ];
   const mainLinks = [links[0], links[2], links[3]];
@@ -63,7 +65,7 @@ export function TeacherShell({ children, user, isImpersonating, returningToAdmin
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
 
-  return <div className="app teacher-shell" data-variant="staff">
+  return <div className="app teacher-shell" data-variant="staff" data-theme={theme}>
     <a className="teacher-skip-link" href="#teacher-main">{de ? 'Zum Inhalt' : 'К содержимому'}</a>
     <aside className="teacher-sidebar">
       <Brand />
@@ -79,22 +81,21 @@ export function TeacherShell({ children, user, isImpersonating, returningToAdmin
       </div>
     </aside>
     <section className="teacher-workspace">
-      {isImpersonating && <div className="teacher-impersonation">
-        <span>{de ? 'Administratoransicht' : 'Просмотр администратором'} · {user.fullName}</span>
-        <button type="button" className="btn btn--secondary" disabled={returningToAdmin} onClick={onReturnToAdmin}>
-          {returningToAdmin ? (de ? 'Zurück…' : 'Возвращаемся…') : (de ? 'Zur Administration' : 'Вернуться в админку')}
-        </button>
-      </div>}
       <header className="teacher-topbar">
         <div className="teacher-breadcrumb">Mindcrafti <span>/</span> {de ? 'Lehrkraft' : 'Преподаватель'}</div>
         <div className="teacher-mobile-brand"><Brand /><span>{de ? 'Lehrkraft' : 'Преподаватель'}</span></div>
-        <div className="teacher-topbar-avatar" title={user.fullName}>{nameInitials}</div>
+        <div className="teacher-topbar-actions">
+          {isImpersonating && <button type="button" className="teacher-admin-return" disabled={returningToAdmin} onClick={onReturnToAdmin}>
+            {returningToAdmin ? (de ? 'Zurück…' : 'Возвращаемся…') : (de ? 'Zur Administration' : 'Вернуться в админку')}
+          </button>}
+          <div className="teacher-topbar-avatar" title={user.fullName}>{nameInitials}</div>
+        </div>
       </header>
       <main id="teacher-main" tabIndex={-1} className="content teacher-content">{children}</main>
     </section>
     <nav className="teacher-mobile-nav" aria-label={de ? 'Mobile Navigation' : 'Мобильная навигация'}>
       {mainLinks.map((link) => <NavLink key={link.to} to={link.to}>
-        <TeacherIcon name={link.icon} /><span>{link.icon === 'students' ? (de ? 'Schüler' : 'Ученики') : link.icon === 'groups' ? (de ? 'Gruppen' : 'Группы') : link.label}</span>
+        <TeacherIcon name={link.icon} /><span>{link.icon === 'students' ? (de ? 'Schüler' : 'Ученики') : link.icon === 'groups' ? (de ? 'Gruppen' : 'Группы') : (de ? 'Unterricht' : 'Уроки')}</span>
       </NavLink>)}
       <button type="button" ref={moreButton} className={menuOpen || otherActive ? 'active' : ''} aria-expanded={menuOpen} aria-controls="teacher-more-menu" aria-label={de ? 'Mehr Bereiche' : 'Показать меню'} onClick={() => setMenuOpen(true)}>
         <TeacherIcon name="more" /><span>{de ? 'Mehr' : 'Ещё'}</span>

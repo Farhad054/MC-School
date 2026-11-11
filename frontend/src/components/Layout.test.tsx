@@ -57,7 +57,7 @@ describe('Layout: role designs and server-controlled online classroom navigation
 
   it('gives a teacher the shared online classes link when the server enables it', async () => {
     mount();
-    expect(await screen.findByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('href', '/online-classes');
+    expect(await screen.findByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('href', '/teacher/lessons');
     expect(screen.getByRole('navigation', { name: 'Основная навигация' })).toBeInTheDocument();
   });
 
@@ -71,10 +71,11 @@ describe('Layout: role designs and server-controlled online classroom navigation
     userId = 'not-the-pilot';
     vi.stubEnv('VITE_MINDCRAFTI_LIVEKIT_ENABLED', 'false');
     mount();
-    expect(await screen.findByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('href', '/online-classes');
+    expect(await screen.findByRole('link', { name: 'Онлайн-уроки' })).toHaveAttribute('href', '/teacher/lessons');
   });
 
-  it.each([403, 404])('hides the classroom shortcut when the server rejects availability with %s', async (status) => {
+  it.each([403, 404])('hides the student classroom shortcut when the server rejects availability with %s', async (status) => {
+    role = 'STUDENT';
     vi.mocked(onlineClassesApi.listUpcoming).mockRejectedValue(new ApiRequestError(status, 'NOT_FOUND', 'Unavailable'));
     mount();
     await waitFor(() => expect(onlineClassesApi.listUpcoming).toHaveBeenCalledOnce());

@@ -116,4 +116,11 @@ public class OnlineClassAnnotationDocument {
         this.snapshotObjectKey = objectKey;
         this.snapshotSavedAt = savedAt;
     }
+
+    /** Preserve page/document IDs and the entire operation stream during first private assignment. */
+    void promoteToPersonalWorkbook(UUID ownerId) {
+        if (targetType != AnnotationTargetType.WHITEBOARD || !PersonalBoard.targetIdFor(ownerId).equals(targetId))
+            throw new IllegalArgumentException("Not the student's personal whiteboard");
+        targetId = PersonalBoard.workbookTargetIdFor(ownerId);
+    }
 }

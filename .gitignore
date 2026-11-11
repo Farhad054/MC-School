@@ -20,4 +20,9 @@
 # Build output
 backend/target/
 frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
 node_modules/
+__pycache__/
+*.pyc
+backend/src/main/resources/owner-workbook-generator/out/

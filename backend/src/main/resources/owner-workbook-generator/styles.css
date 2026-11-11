@@ -4,14 +4,14 @@
   --navy: #070a20;
   --orange: #ff6a00;
   --orange-soft: #fff3e8;
-  --gray-text: #697488;
-  --border: #e0e5ec;
+  --gray-text: #6b7280;
+  --border: #e5e7eb;
   --line: #bdc9d8;
   --card-gray: #f7f8fa;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: #eceef1; color: var(--navy); }
-body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: Inter, Arial, 'Liberation Sans', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 @page { size: A4 portrait; margin: 0; }
 .sheet {
   background: white; width: 210mm; height: 297mm; position: relative;
@@ -45,6 +45,35 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
 .paper-content { display: block; }
 .block { margin-top: 3.6mm; break-inside: avoid; page-break-inside: avoid; }
 .block:first-child { margin-top: 0; }
+/* Plain in-lesson additions reuse the same formula and layout components.
+   Conditions sit together at the top; the remaining A4 area is free for ink. */
+.sheet.plain {
+  padding: 14mm 15mm; color: #000; font-size: 14px; margin-bottom: 0;
+  --navy: #000; --orange: #000; --orange-soft: #fff;
+  --gray-text: #000; --border: #000; --line: #000; --card-gray: #fff;
+}
+.sheet.plain .exercise, .sheet.plain .task-card, .sheet.plain .solution-group,
+.sheet.plain .callout, .sheet.plain .example-box, .sheet.plain .facts-card {
+  border: 0; border-radius: 0; background: #fff; padding: 0; min-height: 0;
+}
+.sheet.plain .block { margin-top: 4mm; }
+.sheet.plain .block:first-child { margin-top: 0; }
+.sheet.plain .exercise-head { margin-bottom: 2mm; }
+.sheet.plain .exercise-number { background: #fff; border-radius: 0; width: auto; min-width: 5mm; height: auto; flex-basis: auto; font-size: 14px; }
+.sheet.plain .exercise-title { font-size: 14px; margin-top: 0; font-weight: 400; }
+.sheet.plain .exercise-content { padding: 0; }
+.sheet.plain .exercise .task-row { min-height: 12mm; margin-bottom: 2mm; }
+.sheet.plain .task-row .expression-wrap { display: block; }
+.sheet.plain .task-row .task-description { margin: 0 0 1.5mm; }
+.sheet.plain svg text { fill: #000; }
+.sheet.plain svg line { stroke: #000; }
+.sheet.plain .task-card-number, .sheet.plain .task-row .item-label { font-size: 14px; }
+.sheet.plain .task-card-title { font-size: 14px; font-weight: 400; }
+.sheet.plain .formula { font-size: 19px; }
+.sheet.plain .diagram-block { border: 0; padding: 0; background: white; }
+.sheet.plain .diagram-eyebrow:empty { display: none; }
+.sheet.plain .diagram-svg { width: 100%; height: 62mm; }
+.sheet.plain .task-description, .sheet.plain .rich-text, .sheet.plain .solution-text { font-size: 14px; line-height: 1.5; }
 .callout {
   padding: 4.6mm 5.5mm; border-radius: 4.6mm; background: var(--orange-soft);
   min-height: 24mm;
@@ -56,27 +85,54 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
 .callout p { font-size: 13.1px; line-height: 1.5; margin: 1mm 0 0; }
 .example-box { border: 0.26mm solid var(--border); background: var(--card-gray); border-radius: 4.3mm; padding: 3.6mm 5.4mm; min-height: 21mm; }
 .example-box.has-text { background: white; }
-.example-box .example-inner { display: flex; gap: 9mm; align-items: center; justify-content: flex-start; margin-left: 28mm; }
+/* Formulas are separate, centered flex items. Each may wrap as a unit at A4 width. */
+.example-box .example-inner {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  width: 100%; margin: 0; min-width: 0;
+}
+.example-math-item {
+  display: flex; flex: 0 1 auto; align-items: center; justify-content: center;
+  min-width: 0; max-width: 100%; min-height: 10mm;
+  padding: 1.2mm 2.6mm; text-align: center;
+}
+.example-math-item .formula { max-width: 100%; min-width: 0; }
 .example-box .formula { font-size: 19px; font-weight: 700; }
 .example-box .example-eyebrow { margin-bottom: 1.4mm; }
 .example-text { color: var(--navy); font-size: 12.6px; line-height: 1.45; margin: 1mm 0 2mm; }
 .example-split .callout { min-height: 0; padding: 4.5mm 5.5mm; }
 .example-split .example-box { margin-top: 3.6mm; min-height: 21mm; padding-top: 4.4mm; }
-.example-split .example-inner { margin-left: 18mm; }
+/* The example row is centered even inside example-split. */
 .exercise { border: .26mm solid var(--border); border-radius: 4.5mm; padding: 4.7mm 4.2mm 3.7mm 4.1mm; }
 .exercise-head { display: flex; align-items: start; gap: 3mm; margin-bottom: 1.4mm; }
 .exercise-number { min-width: 8.6mm; width: 8.6mm; height: 8.6mm; flex: 0 0 8.6mm; border-radius: 50%; background: var(--orange-soft); display: flex; align-items: center; justify-content: center; color: var(--orange); font-size: 10px; font-weight: 700; }
 .exercise-title { font-size: 15.5px; font-weight: 700; line-height: 1.25; margin-top: 1mm; }
 .exercise-subtitle { color: var(--gray-text); font-size: 12px; line-height: 1.35; margin-top: 2.4mm; }
 .exercise-content { padding: 0.5mm 1.4mm 0 2mm; }
+/* A work line must never share the formula row: long SVGs can exceed 56mm. */
 .task-row {
-  display: flex; align-items: center; gap: 3.0mm; min-height: 16.1mm;
+  /* Labels may be a), 1. or Aufgabe. Size the first column to its
+     actual content rather than letting a long label cover the formula. */
+  display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-rows: auto auto; align-items: center;
+  column-gap: 3mm; min-height: 16.1mm;
 }
-.task-row .item-label { color: var(--orange); font-weight: 700; font-size: 11px; width: 8mm; flex: 0 0 8mm; }
-.task-row .expression-wrap { flex: 0 0 56mm; display: flex; align-items: center; white-space: nowrap; min-width: 0; }
-.task-row .workline { align-self: stretch; flex: 1; min-width: 10mm; border-bottom: .23mm solid var(--line); height: 8.6mm; margin: 0.8mm 1mm 0 0; }
+.task-row .item-label {
+  grid-column: 1; grid-row: 1; color: var(--orange);
+  font-weight: 700; font-size: 11px; width: auto;
+  min-width: 8mm; max-width: 24mm; white-space: normal; overflow-wrap: anywhere;
+}
+.task-row .expression-wrap {
+  grid-column: 2; grid-row: 1; display: flex;
+  align-items: center; justify-content: flex-start;
+  width: 100%; min-width: 0; max-width: 100%; min-height: 9.8mm;
+}
+.task-row .expression-wrap .formula { min-width: 0; max-width: 100%; }
+.task-row .workline {
+  grid-column: 2; grid-row: 2; width: 100%; min-width: 0;
+  border-bottom: .23mm solid var(--line); height: 6.0mm; margin: 0 0 0.5mm;
+}
 .exercise.relaxed .task-row { min-height: 24.3mm; }
-.exercise.relaxed .task-row .workline { height: 14.5mm; }
+.exercise.relaxed .task-row .workline { height: 13mm; }
 /* Do not rely on flex gap: some PDF layout engines ignore it. */
 .formula { display: inline-flex; align-items: center; justify-content: flex-start; gap: 0; vertical-align: middle; white-space: nowrap; color: var(--navy); font-size: 21px; line-height: 1.15; }
 .formula > * { flex: 0 0 auto; flex-shrink: 0; }
@@ -101,7 +157,7 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
 .exit-list { margin-top: 3.2mm; }
 .exercise.exit { padding: 0; border: 0; }
 .exit .exercise-content { padding: 0; }
-.exit .task-row { display: block; height: 26.8mm; min-height: 0; border: .26mm solid var(--border); border-radius: 4mm; margin-bottom: 2.7mm; padding: 2.5mm 4.5mm; }
+.exit .task-row { display: block; min-height: 26.8mm; height: auto; border: .26mm solid var(--border); border-radius: 4mm; margin-bottom: 2.7mm; padding: 2.5mm 4.5mm; }
 .exit .item-label { display: inline-block; width: 14mm; vertical-align: middle; }
 .exit .expression-wrap { display: inline-flex; width: calc(100% - 19mm); vertical-align: middle; }
 .exit .task-row .workline { display:block; height: 3mm; margin: 2.5mm 1mm 0 16mm; width: calc(100% - 17mm); }
@@ -110,13 +166,41 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
 .self-rating { color: var(--gray-text); font-size: 12px; margin: 4mm 0 1mm 4.5mm; display:flex; flex-wrap:wrap; gap:3.8mm; align-items:center; }
 .rating-choice { display:inline-flex; align-items:center; gap:1.2mm; white-space:nowrap; }
 .rating-check { width:2.8mm;height:2.8mm;border:.22mm solid #9da8b9;display:inline-block; }
-.error-detective .task-row { width: 50%; display: inline-flex; min-height: 15mm; }
-.error-detective .task-row .expression-wrap { flex-basis: auto; }
+.error-detective .task-row { width: 100%; display: grid; min-height: 14mm; }
+.error-detective .task-row .expression-wrap { width: 100%; }
 .error-detective .task-row .workline { display: none; }
 .error-detective .correction-line { margin: 1.5mm 1mm 0 4.5mm; border-bottom: 1px solid var(--line); }
 /* footer */
 .footer { position: absolute; bottom: 13.2mm; left: 15.8mm; right: 15.8mm; border-top: .22mm solid var(--border); padding-top: 3.1mm; display: flex; align-items: center; justify-content: space-between; font-size: 9.5px; font-weight: 700; color: var(--gray-text); }
 .footer .page-index { font-weight: 400; }
+/* Homework is one short daily A4 sheet. Preserve the original school logo
+   and a FULL 8mm between handwriting baselines, but remove the lesson-only
+   timeline and unused header whitespace. Two exercises x six lines must fit.
+   This style is pupil-only, teacher answers keep the existing layout. */
+.sheet.student.homework { padding-top: 14mm; padding-bottom: 14mm; }
+.sheet.student.homework .brandbar { height: 15mm; padding-bottom: 2.2mm; }
+.sheet.student.homework .brandbar img { height: 11.5mm; }
+.sheet.student.homework .page-heading { height: 17mm; padding-top: 1.3mm; }
+.sheet.student.homework .page-heading h1 { font-size: 23px; margin-bottom: 1.2mm; }
+.sheet.student.homework .page-subtitle { font-size: 11.5px; }
+.sheet.student.homework .progress { display:none; }
+.sheet.student.homework .paper-content { padding-top: 1.5mm; }
+.sheet.student.homework .block { margin-top: 2mm; }
+.sheet.student.homework .block:first-child { margin-top: 0; }
+.sheet.student.homework .callout { padding: 3.1mm 4mm; min-height: 0; }
+.sheet.student.homework .callout p { font-size: 11.5px; line-height: 1.35; }
+.sheet.student.homework .exercise { padding: 2.8mm 3mm 2.4mm; }
+.sheet.student.homework .exercise-head { margin-bottom: .6mm; }
+.sheet.student.homework .exercise-number { width: 7mm; height: 7mm; flex-basis: 7mm; min-width: 7mm; }
+.sheet.student.homework .exercise-title { font-size: 13px; margin-top: 1mm; }
+.sheet.student.homework .task-row { min-height: 12mm; }
+.sheet.student.homework .task-row .expression-wrap { min-height: 8mm; }
+.sheet.student.homework .response-lines {
+  margin: 1.4mm 2mm 0 2mm; gap: 5.6mm; padding-bottom: 0;
+}
+/* Each .response-lines child remains 2.4mm high: 2.4 + 5.6 = 8mm. */
+.sheet.student.homework .footer { bottom: 12mm; padding-top: 2.5mm; }
+
 /* teacher pages use the same brand identity but compact answer layout */
 .teacher .page-heading { height: 26mm; }
 .teacher .paper-content { padding-top: 1mm; }
@@ -169,3 +253,149 @@ body { font-family: Arial, 'Liberation Sans', sans-serif; -webkit-print-color-ad
 .facts-card ul { margin: 0; padding-left: 4.3mm; }
 .facts-card li { font-size: 12.5px; line-height: 1.45; margin: 0 0 1.1mm; }
 .facts-note { font-size: 10.8px; color: var(--gray-text); line-height: 1.35; margin-top: 1.8mm; }
+
+/* MathJax TeX -> inline SVG. Supports algebraic fractions, powers, roots and equations. */
+/* Preserve MathJax inline SVG intrinsic sizing to avoid blowing up rich text blocks. */
+.math-latex { display: inline-block; max-width: 100%; vertical-align: middle; line-height: 0; }
+.math-latex svg { max-width: 100%; overflow: visible; }
+.formula-latex { min-width: 0; max-width: 100%; min-height: 1.45em; }
+.inline-math { font-size:inherit; line-height:inherit; vertical-align:middle; }
+.inline-math.formula > * + * { margin-left:.2em; }
+.rich-text, .task-description { font-size:13px; line-height:1.6; margin:2mm 0; overflow-wrap:break-word; }
+.layout-grid { display:grid; align-items:start; }
+.layout-grid > *, .layout-stack > * { min-width:0; max-width:100%; }
+.layout-grid > .block, .layout-stack > .block { margin-top:0; }
+.layout-stack { display:flex; flex-direction:column; gap:3mm; min-width:0; }
+.layout-grid .example-inner { width: 100%; }
+.layout-grid .task-row { grid-template-columns: max-content minmax(0, 1fr); }
+.layout-grid .expression-wrap { width: 100%; min-width: 0; max-width: 100%; }
+.layout-grid .formula { font-size:18px; }
+.layout-grid .inline-math { font-size:inherit; }
+.task-card, .matching { border:.26mm solid var(--border); border-radius:4mm; padding:4mm; break-inside:avoid; page-break-inside:avoid; }
+.task-card-title { font-size:14px; font-weight:700; line-height:1.4; margin-bottom:2mm; }
+.task-card-number { color:var(--orange); margin-right:2mm; }
+.task-card-subtitle { color:var(--gray-text); font-size:12px; line-height:1.4; margin-bottom:2mm; }
+.answer-lines { width:100%; margin-bottom:1mm; }
+.answer-line { border-bottom:.23mm solid var(--line); min-height:6mm; }
+.answer-label { font-size:11px; color:var(--gray-text); line-height:1.4; margin-bottom:1mm; }
+.answer-box { width:100%; min-height:12mm; border:.23mm solid var(--line); border-radius:2mm; padding:2.5mm; }
+.answer-box p { font-size:12px; line-height:1.5; }
+.student-header { display:grid; gap:5mm; font-size:11px; margin-bottom:4mm; }
+.student-header > div { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:end; gap:2mm; }
+.student-field-line { display:block; border-bottom:.23mm solid var(--line); min-width:8mm; height:5mm; line-height:1; }
+.conclusion-box { background:var(--orange-soft); padding:4mm; border-radius:4mm; break-inside:avoid; page-break-inside:avoid; }
+.layout-divider { height:0; border:0; border-top:.23mm solid var(--border); }
+.matching-body { display:grid; grid-template-columns:minmax(0,1fr) 15% minmax(0,1fr); align-items:start; }
+.matching-column { display:grid; }
+.matching-item { height:14mm; display:grid; grid-template-columns:minmax(0,1fr) 2mm; align-items:center; gap:2mm; font-size:12px; line-height:1.35; }
+.matching-dot { display:block; width:2mm; height:2mm; border:.3mm solid var(--orange); border-radius:50%; }
+.matching-right .matching-item { grid-template-columns:2mm minmax(0,1fr); }
+.matching-right .matching-text { grid-column:2; grid-row:1; text-align:right; }
+.matching-right .matching-dot { grid-column:1; grid-row:1; }
+.matching-connections { width:100%; align-self:start; overflow:visible; }
+.intersection-result { font-size:13px; line-height:1.5; }
+.math-block { text-align:left; }
+
+
+/* Mindcrafti minimal orange: white paper, no decorative task cards,
+   empty handwriting space (same physical area as former 8–10 mm ruled lines).
+   Keep original school branding, readable maths, and footer checks. */
+.sheet:not(.plain) .brandbar {
+  height: 14mm;
+  padding-bottom: 2mm;
+  border-color: #ff6a00;
+}
+.sheet:not(.plain) .page-heading { height: 22mm; padding-top: 2mm; }
+.sheet:not(.plain) .page-heading h1 {
+  font-size: 22px;
+  line-height: 1.22;
+  letter-spacing: -0.25px;
+  color: #ff6a00;
+  margin: 0 0 2mm;
+}
+.sheet:not(.plain) .page-subtitle { font-size: 11.5px; line-height: 1.3; }
+.sheet:not(.plain) .paper-content { padding-top: 3mm; }
+.sheet:not(.plain) .exercise,
+.sheet:not(.plain) .exercise.exit,
+.sheet:not(.plain) .exit .task-row {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+.sheet:not(.plain) .exercise { margin-top: 6mm; }
+.sheet:not(.plain) .exercise:first-child { margin-top: 0; }
+.sheet:not(.plain) .exercise-head { margin-bottom: 2mm; gap: 2.5mm; }
+.sheet:not(.plain) .exercise-number {
+  min-width: 7mm;
+  width: 7mm;
+  height: auto;
+  min-height: 6mm;
+  flex-basis: 7mm;
+  border-radius: 0;
+  background: transparent;
+  color: #ff6a00;
+  font-size: 13px;
+  justify-content: flex-start;
+}
+.sheet:not(.plain) .exercise-title { font-size: 14px; margin-top: 0; }
+.sheet:not(.plain) .exercise-subtitle { font-size: 12px; margin-top: 1.5mm; color: #31343b; }
+.sheet:not(.plain) .exercise-content { padding: 0; }
+.sheet:not(.plain) .callout {
+  min-height: 0;
+  background: transparent;
+  border-left: .7mm solid #ff6a00;
+  border-radius: 0;
+  padding: 2mm 4mm;
+}
+.sheet:not(.plain) .callout .eyebrow { color: #ff6a00; }
+.sheet:not(.plain) .response-lines {
+  display: block;
+  margin: 4mm 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  break-inside: avoid;
+}
+.sheet:not(.plain) .task-row .workline,
+.sheet:not(.plain) .correction-line {
+  border-bottom: 0;
+}
+.sheet:not(.plain) .task-row .workline { height: 6mm; }
+.sheet:not(.plain) .footer { border-color: #ff6a00; font-weight: 400; }
+.sheet:not(.plain) .teacher-note { background: #fff8f1; border-radius: 0; border-left: .7mm solid #ff6a00; }
+.sheet:not(.plain) .teacher-schedule { border: 0; border-radius: 0; padding: 2mm 0; }
+.sheet:not(.plain) .example-box { border: 0; border-radius: 0; background: #fff8f1; }
+
+/* Compact, borderless graph and coordinate-grid sections.
+   Keep diagrams vector-based and leave geometry styling unchanged. */
+.sheet:not(.plain) .diagram-block--graph {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+.sheet:not(.plain) .diagram-block--graph .diagram-eyebrow {
+  margin-bottom: 1mm;
+}
+.sheet:not(.plain) .diagram-block--graph .graph-legend {
+  margin-bottom: .5mm;
+}
+.sheet:not(.plain) .diagram-block--graph .diagram-caption {
+  margin-top: .5mm;
+}
+
+/* Mindcrafti borderless diagrams: all SVG figures and plots */
+.sheet:not(.plain) .diagram-block {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+.sheet:not(.plain) .diagram-block .diagram-eyebrow {
+  margin-bottom: 1mm;
+}
+.sheet:not(.plain) .diagram-block .diagram-caption {
+  margin-top: 1mm;
+}

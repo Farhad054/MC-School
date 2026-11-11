@@ -3,6 +3,8 @@ import { AdminStoryTemplatesPage } from './pages/admin/AdminStoryTemplatesPage';
 import { LearningTimeAdminPage } from './pages/admin/LearningTimeAdminPage';
 import { LearningTimeStudentPage } from './pages/admin/LearningTimeStudentPage';
 import { SkillsPage } from './pages/SkillsPage';
+import { TeacherHelpCenterPage } from './pages/TeacherHelpCenterPage';
+import { PublicSkillProgressPage } from './pages/PublicSkillProgressPage';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { ProtectedRoute } from './auth/ProtectedRoute';
@@ -10,6 +12,7 @@ import { homePathForRole } from './auth/roleRoutes';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { ActivatePage } from './pages/ActivatePage';
+import { TrialGuestJoinPage } from './pages/TrialGuestJoinPage';
 import { TeachersPage } from './pages/admin/TeachersPage';
 import { AdminTeacherLessonsPage } from './pages/admin/AdminTeacherLessonsPage';
 import { AdminLessonDetailWithHomeworkSeries } from './pages/admin/AdminLessonDetailWithHomeworkSeries';
@@ -17,6 +20,7 @@ import { TrialLeadsPage } from './pages/admin/TrialLeadsPage';
 import { AdminTrialLessonsPage } from './pages/admin/AdminTrialLessonsPage';
 import { SiteVisitsPage } from './pages/admin/SiteVisitsPage';
 import { AdminPromptSettingsPage } from './pages/admin/AdminPromptSettingsPage';
+import { AdminWorkbookStudioPage } from './pages/admin/AdminWorkbookStudioPage';
 import { AdminAccountsPage } from './pages/admin/AdminAccountsPage';
 import { StudentsPage } from './pages/teacher/StudentsPage';
 import { TeacherParentsPage } from './pages/teacher/TeacherParentsPage';
@@ -65,16 +69,20 @@ const NotebookCameraPage = lazy(() => import('./features/notebook-camera/Noteboo
 export function App() {
   const { user, initializing } = useAuth();
   const location = useLocation();
-  if (initializing && !location.pathname.startsWith('/phone-camera')) return null;
+  if (initializing && !location.pathname.startsWith('/phone-camera') && !location.pathname.startsWith('/skill-progress')) return null;
 
   return (
     <Routes>
       <Route path="/skills" element={<ProtectedRoute><Layout><SkillsPage /></Layout></ProtectedRoute>} />
+      <Route path="/skill-progress" element={<PublicSkillProgressPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/activate" element={<ActivatePage />} />
+      <Route path="/trial/join/:token" element={<TrialGuestJoinPage />} />
       <Route path="/phone-camera/:cameraId?" element={<Suspense fallback={<p>Открываем камеру…</p>}><PhoneCameraPage /></Suspense>} />
       <Route path="/lesson-notebook/:eventId" element={<ProtectedRoute role={['TEACHER', 'STUDENT']}><Layout><Suspense fallback={<p>Открываем тетрадь…</p>}><NotebookCameraPage /></Suspense></Layout></ProtectedRoute>} />
 
+      <Route path="/teacher/help" element={<ProtectedRoute role={['ADMIN', 'TEACHER']}><Layout><TeacherHelpCenterPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/help" element={<ProtectedRoute role="ADMIN"><Layout><TeacherHelpCenterPage admin /></Layout></ProtectedRoute>} />
       <Route path="/teachers" element={<ProtectedRoute role="ADMIN"><Layout><TeachersPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/learning-time" element={<ProtectedRoute role="ADMIN"><Layout><LearningTimeAdminPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/learning-time/:studentId" element={<ProtectedRoute role="ADMIN"><Layout><LearningTimeStudentPage /></Layout></ProtectedRoute>} />
@@ -84,6 +92,7 @@ export function App() {
       <Route path="/admin/leads" element={<ProtectedRoute role="ADMIN"><Layout><TrialLeadsPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/site-visits" element={<ProtectedRoute role="ADMIN"><Layout><SiteVisitsPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/settings" element={<ProtectedRoute role="ADMIN"><Layout><SettingsPage /></Layout></ProtectedRoute>} />
+      <Route path="/admin/workbook-studio" element={<ProtectedRoute role="ADMIN"><Layout><AdminWorkbookStudioPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/stories" element={<ProtectedRoute role="ADMIN"><Layout><AdminStoryTemplatesPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/prompts" element={<ProtectedRoute role="ADMIN"><Layout><AdminPromptSettingsPage /></Layout></ProtectedRoute>} />
       <Route path="/admin/teachers/:teacherId/lessons/:eventId" element={<ProtectedRoute role="ADMIN"><Layout><AdminLessonDetailWithHomeworkSeries /></Layout></ProtectedRoute>} />

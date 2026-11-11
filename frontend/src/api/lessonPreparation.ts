@@ -3,6 +3,22 @@ import type { LessonPreparation } from './types';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api/v1';
 
+export type PersonalWorkbook = {
+  studentId: string;
+  studentName: string;
+  hasWorkbook: boolean;
+  filename: string | null;
+  version: number;
+  hasAnswers?: boolean;
+  answersFilename?: string | null;
+  answersVersion?: number;
+};
+
+export type AnswersMetadata = { hasAnswers: boolean; answersFilename: string | null; version: number };
+export type PersonalAnswers = AnswersMetadata & { studentId: string };
+
+export type PersonalWorkbooks = { enabled: boolean; students: PersonalWorkbook[] };
+
 export type HomeworkSeriesResult = {
   targetType: 'student' | 'group';
   targetId: string;
@@ -36,7 +52,7 @@ async function parse<T>(response: Response): Promise<T> {
 }
 
 async function pdfBytes(eventId: string, kind: 'workbook' | 'answers' | 'transcript') {
-  const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/${kind}`, { headers: authHeaders() });
+  const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/${kind}`, { headers: authHeaders(), cache: 'no-store' });
   if (!response.ok) throw new ApiRequestError(response.status, kind.toUpperCase(), response.statusText);
   return response.arrayBuffer();
 }
@@ -68,6 +84,56 @@ function uploadHomeworkSeries(eventId: string, startDate: string, days: number, 
 }
 
 export const lessonPreparationApi = {
+  answersMetadata(eventId: string) {
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/answers/metadata`, {
+      headers: authHeaders(), cache: 'no-store',
+    }).then(parse<AnswersMetadata>);
+  },
+  personalAnswersMetadata(eventId: string, studentId: string) {
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/personal-answers/${encodeURIComponent(studentId)}/metadata`, {
+      headers: authHeaders(), cache: 'no-store',
+    }).then(parse<PersonalAnswers>);
+  },
+  uploadPersonalAnswers(eventId: string, studentId: string, file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/personal-answers/${encodeURIComponent(studentId)}`, {
+      method: 'POST', headers: authHeaders(), body: form,
+    }).then(parse<PersonalAnswers>);
+  },
+  async personalAnswersBytes(eventId: string, studentId: string) {
+    const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/personal-answers/${encodeURIComponent(studentId)}`, {
+      headers: authHeaders(), cache: 'no-store',
+    });
+    if (!response.ok) throw new ApiRequestError(response.status, 'PERSONAL_ANSWERS', response.statusText);
+    return response.arrayBuffer();
+  },
+  async personalAnswersUrl(eventId: string, studentId: string) {
+    const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/personal-answers/${encodeURIComponent(studentId)}`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new ApiRequestError(response.status, 'PERSONAL_ANSWERS', response.statusText);
+    return URL.createObjectURL(await response.blob());
+  },
+  personalWorkbooks(eventId: string) {
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/personal-workbooks`, {
+      headers: authHeaders(),
+    }).then(parse<PersonalWorkbooks>);
+  },
+  uploadPersonalWorkbook(eventId: string, studentId: string, file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/personal-workbooks/${encodeURIComponent(studentId)}`, {
+      method: 'POST', headers: authHeaders(), body: form,
+    }).then(parse<PersonalWorkbook>);
+  },
+  async personalWorkbookUrl(eventId: string, studentId: string) {
+    const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/personal-workbooks/${encodeURIComponent(studentId)}`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new ApiRequestError(response.status, 'PERSONAL_WORKBOOK', response.statusText);
+    return URL.createObjectURL(await response.blob());
+  },
   get(eventId: string) {
     return fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}`, { headers: authHeaders() }).then(parse<LessonPreparation>);
   },
@@ -149,10 +215,15 @@ export const completedLessonApi = {
     }).then(parse<CompletedLessonDocument>);
   },
   async open(eventId: string, id: string): Promise<void> {
-    const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents/${encodeURIComponent(id)}`, { headers: authHeaders() });
-    if (!response.ok) throw new ApiRequestError(response.status, 'COMPLETED_DOCUMENT', response.statusText);
-    const url = URL.createObjectURL(await response.blob());
-    window.open(url, '_blank', 'noopener,noreferrer');
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
+    try {
+      const response = await fetch(`${BASE_URL}/lesson-preparations/${encodeURIComponent(eventId)}/completed-documents/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      if (!response.ok) throw new ApiRequestError(response.status, 'COMPLETED_DOCUMENT', response.statusText);
+      const url = URL.createObjectURL(await response.blob());
+      if (!tab) { URL.revokeObjectURL(url); throw new Error('Разрешите открытие документа в новой вкладке.'); }
+      tab.location.href = url;
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) { tab?.close(); throw error; }
   },
 };

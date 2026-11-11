@@ -1,0 +1,213 @@
+/* Teacher workspace. A consistent 90px rail in every desktop and tablet route. */
+.teacher-shell:has(.lesson-workspace) .teacher-topbar,.teacher-shell:has(.teacher-lessons-page) .teacher-topbar{border-bottom:0;box-shadow:none}
+.teacher-shell .lesson-workspace .workspace-materials>.workspace-card{border-radius:22px;padding:20px 24px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-card-heading{gap:14px;margin-bottom:14px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-card-heading>span{width:45px;height:45px;border-radius:14px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-card-heading h2{font-size:16px}
+.teacher-shell .lesson-workspace .workspace-materials>.workspace-card .workspace-filename{font-size:13px;margin:0 0 16px}
+.teacher-shell .workspace-materials .workspace-actions .btn{min-height:44px;padding:10px 14px;font-size:13px;gap:9px}
+.teacher-shell .workspace-materials .workspace-actions .btn svg{width:19px;height:19px}
+.teacher-shell .workspace-materials .workspace-pupils{display:flex;flex-direction:column;gap:16px}
+.teacher-shell .workspace-materials .workspace-pupil-card{padding:20px 24px!important;border-radius:22px}
+.teacher-shell .workspace-pupil-heading{display:flex;align-items:center;gap:14px;margin-bottom:19px}
+.teacher-shell .workspace-pupil-heading>span{display:grid;place-items:center;width:45px;height:45px;border-radius:14px;background:var(--teacher-selected);color:var(--teacher-selected-text)}
+.teacher-shell .workspace-pupil-heading svg{width:24px;height:24px}
+.teacher-shell .workspace-pupil-heading h3{margin:0!important;font-size:16px}
+.teacher-shell .workspace-materials .workspace-pupil-halves{gap:18px}
+.teacher-shell .workspace-materials .workspace-pupil-halves>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center}
+.teacher-shell .workspace-materials .workspace-pupil-halves>div+div{padding-left:20px}
+.teacher-shell .workspace-materials .workspace-pupil-halves>div>strong{font-size:13px;overflow-wrap:normal}
+.teacher-shell .workspace-materials .workspace-pupil-halves>div>.muted{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.teacher-shell .workspace-materials .workspace-pupil-halves .btn{min-height:42px!important;padding:9px 12px!important;font-size:12px}
+@media(max-width:1000px){.teacher-shell .workspace-materials .workspace-pupil-card{padding:16px!important}.teacher-shell .workspace-materials .workspace-pupil-halves>div{display:flex;flex-direction:column;align-items:flex-start}.teacher-shell .workspace-pupil-heading{margin-bottom:12px}.teacher-shell .workspace-materials .workspace-pupil-halves{gap:12px}.teacher-shell .workspace-materials .workspace-pupil-halves>div+div{padding-left:12px}.teacher-shell .workspace-materials .workspace-actions .btn{font-size:11px;padding:8px 10px}}
+.teacher-shell .lesson-agenda-list{gap:16px}
+.teacher-shell .lesson-agenda-list .lesson-agenda-card{padding:0;border-radius:22px;overflow:visible}
+.teacher-shell .lesson-agenda-card__row{position:relative;display:block}
+.teacher-shell .lesson-agenda-card__link{display:grid;grid-template-columns:84px minmax(0,1fr) auto 20px;align-items:center;gap:26px;padding:24px 96px 24px 26px;min-height:114px;border-radius:22px;text-decoration:none;color:var(--text);width:100%;box-sizing:border-box}
+.teacher-shell .lesson-agenda-card__link:hover{background:var(--teacher-raised);text-decoration:none}
+.teacher-shell .lesson-agenda-card__link .lesson-agenda-card__when{min-height:54px;gap:4px;border-right:1px solid var(--border);padding-right:20px}
+.teacher-shell .lesson-agenda-card__link .lesson-agenda-card__when strong{font-size:20px;font-weight:550}
+.teacher-shell .lesson-agenda-card__link .lesson-agenda-card__when>span{font-size:12px}
+.teacher-shell .teacher-content .lesson-agenda-card__link .lesson-agenda-card__info h3{font-size:18px;font-weight:550;margin:0 0 7px}
+.teacher-shell .lesson-agenda-card__link .lesson-agenda-card__info p{font-size:13px;margin:0}
+.teacher-shell .lesson-row-readiness .material-ready,.teacher-shell .lesson-row-readiness .material-reminder{margin:0;gap:7px;align-items:center;padding:7px 10px;font-size:12px;white-space:nowrap}
+.teacher-shell .lesson-row-readiness svg{width:17px;height:17px}
+.teacher-shell .lesson-agenda-card__link>svg{width:20px;height:20px;color:var(--muted)}
+.teacher-shell .lesson-row-menu{position:absolute;right:24px;top:50%;transform:translateY(-50%);width:36px;height:36px;font-size:24px;color:var(--muted)}
+.teacher-shell .lesson-agenda-card__options{padding:20px;margin:0;border-top:1px solid var(--border)}
+@media(max-width:900px){.teacher-shell .lesson-agenda-card__link{grid-template-columns:70px minmax(0,1fr) auto 18px;gap:16px;padding:20px 70px 20px 20px}.teacher-shell .lesson-row-menu{right:15px}.teacher-shell .lesson-row-readiness .material-ready,.teacher-shell .lesson-row-readiness .material-reminder{font-size:11px;padding:6px 8px}}
+@media(max-width:600px){.teacher-shell .lesson-agenda-card__link{grid-template-columns:62px minmax(0,1fr) 18px;gap:12px;padding:17px 60px 17px 16px}.teacher-shell .lesson-row-readiness{grid-column:2;grid-row:2}.teacher-shell .lesson-agenda-card__link>svg{grid-column:3;grid-row:1/3}.teacher-shell .lesson-agenda-card__link .lesson-agenda-card__when{grid-column:1;grid-row:1/3}.teacher-shell .teacher-content .lesson-agenda-card__link .lesson-agenda-card__info h3{font-size:15px}.teacher-shell .lesson-agenda-card__link .lesson-agenda-card__info p{font-size:11px}.teacher-shell .lesson-row-readiness .material-ready,.teacher-shell .lesson-row-readiness .material-reminder{white-space:normal}}
+.teacher-shell .workspace-actions+.workspace-filename{margin-top:10px}
+.teacher-shell .workspace-info-grid>.workspace-card>.btn{margin-bottom:12px}
+.teacher-shell .workspace-info-grid>.workspace-card:last-child{grid-column:1/-1}
+.teacher-shell .workspace-card-fields{border:0;padding:0;margin:0;min-width:0}
+.teacher-shell .workspace-card-editor{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 0;border-top:1px solid var(--border);margin:12px 0}
+.teacher-shell .workspace-card-editor textarea{width:100%;min-height:85px}
+.teacher-shell .workspace-homework-dialog .workspace-document{padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:var(--teacher-raised);color:var(--text);width:100%}
+@media(max-width:540px){.teacher-shell .workspace-card-editor{grid-template-columns:1fr}}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day{border:0;box-shadow:none;background:transparent}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day:hover{background:var(--teacher-raised)}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day[aria-pressed="true"]{background:var(--teacher-selected);color:var(--teacher-selected-text)}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day>i{visibility:hidden;opacity:1;background:var(--muted)}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day>i.has-lessons{visibility:visible}
+.teacher-shell .lesson-calendar-panel[data-view="week"] .lesson-agenda-day[aria-pressed="true"]>i{background:var(--teacher-selected-text)}
+.teacher-shell .teacher-parent-list{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:17px;background:var(--surface)}
+.teacher-shell .teacher-parent-list .teacher-student-card{border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none}
+.teacher-shell .teacher-parent-list .teacher-student-card:last-child{border-bottom:0}
+.teacher-shell .teacher-parent-list .teacher-student-avatar{width:42px;height:42px;border-radius:12px;background:var(--teacher-raised);color:var(--muted)}
+.teacher-shell .teacher-parent-list .teacher-student-name{font-size:15px}
+.teacher-shell .teacher-student-list--cards .teacher-student-card:hover,.teacher-shell .teacher-parent-list .teacher-student-card:hover{background:var(--teacher-raised);border-color:var(--border);box-shadow:none;transform:none}
+.teacher-shell .teacher-student-list--cards .teacher-student-card:first-child,.teacher-shell .teacher-parent-list .teacher-student-card:first-child{border-top-left-radius:16px;border-top-right-radius:16px}
+.teacher-shell .teacher-student-list--cards .teacher-student-card:last-child,.teacher-shell .teacher-parent-list .teacher-student-card:last-child{border-bottom-left-radius:16px;border-bottom-right-radius:16px}
+.teacher-shell .teacher-student-list--cards .teacher-student-name a:hover{text-decoration:none;color:inherit}
+.teacher-shell .lesson-calendar-panel[data-view="month"]{padding:18px;border:1px solid var(--border);border-radius:22px;background:var(--surface);margin-bottom:28px}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-navigation{grid-template-columns:66px minmax(0,1fr) 66px;gap:14px;margin:0 0 19px}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-arrow{width:66px;height:66px;border:1px solid var(--border);border-radius:17px;background:var(--surface);color:var(--muted)}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-arrow svg{width:23px;height:23px}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-month{font-size:21px;font-weight:500;padding:0;color:var(--text);cursor:default}
+.teacher-shell .lesson-calendar-weekdays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;text-align:center;color:var(--muted);font-size:14px;margin:0 0 10px;padding:0 4px}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-days{padding:0 4px;margin:0;border:0;border-radius:0;background:transparent;gap:8px}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day{position:relative;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0;min-height:0;height:clamp(52px,6.5vw,86px);padding:0;border:0;border-radius:15px;background:transparent;box-shadow:none;color:var(--text)}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day strong{font-size:24px;line-height:1.2;font-weight:500;color:inherit}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day.is-outside-month{color:var(--muted);opacity:.65}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day:hover{background:var(--teacher-raised)}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day[aria-pressed="true"]{background:var(--teacher-selected);color:var(--teacher-selected-text);opacity:1}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day>i{visibility:hidden;position:absolute;bottom:17px;width:5px;height:5px;opacity:1;background:var(--muted)}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day>i.has-lessons{visibility:visible}
+.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day[aria-pressed="true"]>i{background:var(--teacher-selected-text)}
+@media(max-width:699px){.teacher-shell .lesson-calendar-panel[data-view="month"]{padding:12px;border-radius:17px}.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-navigation{grid-template-columns:44px minmax(0,1fr) 44px;margin-bottom:16px}.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-arrow{width:44px;height:44px;border-radius:12px}.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-month{font-size:16px}.teacher-shell .lesson-calendar-weekdays{font-size:12px;gap:3px;padding:0}.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-days{gap:3px;padding:0}.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day{height:54px;border-radius:10px}.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day strong{font-size:18px}.teacher-shell .lesson-calendar-panel[data-view="month"] .lesson-agenda-day>i{bottom:7px}}
+.teacher-shell .workspace-card-heading>span .teacher-icon{width:20px;height:20px;stroke-width:1.7}
+.teacher-shell .teacher-groups-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.teacher-shell .teacher-group-tile{display:flex;flex-direction:column;gap:28px;padding:28px 30px;border:1px solid var(--border);border-radius:24px;background:var(--surface);color:var(--text);text-decoration:none;min-width:0}
+.teacher-shell .teacher-group-tile:hover{border-color:var(--teacher-selected-border)}
+.teacher-shell .teacher-group-tile-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.teacher-shell .teacher-group-tile-icon{display:grid;place-items:center;width:56px;height:56px;border-radius:16px;background:var(--teacher-selected);color:var(--teacher-selected-text)}
+.teacher-shell .teacher-group-tile-icon svg{width:28px;height:28px}
+.teacher-shell .teacher-group-tile-badge{padding:5px 9px;border-radius:7px;background:var(--teacher-raised);color:var(--muted);font-size:12px}
+.teacher-shell .teacher-group-tile-title h2{font-size:19px;margin:0 0 8px;font-weight:550}
+.teacher-shell .teacher-group-tile-title p{font-size:13px;color:var(--muted);margin:0}
+.teacher-shell .teacher-group-tile-footer{display:flex;align-items:center;gap:12px;border-top:1px solid var(--border);padding-top:21px;font-size:13px;color:var(--muted)}
+.teacher-shell .teacher-group-tile-avatars{display:flex;padding-left:3px}
+.teacher-shell .teacher-group-tile-avatars span{display:grid;place-items:center;width:29px;height:29px;margin-left:-3px;border:2px solid var(--surface);border-radius:50%;background:var(--teacher-raised);font-size:11px}
+.teacher-shell .teacher-group-tile-arrow{margin-left:auto;font-size:23px}
+.teacher-shell .workspace-summary>div.online-class-start{flex:0 0 auto;display:block;width:auto;max-width:45%;margin-left:auto;text-align:right}
+@media(max-width:699px){.teacher-shell .teacher-groups-list{grid-template-columns:1fr}.teacher-shell .teacher-group-tile{padding:22px;gap:22px}.teacher-shell .workspace-summary>div.online-class-start{max-width:100%;margin-left:auto}}
+.teacher-shell .teacher-parent-list .teacher-student-card{display:grid;grid-template-columns:42px minmax(0,1fr) minmax(150px,auto) 36px;align-items:center;gap:15px;width:100%;padding:18px 20px}
+.teacher-shell .teacher-parent-list .teacher-student-avatar{grid-column:1;grid-row:1}
+.teacher-shell .teacher-parent-list .teacher-student-main{grid-column:2;grid-row:1;min-width:0}
+.teacher-shell .teacher-parent-list .teacher-parent-pupil{grid-column:3;grid-row:1;margin:0;max-width:300px;min-width:0;justify-self:end;text-align:right}
+.teacher-shell .teacher-parent-list .teacher-student-menu-wrap{grid-column:4;grid-row:1;justify-self:end;position:relative}
+.teacher-shell .teacher-parent-list .teacher-student-menu{right:0;left:auto}
+@media(max-width:540px){.teacher-shell .teacher-parent-list .teacher-student-card{grid-template-columns:32px minmax(0,1fr) 36px;gap:9px;padding:14px 12px}.teacher-shell .teacher-parent-list .teacher-student-menu-wrap{grid-column:3;grid-row:1}.teacher-shell .teacher-parent-list .teacher-parent-pupil{grid-column:2/4;grid-row:2;max-width:100%;justify-self:end}}
+.teacher-shell .teacher-topbar-actions{display:flex;align-items:center;gap:12px;margin-left:auto;min-width:0}
+.teacher-shell .teacher-admin-return{border:1px solid var(--teacher-selected-border);border-radius:9px;background:var(--teacher-selected);color:var(--teacher-selected-text);font:inherit;font-size:12px;padding:7px 11px;min-height:34px;white-space:nowrap}
+.teacher-shell .teacher-admin-return:disabled{opacity:.6}
+@media(max-width:699px){.teacher-shell .teacher-topbar-actions .teacher-topbar-avatar{display:grid}.teacher-shell .teacher-admin-return{font-size:11px;padding:7px}.teacher-shell .teacher-mobile-brand>span{display:none}}
+.teacher-shell{grid-template-columns:90px minmax(0,1fr)}
+.teacher-shell[data-theme="light"]{--bg:#f7f8fa;--surface:#fff;--border:#e8eaee;--text:#101322;--muted:#697484;--danger:#bf3838;--green-dark:#277552;--teacher-raised:#f1f3f5;--teacher-selected:#fff3e8;--teacher-selected-text:#b34400;--teacher-selected-border:#ffd5b6;--teacher-success:#edf6f0;--teacher-success-text:#277552;--teacher-error:#fff0f0;--teacher-error-text:#bf3838;color-scheme:light}
+body:has(.teacher-shell){background:var(--teacher-bg,#f7f8fa)}
+.teacher-shell .teacher-sidebar{padding:22px 6px 14px;gap:24px}
+.teacher-shell .teacher-brand{flex-direction:column;gap:7px;text-align:center}
+.teacher-shell .teacher-brand__logo{width:34px;height:30px}
+.teacher-shell .teacher-brand__text{font-size:12px;font-weight:650}
+.teacher-shell .teacher-brand__text small{font-size:8px;letter-spacing:2px}
+.teacher-shell .teacher-nav-item{display:flex;flex-direction:column;justify-content:center;text-align:center;min-height:69px;padding:10px 3px;gap:7px;font-size:11px;line-height:1.35}
+.teacher-shell .teacher-nav-item svg{width:23px;height:23px}
+.teacher-shell .teacher-account{flex-direction:column;gap:9px;padding:12px 0 0}
+.teacher-shell .teacher-profile__text{display:none}
+.teacher-shell .teacher-topbar{height:56px;padding:12px 26px;border-bottom:1px solid var(--border);background:var(--surface)}
+.teacher-shell .teacher-content{width:100%;max-width:1600px;padding:26px 28px 32px}
+.teacher-shell .teacher-content .btn{background:var(--teacher-selected);color:var(--teacher-selected-text);border:1px solid var(--teacher-selected-border);min-height:42px}
+.teacher-shell .teacher-content .btn--secondary,.teacher-shell .teacher-content .btn--ghost{background:var(--surface);color:var(--text);border-color:var(--border)}
+.teacher-shell .teacher-content .btn:hover:not(:disabled){background:var(--teacher-raised);color:var(--text)}
+.teacher-shell .panel{box-shadow:none;border:1px solid var(--border);background:var(--surface);border-radius:17px}
+.teacher-shell .teacher-student-list--cards{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:17px;background:var(--surface)}
+.teacher-shell .teacher-student-list--cards .teacher-student-card{display:grid;grid-template-columns:42px minmax(0,1fr) 36px;align-items:center;padding:18px 20px;border:0;border-bottom:1px solid var(--border);border-radius:0;gap:15px;background:transparent}
+.teacher-shell .teacher-student-list--cards .teacher-student-card:last-child{border-bottom:0}
+.teacher-shell .teacher-student-list--cards .teacher-student-stats,.teacher-shell .teacher-student-list--cards .teacher-student-footer,.teacher-shell .teacher-student-list--cards .teacher-student-extra{display:none}
+.teacher-shell .teacher-student-list--cards .teacher-student-menu-wrap{grid-row:1;grid-column:3}
+.teacher-shell .teacher-student-list--cards .teacher-student-avatar{width:42px;height:42px;background:var(--teacher-raised);color:var(--muted)}
+.teacher-shell .teacher-student-list--cards .teacher-student-name{font-size:15px}
+.teacher-shell .teacher-students-page{position:relative}
+.teacher-shell .teacher-student-popover{position:absolute;right:0;top:66px;width:400px;max-width:100%;z-index:30;border:1px solid var(--border);background:var(--surface);box-shadow:0 16px 45px #0002;padding:22px;border-radius:17px}
+.teacher-shell .teacher-popover-close{position:absolute;right:10px;top:8px}
+.teacher-shell .teacher-create-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.teacher-shell .teacher-group-stats{display:none}
+.teacher-shell .teacher-parent-pupil{margin-left:auto;min-width:150px;max-width:40%;font-size:13px}
+.teacher-shell .teacher-student-card:has(.teacher-parent-pupil){flex-wrap:nowrap!important}
+.teacher-shell .teacher-student-card:has(.teacher-parent-pupil) .teacher-student-main .teacher-student-meta{display:none}
+.teacher-shell .teacher-groups-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+.teacher-shell .lesson-agenda-integration{display:none}
+.teacher-shell .calendar-view-control{display:flex;align-items:flex-end;flex-direction:column;gap:6px;margin:0 0 16px;font-size:12px;color:var(--muted)}
+.teacher-shell .calendar-view-control>div{display:flex;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:11px}
+.teacher-shell .calendar-view-control .btn{border:0;background:transparent;min-width:76px;min-height:36px}
+.teacher-shell .calendar-view-control .btn[aria-pressed="true"]{background:var(--teacher-selected);color:var(--teacher-selected-text)}
+.teacher-shell .lesson-agenda-days{background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:8px}
+.teacher-shell .lesson-agenda-day{background:transparent;color:var(--muted)}
+.teacher-shell .lesson-agenda-day[aria-pressed="true"]{background:var(--teacher-selected);color:var(--teacher-selected-text);border-color:transparent}
+.teacher-shell .lesson-agenda-days--month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.teacher-shell .lesson-agenda-days--month .lesson-agenda-day{min-height:62px}
+.teacher-shell .lesson-agenda-card{background:var(--surface);border:1px solid var(--border);border-radius:15px;box-shadow:none}
+.teacher-shell .lesson-workspace .teacher-page-heading{margin:10px 0 16px}
+.teacher-shell .lesson-workspace .teacher-page-heading h1{font-size:25px}
+.teacher-shell .workspace-back{font-size:12px;color:var(--muted);text-decoration:none}
+.teacher-shell .workspace-summary{display:flex;align-items:center;gap:18px;padding:17px 20px;margin-bottom:18px}
+.teacher-shell .workspace-summary>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.teacher-shell .workspace-summary span{font-size:12px;color:var(--muted)}
+.teacher-shell .workspace-summary strong{font-size:14px;font-weight:550}
+.teacher-shell .workspace-summary>.btn{margin-left:auto}
+.teacher-shell .workspace-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+.teacher-shell .workspace-materials{display:flex;flex-direction:column;gap:14px;min-width:0}
+.teacher-shell .workspace-info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:stretch}
+.teacher-shell .teacher-content .workspace-card{padding:16px;margin:0;min-width:0;overflow-wrap:anywhere;background:var(--surface)}
+.teacher-shell .workspace-card-heading{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+.teacher-shell .workspace-card-heading>span{display:grid;place-items:center;width:32px;height:32px;flex:none;background:var(--teacher-selected);color:var(--teacher-selected-text);border-radius:10px;font-size:20px}
+.teacher-shell .workspace-card-heading h2{font-size:14px;line-height:1.35;margin:0}
+.teacher-shell .workspace-filename{font-size:12px;margin:0 0 12px;overflow-wrap:anywhere}
+.teacher-shell .workspace-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.teacher-shell .workspace-info-grid .workspace-actions{flex-direction:column;align-items:stretch}
+.teacher-shell .workspace-card .btn{font-size:11px;padding:7px 9px;min-height:36px;white-space:normal}
+.teacher-shell .workspace-note{width:100%;height:100px;min-height:70px;resize:vertical;font:inherit;font-size:12px;margin-bottom:10px}
+.teacher-shell .workspace-answers{border-top:1px solid var(--border);margin-top:12px;padding-top:10px;font-size:12px}
+.teacher-shell .workspace-answers summary{margin-bottom:10px}
+.teacher-shell .workspace-document{border:0;background:transparent;color:var(--teacher-selected-text);font:inherit;font-size:12px;text-align:left;padding:5px 0;overflow-wrap:anywhere}
+.teacher-shell .workspace-document-list{display:flex;flex-direction:column;margin-bottom:10px}
+.teacher-shell .workspace-transcript{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.teacher-shell .workspace-personal{border:0;padding:0;margin:0}
+.teacher-shell .lesson-workspace .teacher-page-heading{margin:7px 0 12px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-card-heading{flex-direction:row;align-items:center}
+.teacher-shell .workspace-materials>.workspace-card{padding:12px}
+.teacher-shell .workspace-materials>.workspace-card .workspace-filename{margin-bottom:8px}
+.teacher-shell .workspace-materials .workspace-answers{margin-top:8px;padding-top:7px}
+.teacher-shell .workspace-pupil-card{padding:10px 12px!important}
+.teacher-shell .workspace-pupil-card h3{margin-bottom:7px!important}
+.teacher-shell .workspace-pupil-halves>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center}
+.teacher-shell .workspace-pupil-halves>div>strong{grid-column:1;grid-row:1;font-size:11px}
+.teacher-shell .workspace-pupil-halves>div>.muted{grid-column:1;grid-row:2;margin:0!important;font-size:11px}
+.teacher-shell .workspace-pupil-halves>div>.workspace-actions{grid-column:2;grid-row:1/3;flex-direction:column;gap:4px}
+.teacher-shell .workspace-pupil-halves .btn{min-height:32px!important;padding:5px 7px!important}
+.teacher-shell .workspace-pupils{display:grid;gap:12px}
+.teacher-shell .workspace-pupil-card{border:1px solid var(--border);border-radius:15px;padding:14px;background:var(--surface);min-width:0}
+.teacher-shell .workspace-pupil-card h3{margin:0 0 10px;font-size:14px}
+.teacher-shell .workspace-pupil-halves{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.teacher-shell .workspace-pupil-halves>div{min-width:0;font-size:12px;overflow-wrap:anywhere}
+.teacher-shell .workspace-pupil-halves>div+div{border-left:1px solid var(--border);padding-left:12px}
+.teacher-shell .workspace-pupil-halves .muted{font-size:11px;margin:6px 0 9px}
+.teacher-shell .workspace-pupil-halves .btn{font-size:11px;padding:6px 8px;min-height:36px}
+.teacher-shell .material-reminder,.teacher-shell .material-ready{display:inline-flex;font-size:12px;padding:5px 8px;border-radius:7px;margin-top:6px;background:var(--teacher-success);color:var(--teacher-success-text)}
+.teacher-shell .material-reminder{background:var(--teacher-error);color:var(--teacher-error-text)}
+.teacher-shell .workspace-pupil{display:grid!important;grid-template-columns:1fr 1fr;gap:9px!important;padding:14px!important;border:1px solid var(--border)!important;border-radius:15px!important;background:var(--surface)}
+.teacher-shell .workspace-pupil>div:first-child{grid-column:1/-1}
+.teacher-shell .workspace-pupil>div:first-child>strong{font-size:14px}
+.teacher-shell .workspace-pupil>div:nth-of-type(2){grid-column:2;grid-row:2}
+.teacher-shell .workspace-pupil .muted{font-size:11px!important}
+.teacher-shell .workspace-pupil .button{font-size:11px;padding:7px;border:1px solid var(--border);background:var(--teacher-raised);color:var(--text);border-radius:8px;text-align:center}
+.teacher-shell .workspace-homework-dialog{padding:24px;width:min(700px,calc(100% - 30px));max-height:90dvh;overflow:auto;border:1px solid var(--border);border-radius:18px;background:var(--surface);color:var(--text)}
+.teacher-shell .workspace-homework-dialog::backdrop{background:#0007}
+.teacher-shell .workspace-dialog-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+.teacher-shell .workspace-homework-dialog .panel{margin:0;box-shadow:none;border:0;padding:0;background:transparent}
+@media(min-width:700px){.teacher-shell .teacher-sidebar .teacher-nav-item span{display:block}.teacher-shell .teacher-sidebar .teacher-brand__text{display:flex;flex-direction:column}.teacher-shell .teacher-sidebar .teacher-nav-item{min-height:65px}}
+@media(min-width:700px) and (max-width:1000px){.teacher-shell .workspace-pupil-halves>div{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.teacher-shell .workspace-pupil-halves>div>.workspace-actions{flex-direction:row;flex-wrap:wrap}.teacher-shell .workspace-pupil-halves>div>.muted{overflow-wrap:anywhere}.teacher-shell .workspace-note{height:112px}}
+@media(min-width:700px) and (max-width:1200px){.teacher-shell .teacher-content:has(.lesson-workspace){padding-top:12px;padding-bottom:14px}.teacher-shell .workspace-pupils{gap:8px}.teacher-shell .workspace-pupil-card{padding-top:8px!important;padding-bottom:8px!important}}
+@media(min-width:700px) and (max-width:1200px){.teacher-shell{grid-template-columns:90px minmax(0,1fr)}.teacher-shell .teacher-content{padding:20px}.teacher-shell .teacher-sidebar{display:flex}.teacher-shell .teacher-mobile-nav{display:none}.teacher-shell .teacher-topbar{height:48px;margin-bottom:0}.teacher-shell .workspace-columns{gap:14px}.teacher-shell .workspace-info-grid{gap:10px}.teacher-shell .teacher-content .workspace-card{padding:12px}.teacher-shell .workspace-card-heading{flex-direction:column;align-items:flex-start;gap:7px}.teacher-shell .workspace-note{height:84px}.teacher-shell .workspace-summary{padding:13px;gap:12px}.teacher-shell .workspace-summary strong{font-size:12px}.teacher-shell .teacher-nav-item{min-height:65px}}
+@media(max-width:699px){.teacher-shell{display:block}.teacher-shell .workspace-columns{grid-template-columns:1fr}.teacher-shell .workspace-summary{flex-wrap:wrap}.teacher-shell .workspace-summary>.btn{width:100%;margin:0}.teacher-shell .workspace-info-grid{grid-template-columns:1fr}.teacher-shell .teacher-content{padding:16px 14px 100px}.teacher-shell .teacher-sidebar{display:none}.teacher-shell .teacher-parent-pupil{max-width:100%;min-width:0}.teacher-shell .teacher-student-card:has(.teacher-parent-pupil){flex-wrap:wrap!important}.teacher-shell .workspace-note{font-size:16px}.teacher-shell .workspace-actions{flex-direction:column;align-items:stretch}}

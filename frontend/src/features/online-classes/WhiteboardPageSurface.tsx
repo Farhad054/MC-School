@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import type { AnnotationTargetType } from '../../api/onlineClasses';
+import type { AnnotationDocument, AnnotationTargetType } from '../../api/onlineClasses';
 import { A4_PORTRAIT_ASPECT } from './boardPaper';
 import type { ToolSettings } from './boardTools';
 import type { PageView } from './boardView';
@@ -65,9 +65,14 @@ export interface WhiteboardPageSurfaceProps {
   onScrollGesture?: (dx: number, dy: number) => void;
   onDocumentGesture?: (gesture: DocumentGesture) => void;
   onDocumentPenContact?: (active: boolean) => void;
+  wheelAction?: 'pan' | 'zoom';
   onActivate?: (pageIndex: number) => void;
   onStatusChange?: (pageIndex: number, status: PageSurfaceStatus) => void;
   onAspectChange?: (pageIndex: number, aspect: number | null) => void;
+  onCanvasGeometry?: (pageIndex: number, viewport: { width: number; height: number }, aspect: number | null) => void;
+  /** Called only after this page has a durable annotation document. */
+  onDocumentReady?: (document: AnnotationDocument) => void;
+  viewScope?: string;
 }
 
 /**
@@ -101,9 +106,13 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
   onScrollGesture,
   onDocumentGesture,
   onDocumentPenContact,
+  wheelAction = 'pan',
   onActivate,
   onStatusChange,
   onAspectChange,
+  onCanvasGeometry,
+  onDocumentReady,
+  viewScope,
 }, ref) {
   const camera = targetType === 'NOTEBOOK_CAMERA';
   const personal = isPersonalBoard(targetId);
@@ -157,7 +166,7 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
   // another page refresh every surface in the continuous document.
   const { publish: publishAnnotation } = useClassEvents(classId, ANNOTATION_TOPIC, ({ event, senderIdentity }) => {
     if (event.type !== 'annotation' || event.documentId !== boardRef.current?.document?.id) return;
-    if (camera) {
+    if (camera || targetId.startsWith('personal-workbook-')) {
       const sender = senderIdentity?.split('|')[0];
       if (!ownerId || (actorId !== ownerId && actorId !== hostUserId) ||
           !sender || (sender !== ownerId && sender !== hostUserId)) return;
@@ -181,7 +190,7 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
         op: operation.operationType,
         layerOwnerId: operation.layerOwnerId,
       });
-      if (camera) {
+      if (camera || targetId.startsWith('personal-workbook-')) {
         if (!ownerId || (actorId !== ownerId && actorId !== hostUserId)) return;
         // Target only the owner and the roster's host. REST still verifies the
         // saved operation; the hint accelerates erasing/undo as well as pen-up.
@@ -190,6 +199,11 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
     },
   });
   boardRef.current = board;
+  const documentReadyCallback = useRef(onDocumentReady);
+  documentReadyCallback.current = onDocumentReady;
+  useEffect(() => {
+    if (board.document) documentReadyCallback.current?.(board.document);
+  }, [board.document?.id]);
   useImperativeHandle(ref, () => ({ board, canvas: () => canvasRef.current }));
 
   // Reconcile only with confirmed server operations. An ADD may already have
@@ -260,6 +274,7 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
       <WhiteboardCanvas
         ref={canvasRef}
         shapes={board.shapes}
+        onInteractiveCommit={board.interact}
         pageKey={`${targetType}:${targetId}:${pageIndex}`}
         tool={tool}
         color={settings.color}
@@ -268,12 +283,15 @@ export const WhiteboardPageSurface = forwardRef<PageSurfaceHandle, WhiteboardPag
         textFontSize={textSettings.fontSize ?? 24}
         textBold={Boolean(textSettings.bold)}
         sourceAspect={pageAspect}
+        onViewportChange={(viewport, aspect) => onCanvasGeometry?.(pageIndex, viewport, aspect)}
+        viewScope={viewScope}
         readOnly={!canAnnotate || loadingPdfPage}
         eraserMode={eraserMode}
         inputMode={inputMode}
         view={view}
         onViewChange={onViewChange}
         navigationLocked={navigationLocked}
+        wheelAction={wheelAction}
         onScrollGesture={continuous ? onScrollGesture : undefined}
         onDocumentGesture={continuous && targetType === 'WHITEBOARD' ? onDocumentGesture : undefined}
         onDocumentPenContact={continuous && targetType === 'WHITEBOARD' ? onDocumentPenContact : undefined}

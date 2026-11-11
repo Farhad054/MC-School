@@ -9,6 +9,14 @@ export type OnlineClassStatus = 'SCHEDULED' | 'LOBBY_OPEN' | 'LIVE' | 'ENDED' | 
 
 export type ClassFeatureState = 'INACTIVE' | 'STARTING' | 'ACTIVE' | 'STOPPING' | 'FAILED';
 
+export interface ClassAudioFocus {
+  version: 1;
+  classId: string;
+  teacherId: string;
+  studentId: string | null;
+  announceAll: boolean;
+}
+
 export interface OnlineClass {
   id: string;
   eventId: string;
@@ -19,6 +27,8 @@ export interface OnlineClass {
   studentId: string | null;
   groupId: string | null;
   status: OnlineClassStatus;
+  /** Physical media room; an idle lesson remains available for teacher re-entry. */
+  mediaState?: 'IDLE' | 'ACTIVE' | 'ENDED';
   waitingRoomEnabled: boolean;
   studentScreenShareEnabled: boolean;
   recordingState: ClassFeatureState;
@@ -36,6 +46,8 @@ export interface OnlineClass {
   entryOpensAt?: string;
   entryClosesAt?: string;
   viewerHasJoined?: boolean;
+  /** Actual owning-teacher presence verified by the server; omitted by older servers. */
+  teacherPresent?: boolean;
   serverNow?: string;
 }
 
@@ -207,6 +219,13 @@ export const onlineClassesApi = {
       deviceId: deviceId(),
     }),
 
+  /** Authenticated, fixed-category browser diagnostics. Never send raw error messages. */
+  reportDiagnostic: (classId: string, category:
+    'MEDIA_AUTHORIZATION' | 'MEDIA_SIGNALING' | 'MEDIA_NETWORK' |
+    'MEDIA_DEVICES' | 'MEDIA_UNKNOWN' | 'CONNECTION_LOST' |
+    'PDF_RENDER' | 'TRANSCRIPTION_START' | 'AUDIO_FOCUS') =>
+    request<void>('POST', `/online-classes/${classId}/kolyn/diagnostics`, { category }),
+
   /** Host-only probe. It checks LiveKit's server API, not the user's WebRTC path. */
   mediaDiagnostics: (classId: string) =>
     request<{ mediaApiReachable: boolean; diagnosticStatus: 'OK' | 'NOT_CONFIGURED' | 'AUTH_REJECTED' | 'UNREACHABLE' }>('POST', `/online-classes/${classId}/media-diagnostics`),
@@ -248,6 +267,9 @@ export const onlineClassesApi = {
 
   muteAllStudents: (classId: string) =>
     request<ClassParticipant[]>('POST', `/online-classes/${classId}/mute-all-students`),
+
+  setAudioFocus: (classId: string, studentId: string | null, announceAll = false) =>
+    request<ClassAudioFocus>('PUT', `/online-classes/${classId}/audio-focus`, { studentId, announceAll }),
 
   setStudentScreenShare: (classId: string, enabled: boolean) =>
     request<void>('POST', `/online-classes/${classId}/settings/student-screen-share?enabled=${enabled}`),
@@ -356,12 +378,12 @@ export const onlineClassesApi = {
    * The lesson's workbook PDF for the shared board, or null when the lesson has
    * none (404). Never the answers file: the server only serves the workbook.
    */
-  documentVersion: (classId: string) =>
-    request<{ version: number }>('GET', `/online-classes/${classId}/document/version`),
+  documentVersion: (classId: string, boardId?: string) =>
+    request<{ version: number }>('GET', `/online-classes/${classId}/document/version${boardId ? `?boardId=${encodeURIComponent(boardId)}` : ''}`),
 
-  documentBytes: async (classId: string): Promise<ArrayBuffer | null> => {
+  documentBytes: async (classId: string, boardId?: string): Promise<ArrayBuffer | null> => {
     try {
-      return await (await requestBlob(`/online-classes/${classId}/document`)).arrayBuffer();
+      return await (await requestBlob(`/online-classes/${classId}/document${boardId ? `?boardId=${encodeURIComponent(boardId)}` : ''}`)).arrayBuffer();
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 404) return null;
       throw error;

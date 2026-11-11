@@ -1,4 +1,5 @@
 import type KonvaType from 'konva';
+import { drawInteractive } from './interactiveTemplates';
 import type { Shape as KonvaShape } from 'konva/lib/Shape';
 import { onlineClassesApi, type AnnotationTargetType } from '../../api/onlineClasses';
 import {
@@ -10,10 +11,13 @@ import {
   toPixels,
 } from './annotations';
 import { buildPdf, dataUrlToBytes, type JpegPage } from './pdfWriter';
-import type { PdfDoc } from './pdfDocument';
+import { openPdf, type PdfDoc } from './pdfDocument';
+import { personalBoardId, personalWorkbookBoardId } from './boards';
+import type { KolinBoardSnapshot } from '../../api/kolin';
 import { penOutline, strokeWidthPixels, tracePenOutline } from './freehand';
 import { shapeTextSizePx, textStyleFor } from './textStyles';
 import { A4_PORTRAIT_ASPECT } from './boardPaper';
+import { annotationPageCount } from './annotationPages';
 
 /**
  * Konva is loaded when the first export runs, not with the board: most lessons
@@ -27,6 +31,35 @@ const EXPORT_WIDTH = 1600;
 /** Used when a page has no recorded size (a board nobody has opened yet). */
 const DEFAULT_ASPECT = 16 / 9;
 const JPEG_QUALITY = 0.9;
+/** Mirrors OnlineClassAnnotationService.MAX_REPLAY_OPERATIONS. */
+const REPLAY_BATCH_SIZE = 5000;
+const MAX_REPLAY_REQUESTS = 200;
+
+/** An archive must include late ink/undo/clear, not just the first REST batch. */
+async function replayPage(classId: string, documentId: string, revision: number): Promise<Operation[]> {
+  const required = Number.isSafeInteger(revision) && revision > 0 ? revision : 0;
+  const operations: Operation[] = [];
+  let after = 0;
+  for (let request = 0; request < MAX_REPLAY_REQUESTS; request++) {
+    const batch = (await onlineClassesApi.replayAnnotations(classId, documentId, after)) as unknown as Operation[];
+    if (!batch.length) {
+      if (after < required) throw new Error('Не удалось полностью прочитать записи доски. Повторите сохранение урока.');
+      return operations;
+    }
+    for (const operation of batch) {
+      if (!Number.isSafeInteger(operation.sequence) || operation.sequence <= after) {
+        throw new Error('Не удалось полностью прочитать записи доски. Повторите сохранение урока.');
+      }
+      after = operation.sequence;
+      operations.push(operation);
+    }
+    // A full batch may hide newer operations even when the initial metadata is
+    // already satisfied. Read its tail; short responses can finish only once
+    // the server's advertised revision has actually been reached.
+    if (batch.length < REPLAY_BATCH_SIZE && after >= required) return operations;
+  }
+  throw new Error('На доске слишком много записей для одного сохранения. Повторите сохранение после остановки рисования.');
+}
 
 /** Marks of one page, drawn over white (or over the workbook page) as a JPEG. */
 function renderPage(
@@ -77,6 +110,11 @@ function shapeNode(shape: Shape, viewport: { width: number; height: number }, as
   const box = letterbox(viewport, aspect);
 
   switch (shape.kind) {
+    case 'interactive': {
+      if(!shape.interactive)return null;
+      const at=toPixels({x:shape.x??0,y:shape.y??0},viewport,aspect);
+      return new Konva.Shape({sceneFunc:context=>drawInteractive(context._context,shape.interactive!,at.x,at.y,(shape.w??0)*box.width,(shape.h??0)*box.height)});
+    }
     case 'pen': {
       const outline = penOutline(shape, viewport, aspect);
       return new Konva.Shape({ fill: stroke,
@@ -173,12 +211,16 @@ export async function exportBoardPdf({
   const documents = (await onlineClassesApi.listAnnotationDocuments(classId)).filter(
     (entry) => entry.targetType === targetType && entry.targetId === targetId,
   );
+  // Another participant may have added pages since this viewer last polled.
+  // Use the fresh, authorized server list so even an untouched blank page is
+  // included, while keeping every original PDF page and unsaved local page.
+  const count = annotationPageCount(documents, targetType, targetId, Math.max(pageCount, pdfDocument?.pageCount ?? 1));
 
   const pages: JpegPage[] = [];
-  for (let index = 0; index < Math.max(1, pageCount); index += 1) {
+  for (let index = 0; index < count; index += 1) {
     const document = documents.find((entry) => entry.pageIndex === index);
     const operations = document
-      ? ((await onlineClassesApi.replayAnnotations(classId, document.id, 0)) as unknown as Operation[])
+      ? await replayPage(classId, document.id, document.revision)
       : [];
 
     let background: CanvasImageSource | null = null;
@@ -199,6 +241,72 @@ export async function exportBoardPdf({
   }
 
   return new Blob([buildPdf(pages) as BlobPart], { type: 'application/pdf' });
+}
+
+/** An on-demand saved-board snapshot; it never opens or navigates a visible board. */
+export async function captureBoardPage(classId: string, studentId: string | null, boardId: string, pageIndex: number,
+  observedAt: string | null, scope: 'current_page' | 'first_page' | 'workbook' | 'task_page' = 'current_page'): Promise<KolinBoardSnapshot> {
+  if (!Number.isSafeInteger(pageIndex) || pageIndex < 0 || pageIndex >= 1000) throw new Error('Invalid review page');
+  const shared = studentId === null;
+  const privateBoard = shared ? null : personalWorkbookBoardId(studentId);
+  const privateVersion = privateBoard ? (await onlineClassesApi.documentVersion(classId, privateBoard)).version : 0;
+  const expectedBoard = shared ? 'board-1' : privateVersion > 0 ? privateBoard! : personalBoardId(studentId);
+  if (scope === 'current_page' && boardId !== expectedBoard) throw new Error('Review source changed');
+  boardId = expectedBoard;
+  // Legacy personal boards inherit the common lesson PDF. They do not own a
+  // second copy of that PDF, and its version must be checked independently.
+  const version = (await onlineClassesApi.documentVersion(classId, boardId)).version;
+  const sharedDocumentVersion = !shared && !privateVersion
+    ? (await onlineClassesApi.documentVersion(classId, 'board-1')).version : null;
+  const pdfVersion = sharedDocumentVersion || version;
+  const pdfBoard = sharedDocumentVersion ? 'board-1' : boardId;
+  let pdf: PdfDoc | null = null;
+  try {
+    if (pdfVersion > 0) {
+      const bytes = await onlineClassesApi.documentBytes(classId, pdfBoard);
+      if (!bytes) throw new Error('Review PDF unavailable');
+      pdf = await openPdf(bytes);
+    }
+    const documents = (await onlineClassesApi.listAnnotationDocuments(classId))
+      .filter(item => item.targetType === 'WHITEBOARD' && item.targetId === boardId);
+    const totalPageCount = annotationPageCount(documents, 'WHITEBOARD', boardId, pdf?.pageCount ?? 1);
+    if (scope === 'workbook' && totalPageCount > 40) throw new Error('REVIEW_TOO_LARGE');
+    if (scope === 'first_page') pageIndex = 0;
+    if (scope === 'workbook') pageIndex = Math.min(pageIndex, totalPageCount - 1);
+    const indices = scope === 'workbook' ? Array.from({ length: totalPageCount }, (_, i) => i) : [pageIndex];
+    const captured: KolinBoardSnapshot['additionalPages'] = [];
+    let imageChars = 0;
+    Konva = (await import('konva')).default;
+    for (const index of indices) {
+      const entry = documents.find(item => item.pageIndex === index);
+      if (!entry && index >= (pdf?.pageCount ?? 1) && scope !== 'workbook') throw new Error('Review page unavailable');
+      const operations = entry ? await replayPage(classId, entry.id, entry.revision) : [];
+      let background: CanvasImageSource | null = null;
+      let aspect = entry?.sourceWidth && entry?.sourceHeight ? entry.sourceWidth / entry.sourceHeight : A4_PORTRAIT_ASPECT;
+      if (pdf && index < pdf.pageCount) {
+        const rendered = await pdf.renderPage(index, EXPORT_WIDTH);
+        background = rendered.canvas;
+        aspect = rendered.aspect;
+      }
+      if (!Number.isFinite(aspect) || aspect <= 0) throw new Error('Invalid review dimensions');
+      const width = Math.min(EXPORT_WIDTH, Math.floor(2400 * aspect));
+      const height = Math.round(width / aspect);
+      if (width < 32 || height < 32) throw new Error('Invalid review dimensions');
+      const imageDataUrl = renderPage(foldOperations(operations), width, height, aspect, background);
+      imageChars += imageDataUrl.length;
+      if (dataUrlToBytes(imageDataUrl).length > 1_500_000 || imageChars > 16_000_000) throw new Error('REVIEW_TOO_LARGE');
+      captured.push({ pageNumber: index + 1, revision: operations.at(-1)?.sequence ?? 0, imageDataUrl });
+    }
+    const afterPrivate = privateBoard ? (await onlineClassesApi.documentVersion(classId, privateBoard)).version : 0;
+    const after = (await onlineClassesApi.documentVersion(classId, boardId)).version;
+    const afterShared = sharedDocumentVersion !== null ? (await onlineClassesApi.documentVersion(classId, 'board-1')).version : null;
+    if (afterPrivate !== privateVersion || after !== version || afterShared !== sharedDocumentVersion)
+      throw new Error('Review source changed');
+    const primary = captured.find(page => page.pageNumber === pageIndex + 1)!;
+    return { studentId, boardId, ...primary, documentVersion: version, scope, totalPageCount,
+      ...(sharedDocumentVersion ? { sharedDocumentVersion } : {}),
+      additionalPages: captured.filter(page => page !== primary), observedAt, capturedAt: new Date().toISOString() };
+  } finally { pdf?.destroy(); }
 }
 
 /** Hands a file to the browser's download flow. */

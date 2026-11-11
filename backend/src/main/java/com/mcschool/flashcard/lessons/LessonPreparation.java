@@ -52,6 +52,13 @@ public class LessonPreparation {
     @Column(name = "transcript_text", columnDefinition = "text")
     private String transcriptText;
 
+    /** Durable Soniox transcript; never overwrites a teacher's notes or uploaded PDF. */
+    @Column(name = "soniox_transcript_text", columnDefinition = "text")
+    private String sonioxTranscriptText;
+
+    @Column(name = "soniox_transcript_updated_at")
+    private Instant sonioxTranscriptUpdatedAt;
+
     @Column(name = "transcript_pdf", columnDefinition = "bytea")
     private byte[] transcriptPdf;
 
@@ -64,11 +71,17 @@ public class LessonPreparation {
     @Column(name = "workbook_filename", length = 255)
     private String workbookFilename;
 
+    @Column(name = "workbook_version", nullable = false)
+    private long workbookVersion;
+
     @Column(name = "answers_pdf", columnDefinition = "bytea")
     private byte[] answersPdf;
 
     @Column(name = "answers_filename", length = 255)
     private String answersFilename;
+
+    @Column(name = "answers_version", nullable = false)
+    private long answersVersion;
 
     @Column(name = "site_opened_at")
     private Instant siteOpenedAt;
@@ -119,8 +132,10 @@ public class LessonPreparation {
         copy.transcriptFilename = this.transcriptFilename;
         copy.workbookPdf = this.workbookPdf == null ? null : this.workbookPdf.clone();
         copy.workbookFilename = this.workbookFilename;
+        copy.workbookVersion = this.workbookVersion;
         copy.answersPdf = this.answersPdf == null ? null : this.answersPdf.clone();
         copy.answersFilename = this.answersFilename;
+        copy.answersVersion = this.answersVersion;
         copy.siteOpenedAt = this.siteOpenedAt;
         return copy;
     }
@@ -128,17 +143,31 @@ public class LessonPreparation {
     public void attachWorkbook(String filename, byte[] pdf) {
         this.workbookFilename = filename;
         this.workbookPdf = pdf;
+        this.workbookVersion++;
     }
 
     public void attachAnswers(String filename, byte[] pdf) {
         this.answersFilename = filename;
         this.answersPdf = pdf;
+        this.answersVersion++;
     }
 
     public void attachTranscriptPdf(String filename, byte[] pdf) {
         this.transcriptFilename = filename;
         this.transcriptPdf = pdf;
         this.transcriptText = null;
+    }
+
+    /** Called only by the trusted classroom ingestion pipeline. */
+    public void replaceSonioxTranscript(String text, Instant updatedAt) {
+        this.sonioxTranscriptText = normalize(text);
+        this.sonioxTranscriptUpdatedAt = updatedAt;
+    }
+
+    /** Choose human-provided notes if present; otherwise display the live Soniox transcript. */
+    public String getTranscriptTextForDisplay() {
+        return transcriptText == null || transcriptText.isBlank()
+                ? sonioxTranscriptText : transcriptText;
     }
 
     public void markSiteOpened(Instant openedAt) {
@@ -158,7 +187,8 @@ public class LessonPreparation {
     }
 
     public boolean hasTranscript() {
-        return hasTranscriptPdf() || (transcriptText != null && !transcriptText.isBlank());
+        return hasTranscriptPdf() || (transcriptText != null && !transcriptText.isBlank())
+                || (sonioxTranscriptText != null && !sonioxTranscriptText.isBlank());
     }
 
     private String normalize(String value) {

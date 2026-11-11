@@ -50,22 +50,65 @@
 }
 .online-class-room--original-v3 .online-class-room__lesson-actions { display:flex; align-items:center; gap:8px; flex:0 1 auto; min-width:0; pointer-events:none; }
 .online-class-room--original-v3 .online-class-room__lesson-actions > * { pointer-events:auto; }
-.online-class-room--original-v3 .online-class-room__board-controls { margin-left:auto; flex-shrink:0; gap:4px; padding:4px 6px; }
+.online-class-room--original-v3 .online-class-room__archive-notice { display:flex; align-items:center; gap:6px; min-width:0; max-width:420px; font-size:12px; }
+.online-class-room--original-v3 .online-class-room__archive-notice > span { min-width:0; overflow-wrap:anywhere; }
+.online-class-room--original-v3 .online-class-room__board-controls { margin-left:auto; flex:1 1 280px; min-width:0; gap:4px; padding:4px 6px; }
 .online-class-room--original-v3 .online-class-room__topbar button,
 .online-class-room--original-v3 .online-class-room__topbar select {
   height:34px; min-height:34px; padding:5px 10px; border:1px solid #3b4348;
   border-radius:9px; color:var(--v3-muted); background:#2a2f33f5; box-shadow:none; font-size:11px;
 }
+.online-class-room--original-v3 .online-class-room__archive-notice > button { flex:none; min-width:32px; padding:4px; font-size:20px; }
 .online-class-room--original-v3 .online-class-room__board-controls button,
 .online-class-room--original-v3 .online-class-room__board-controls select { border:0; background:transparent; }
 .online-class-room--original-v3 .online-class-room__topbar button[aria-pressed='true'] { color:var(--v3-orange); background:var(--v3-selected); }
 .online-class-room--original-v3 .online-class-room__topbar .board-switcher { margin:0; }
+.online-class-room--original-v3 .online-class-room__topbar .board-switcher--teacher {
+  flex:1 1 auto; min-width:0; overflow-x:auto; scrollbar-width:thin;
+  overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch;
+}
+.online-class-room--original-v3 .board-switcher--teacher button {
+  flex:0 0 auto; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.online-class-room--original-v3 .board-switcher--teacher .board-switcher__overview {
+  display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:5px 8px;
+}
 .online-class-room--original-v3 .online-class-room__topbar .online-class-room__videos-toggle { margin-left:0; }
 .online-class-room--original-v3 .board-switcher select { max-width:220px; color-scheme:dark; }
 .online-class-room--original-v3 .online-class-room__status { font-size:10px; color:var(--v3-muted); }
 .online-class-room--original-v3 .online-class-room__stage { position:absolute; inset:0; min-width:0; min-height:0; background:var(--v3-bg); }
 .online-class-room--original-v3 .online-class-room__main { min-width:0; min-height:0; }
-.online-class-room--original-v3 .online-class-room__videos-drawer { padding-top:var(--classroom-header-height); padding-bottom:var(--classroom-dock-height); background:#202427; border-left:1px solid #3b4348; }
+.online-class-room--original-v3 .online-class-room__stage > .online-class-room__videos-drawer,
+.online-class-room--original-v3 .online-class-room__stage > .online-class-room__videos-drawer.is-open {
+  position:absolute; flex:none; z-index:14;
+  top:calc(var(--classroom-header-height) + 68px);
+  right:max(12px,env(safe-area-inset-right));
+  bottom:calc(var(--classroom-dock-height) + 64px);
+  width:clamp(112px,14vw,190px); padding:0;
+  background:transparent; border:0; overflow:visible; pointer-events:none;
+}
+.online-class-room--original-v3 .online-class-room__videos-drawer .camera-column {
+  height:auto; max-height:100%; padding:0; gap:10px;
+  background:transparent; overflow-y:auto; scrollbar-width:none; pointer-events:none;
+}
+.online-class-room--original-v3 .online-class-room__videos-drawer .camera-column::-webkit-scrollbar { display:none; }
+.online-class-room--original-v3 .online-class-room__videos-drawer .camera-card {
+  flex:0 0 auto; aspect-ratio:16 / 10; min-height:64px;
+  border:1px solid #4b5359; border-radius:14px;
+  box-shadow:0 6px 20px #0005,inset 0 0 0 3px transparent;
+}
+.online-class-room--original-v3 .online-class-room__videos-drawer.is-open .camera-card { pointer-events:auto; }
+.online-class-room--original-v3 .online-class-room__videos-drawer .camera-card[data-speaking='true'] {
+  box-shadow:0 6px 20px #0005,inset 0 0 0 3px #34d399;
+}
+@media (max-height:500px) and (orientation:landscape) {
+  .online-class-room--original-v3 .online-class-room__stage > .online-class-room__videos-drawer,
+  .online-class-room--original-v3 .online-class-room__stage > .online-class-room__videos-drawer.is-open {
+    width:min(calc(100vw - 24px),610px); bottom:auto;
+  }
+  .online-class-room--original-v3 .online-class-room__videos-drawer .camera-column { flex-direction:row; overflow-x:auto; overflow-y:hidden; }
+  .online-class-room--original-v3 .online-class-room__videos-drawer .camera-card { flex-basis:112px; }
+}
 .online-class-room--original-v3 .online-class-room__drawer { top:calc(var(--classroom-header-height) + 8px); bottom:calc(var(--classroom-dock-height) + 8px); border:1px solid var(--v3-edge); border-radius:13px; background:var(--v3-panel); color:var(--v3-text); }
 .online-class-room--original-v3 .online-class-room__controls {
   position:absolute; inset:auto 0 0; z-index:25; min-height:0; width:100%;
@@ -106,6 +149,10 @@
 /* Only the paper's fit area has clear edges; the board itself fills the room.
    Menus overlay it without resizing a canvas in the middle of a stroke. */
 .whiteboard--original-v3.school-islands-board { position:relative; min-width:0; min-height:0; }
+.online-class-room--original-v3 .whiteboard__document-loading {
+  flex:1; min-width:0; min-height:0; display:grid; place-content:center;
+  padding:80px 24px; color:var(--v3-muted); text-align:center;
+}
 .whiteboard--original-v3.school-islands-board .whiteboard__stage { padding:0; background:var(--v3-bg); background-image:none; }
 .whiteboard--original-v3.school-islands-board .whiteboard__surface {
   position:absolute; inset:var(--classroom-page-top,132px) 30px var(--classroom-page-bottom,68px); width:auto; height:auto;
@@ -268,11 +315,9 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
 .online-class-room--original-v3 .classroom-solutions__scroller { flex:1 1 0%; min-height:0; padding:0; background:var(--v3-paper); }
 .online-class-room--original-v3 .classroom-solutions__sheet { padding:0; color:#29333c; }
 
-@media(min-width:901px) {
-  .online-class-room--original-v3 .online-class-room__videos-drawer.is-open { position:relative; flex:0 0 clamp(160px,23vw,250px); }
-}
 @media(max-width:1100px) {
-  .online-class-room--original-v3 .online-class-room__topbar { padding-left:max(14px,env(safe-area-inset-left)); padding-right:max(14px,env(safe-area-inset-right)); }
+  .online-class-room--original-v3 .online-class-room__topbar { flex-wrap:wrap; padding-left:max(14px,env(safe-area-inset-left)); padding-right:max(14px,env(safe-area-inset-right)); }
+  .online-class-room--original-v3 .online-class-room__lesson-actions { order:3; flex:1 0 100%; flex-wrap:wrap; }
   .online-class-room--original-v3 .online-class-room__stage > .answers-panel,
   .online-class-room--original-v3 .online-class-room__stage > .classroom-solutions { width:188px; flex-basis:188px; }
   .whiteboard--original-v3.school-islands-board .whiteboard__surface { left:24px; right:24px; }
@@ -290,7 +335,7 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
   .online-class-room--original-v3 .online-class-room__lesson-island strong { max-width:clamp(64px,25vw,110px); font-size:12px; }
   .online-class-room--original-v3 .online-class-room__topbar { flex-wrap:wrap; overflow:visible; }
   .online-class-room--original-v3 .online-class-room__lesson-actions { order:3; flex:1 0 100%; flex-wrap:wrap; }
-  .online-class-room--original-v3 .online-class-room__lesson-actions:not(:has(button, [role='alert'], [role='alertdialog'], .recording__active, .transcription span)) { display:none; }
+  .online-class-room--original-v3 .online-class-room__lesson-actions:not(:has(button, [role='alert'], [role='alertdialog'], .recording__active, .transcription span, .online-class-room__archive-notice)) { display:none; }
   .online-class-room--original-v3 .board-switcher select { max-width:clamp(120px,34vw,150px); font-size:10px; }
   .online-class-room--original-v3 .online-class-room__stage { flex-direction:column; }
   .online-class-room--original-v3 .online-class-room__stage > .answers-panel,
@@ -329,6 +374,7 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
 
 /* Page canvases keep a fixed page identity when the reading layout changes. */
 .whiteboard--original-v3 .whiteboard__pages--paged { position:absolute; inset:0; }
+.whiteboard--original-v3 .whiteboard__view-frame { position:absolute; inset:0; overflow:hidden; }
 .whiteboard--original-v3 .whiteboard__page { margin:0; padding:0; min-width:0; }
 .whiteboard--original-v3 .whiteboard__page[hidden] { display:none!important; }
 .whiteboard--original-v3 .whiteboard__pages--paged > .whiteboard__document > .whiteboard__page { position:absolute; inset:0; }
@@ -336,10 +382,11 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
 .whiteboard--original-v3 .whiteboard__pages--continuous {
   position:absolute; inset:0; padding:var(--classroom-page-top,132px) 26px var(--classroom-page-bottom,64px);
   overflow:auto; overscroll-behavior:contain; scrollbar-width:thin;
+  overflow-anchor:none; scroll-behavior:auto;
   scrollbar-color:#535c63 transparent; scrollbar-gutter:stable; touch-action:none;
 }
 .whiteboard--original-v3 .whiteboard__pages--paged > .whiteboard__document { display:contents; }
-.whiteboard--original-v3 .whiteboard__pages--continuous > .whiteboard__document { display:flex; flex-direction:column; align-items:center; }
+.whiteboard--original-v3 .whiteboard__pages--continuous > .whiteboard__document { display:flex; flex-direction:column; align-items:center; overflow-anchor:none; }
 .whiteboard--original-v3 .whiteboard__pages--continuous > .whiteboard__document > .whiteboard__page { position:relative; flex:none; margin:0; }
 .whiteboard--original-v3.school-islands-board .whiteboard__page-surface--continuous .whiteboard__surface { inset:0; width:100%; height:100%; }
 .whiteboard--original-v3 .whiteboard__pages--locked { overflow:hidden; }
@@ -348,4 +395,34 @@ body > .board-toolbar__color-popover[role='dialog'] input { width:32px; height:2
 .whiteboard--original-v3 .board-toolbar__more-actions button[role='switch'][aria-checked='true'] { color:var(--v3-orange)!important; background:var(--v3-selected); }
 @media(max-width:600px) {
   .whiteboard--original-v3 .whiteboard__pages--continuous { padding-left:12px; padding-right:12px; }
+}
+
+/* The mirror uses the pupil's logical viewport and scales that entire scene
+   into the teacher's tile, keeping the same crop and handwriting proportions. */
+.whiteboard--original-v3.school-islands-board.whiteboard--following-student .whiteboard__page-surface .whiteboard__surface {
+  inset:0; width:100%; height:100%; border-radius:0;
+}
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__pages--continuous {
+  padding:0; overflow:hidden; scrollbar-gutter:auto;
+}
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__topline-pages,
+.whiteboard--original-v3.whiteboard--following-student .whiteboard__zoom { display:none!important; }
+.whiteboard__follow-status {
+  position:absolute; z-index:10; top:8px; left:50%; transform:translateX(-50%);
+  max-width:calc(100% - 16px); padding:6px 10px; border-radius:8px;
+  color:#e6eaed; background:#2a2f33ed; font-size:12px; text-align:center; pointer-events:none;
+}
+.student-workspaces--overview .whiteboard--compact-preview:not(.whiteboard--following-student) .whiteboard__zoom {
+  display:inline-flex!important; right:8px; bottom:8px;
+}
+.online-class-room__audio-focus {
+  display:flex; align-items:center; flex-wrap:wrap; gap:6px;
+  min-width:0; max-width:340px; font-size:12px; line-height:1.35;
+}
+.online-class-room__audio-focus button { padding:5px 8px; font-size:12px; }
+
+@media (max-height:500px) and (orientation:landscape) {
+  .online-class-room--original-v3 .online-class-room__topbar { flex-wrap:nowrap; }
+  .online-class-room--original-v3 .online-class-room__lesson-actions { order:0; flex:0 1 auto; flex-wrap:nowrap; max-width:42%; }
+  .online-class-room--original-v3 .online-class-room__board-controls { flex-basis:220px; }
 }

@@ -40,7 +40,11 @@ public record OnlineClassResponse(
         Instant entryOpensAt,
         Instant entryClosesAt,
         boolean viewerHasJoined,
-        Instant serverNow
+        Instant serverNow,
+        /** Physical media presence is separate from a lesson remaining available. */
+        String mediaState,
+        /** A current provider snapshot confirmed this room's owning teacher. */
+        boolean teacherPresent
 ) {
 
     public static OnlineClassResponse from(OnlineClass source, boolean viewerIsHost, boolean joinWindowOpen,
@@ -52,6 +56,13 @@ public record OnlineClassResponse(
     public static OnlineClassResponse from(OnlineClass source, boolean viewerIsHost, boolean joinWindowOpen,
                                            boolean recordingAvailable, boolean transcriptionAvailable,
                                            String entryState, boolean viewerHasJoined, Instant serverNow) {
+        return from(source, viewerIsHost, joinWindowOpen, recordingAvailable, transcriptionAvailable,
+                entryState, viewerHasJoined, serverNow, false);
+    }
+
+    public static OnlineClassResponse from(OnlineClass source, boolean viewerIsHost, boolean joinWindowOpen,
+                                           boolean recordingAvailable, boolean transcriptionAvailable,
+                                           String entryState, boolean viewerHasJoined, Instant serverNow, boolean teacherPresent) {
         return new OnlineClassResponse(
                 source.getId(),
                 source.getEventId(),
@@ -74,6 +85,8 @@ public record OnlineClassResponse(
                 transcriptionAvailable, entryState,
                 LessonEntryPolicy.lessonDate(source.getScheduledStartAt()),
                 LessonEntryPolicy.dayStart(source.getScheduledStartAt()),
-                LessonEntryPolicy.dayEnd(source.getScheduledStartAt()), viewerHasJoined, serverNow);
+                LessonEntryPolicy.dayEnd(source.getScheduledStartAt()), viewerHasJoined, serverNow,
+                source.isTerminal() ? "ENDED" : source.getStatus() != OnlineClassStatus.LIVE
+                        || source.getEmptySince() != null ? "IDLE" : "ACTIVE", teacherPresent);
     }
 }

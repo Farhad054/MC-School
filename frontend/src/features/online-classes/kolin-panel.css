@@ -1,0 +1,88 @@
+/* Kolyn uses the same space-taking panel and width variable as Answers. */
+.online-class-room--original-v3 .online-class-room__stage > .kolin-panel { order:2; border-right:0; border-left:1px solid #3b4348; }
+.answers-panel-resizer--right { order:1; }
+/* Keep the existing floating cameras over the board while the right panel is open. */
+.online-class-room.online-class-room--original-v3 .online-class-room__stage:has(> .kolin-panel) > .online-class-room__videos-drawer {
+  right:calc(var(--answers-panel-width,360px) + 12px + max(12px,env(safe-area-inset-right)));
+  max-width:calc(100% - var(--answers-panel-width,360px) - 36px);
+}
+.kolin-panel .kolin-panel__title { font-size:15px; }
+.kolin-panel__subtitle { margin:3px 0 0; color:var(--v3-muted); font-size:11px; line-height:1.35; }
+.kolin-panel__messages { flex:1 1 0%; min-height:0; margin:0; padding:0; overflow:auto; overscroll-behavior:contain; list-style:none; display:flex; flex-direction:column; gap:14px; }
+.kolin-panel__welcome { color:var(--v3-muted); font-size:13px; line-height:1.5; }
+.kolin-panel__welcome p { margin:8px 0 0; }
+.kolin-panel__message { padding:10px; border-radius:9px; background:var(--v3-raised); color:var(--v3-text); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.kolin-panel__message--user { margin-left:16px; background:#39434b; }
+.kolin-panel__message--assistant { margin-right:8px; }
+.kolin-panel__speaker { display:block; color:var(--v3-muted); font-size:10px; margin-bottom:4px; }
+.kolin-panel__message p { margin:0; white-space:pre-wrap; }
+.kolin-panel__transcript-context { display:flex; flex-direction:column; gap:3px; margin-top:8px; padding-top:7px; border-top:1px solid var(--v3-edge); color:var(--v3-muted); font-size:10px; line-height:1.4; }
+.kolin-panel__status { margin:0; font-size:12px; color:var(--v3-muted); }
+.kolin-panel__error { font-size:12px; color:#f1a4a4; }
+.kolin-panel__error p { margin:0 0 8px; }
+.kolin-panel__error button { width:100%; }
+.kolin-panel__form { display:flex; flex-wrap:wrap; gap:8px; margin:0; }
+.kolin-panel__form textarea { box-sizing:border-box; width:100%; min-width:0; resize:none; padding:10px; border:1px solid var(--v3-edge); border-radius:8px; background:var(--v3-raised); color:var(--v3-text); font:inherit; font-size:13px; line-height:1.4; }
+.kolin-panel__form button,.kolin-panel__error button { min-height:34px; padding:6px 12px; border:1px solid var(--v3-edge); border-radius:8px; background:var(--v3-raised); color:var(--v3-text); font:inherit; font-size:12px; cursor:pointer; }
+.kolin-panel__form button { margin-left:auto; }
+.kolin-panel button:disabled { opacity:.5; cursor:default; }
+.kolin-worksheet { display:flex; flex-direction:column; gap:10px; min-width:0; margin-top:8px; }
+.kolin-worksheet__summary { display:flex; align-items:center; gap:12px; min-width:0; }
+.kolin-worksheet__summary > div { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.kolin-worksheet__summary strong { font-size:13px; overflow-wrap:anywhere; }
+.kolin-worksheet__summary span { color:var(--v3-muted); font-size:11px; }
+.kolin-worksheet__thumbnail { flex:0 0 64px; width:64px; height:88px; padding:0; overflow:hidden; border:1px solid var(--v3-edge); border-radius:5px; background:#fff; cursor:zoom-in; }
+.kolin-worksheet__thumbnail img { display:block; width:100%; height:100%; object-fit:contain; }
+.kolin-worksheet__thumbnail > span { color:#525c66; font-weight:700; }
+.kolin-worksheet__add { width:100%; min-height:40px; padding:8px 10px; border:1px solid #85b6a5; border-radius:7px; background:#38594f; color:#fff; font:inherit; font-size:12px; cursor:pointer; }
+.kolin-worksheet__error { color:#f1a4a4; font-size:11px; line-height:1.4; }
+.kolin-worksheet button:focus-visible,.kolin-pdf-preview button:focus-visible { outline:2px solid #99cfbf; outline-offset:3px; }
+.kolin-pdf-preview { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:20px; background:#000b; }
+.kolin-pdf-preview__dialog { display:flex; flex-direction:column; width:min(780px,100%); max-height:calc(100dvh - 40px); min-height:180px; overflow:auto; border:1px solid #536069; border-radius:12px; background:#252d33; color:#eef2f4; box-shadow:0 20px 80px #0008; }
+.kolin-pdf-preview__dialog > header { position:sticky; top:0; z-index:1; display:flex; flex-shrink:0; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; background:#252d33; }
+.kolin-pdf-preview__dialog > header strong { min-width:0; overflow-wrap:anywhere; font-size:14px; }
+.kolin-pdf-preview__dialog > header button { flex:0 0 40px; width:40px; height:40px; border:0; border-radius:7px; background:#39454e; color:#fff; font-size:24px; cursor:pointer; }
+.kolin-pdf-preview__pages { display:flex; flex-direction:column; gap:12px; padding:0 12px 12px; }
+.kolin-pdf-preview__pages canvas { display:block; width:100%; height:auto; background:#fff; }
+.kolin-pdf-preview__dialog > p { margin:16px; font-size:13px; }
+@media(max-width:600px) {
+  .online-class-room--original-v3 .online-class-room__stage:has(> .kolin-panel) { --kolin-mobile-panel-height:min(68%,calc(var(--classroom-header-height) + 270px)); }
+  .online-class-room--original-v3 .online-class-room__stage:has(> .answers-panel-resizer) > .kolin-panel { order:-1; border-left:0; flex:0 0 var(--kolin-mobile-panel-height); max-height:68%; }
+  .online-class-room.online-class-room--original-v3 .online-class-room__stage:has(> .kolin-panel) > .online-class-room__videos-drawer { top:calc(var(--kolin-mobile-panel-height) + 68px); right:max(12px,env(safe-area-inset-right)); max-width:calc(100% - 24px); }
+  .kolin-panel__messages { min-height:64px; }
+  .kolin-panel__form { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; flex-shrink:0; }
+  .kolin-panel__form textarea { font-size:16px; min-height:64px; }
+  .kolin-panel__form button { margin-left:0; }
+  .kolin-panel__form button,.kolin-panel__error button { min-height:44px; }
+  .kolin-worksheet__add { min-height:44px; }
+  .kolin-pdf-preview { padding:8px; }
+  .kolin-pdf-preview__dialog { max-height:calc(100dvh - 16px); border-radius:8px; }
+  .kolin-pdf-preview__pages { padding:0 6px 6px; gap:8px; }
+}
+.kolin-review { display: grid; gap: 6px; margin: 12px 0; font-size: 12px; }
+.kolin-review__thumbnail { width: fit-content; padding: 4px; border: 1px solid #8b9fa3; border-radius: 6px; background: white; cursor: zoom-in; }
+.kolin-review__thumbnail img { display: block; width: 96px; max-height: 144px; object-fit: contain; }
+.kolin-review small { color: #becbd2; }
+.kolin-review__dialog { width: min(900px, 92vw); max-height: 92dvh; padding: 12px; border: 1px solid #687980; border-radius: 10px; background: #252b2f; color: white; }
+.kolin-review__dialog::backdrop { background: #000a; }
+.kolin-review__dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.kolin-review__dialog > img { display: block; width: 100%; height: auto; }
+
+/* Rich, accessible math feedback. Visual status is always labelled, not colour-only. */
+.kolin-rich { display:grid; gap:9px; font-size:13px; line-height:1.65; }
+.kolin-rich p { margin:0; overflow-wrap:anywhere; white-space:pre-wrap; }
+.kolin-rich h4 { margin:10px 0 0; font-size:13px; font-weight:750; color:var(--v3-text); }
+.kolin-rich__callout { display:flex; align-items:flex-start; gap:9px; border:1px solid transparent; border-radius:8px; padding:9px 11px; }
+.kolin-rich__callout-icon { flex:0 0 17px; font-size:14px; font-weight:750; line-height:1.6; }
+.kolin-rich__callout--correct { background:rgba(22,163,74,.13); border-color:rgba(74,222,128,.35); color:#bbf7d0; }
+.kolin-rich__callout--incorrect { background:rgba(220,38,38,.12); border-color:rgba(248,113,113,.36); color:#fecaca; }
+.kolin-rich__callout--tip { background:rgba(59,130,246,.13); border-color:rgba(147,197,253,.3); color:#dbeafe; }
+.kolin-rich__callout--warning { background:rgba(234,179,8,.12); border-color:rgba(253,224,71,.33); color:#fef08a; }
+.kolin-rich__list-item { display:flex; gap:7px; align-items:flex-start; }
+.kolin-rich__list-item > span { min-width:16px; font-weight:750; opacity:.8; }
+.kolin-rich__math,.kolin-rich__formula { font-family:"Cambria Math", "STIX Two Math", Georgia,serif; font-size:1.08em; }
+.kolin-rich__formula { padding:8px 11px; text-align:center; overflow-wrap:anywhere; background:rgba(255,255,255,.05); border-radius:7px; }
+.kolin-rich__fraction { display:inline-flex; flex-direction:column; align-items:center; justify-content:center; vertical-align:middle; font-size:.85em; line-height:1.1; margin:0 .12em; }
+.kolin-rich__fraction > span:first-child { border-bottom:1px solid currentColor; padding:0 .15em .08em; }
+.kolin-rich__fraction > span:last-child { padding:.08em .15em 0; }
+.kolin-rich code { font-family:ui-monospace,monospace; font-size:.94em; background:rgba(255,255,255,.08); border-radius:4px; padding:1px 4px; }

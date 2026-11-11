@@ -9,7 +9,7 @@ import { StudentsPage } from './StudentsPage';
 vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
   return { ...actual, api: { ...actual.api,
-    students: { ...actual.api.students, list: vi.fn(), create: vi.fn(), reviewHistory: vi.fn() },
+    students: { ...actual.api.students, list: vi.fn(), create: vi.fn(), updateLearningProfile: vi.fn().mockResolvedValue({}), reviewHistory: vi.fn() },
     cards: { ...actual.api.cards, summaryForStudent: vi.fn() },
     homeworks: { ...actual.api.homeworks, listForStudent: vi.fn() },
   } };
@@ -26,6 +26,7 @@ describe('teacher student cards', () => {
     vi.mocked(api.cards.summaryForStudent).mockResolvedValue({ total: 4, dueNow: 2, awaitingRepetition: 1, learned: 1 });
     vi.mocked(api.homeworks.listForStudent).mockResolvedValue([]);
     vi.mocked(api.students.reviewHistory).mockResolvedValue([]);
+    vi.mocked(api.students.updateLearningProfile).mockResolvedValue({} as StudentListItem);
   });
 
   it('filters students by name and grade without changing the active/inactive counts', async () => {
@@ -64,6 +65,7 @@ describe('teacher student cards', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Имя ученика' }), { target: { value: 'Новый ученик' } });
     fireEvent.click(screen.getByRole('button', { name: 'Добавить ученика' }));
     await waitFor(() => expect(api.students.create).toHaveBeenCalledWith('Новый ученик',''));
+    expect(api.students.updateLearningProfile).toHaveBeenCalledWith('4', expect.objectContaining({ grade: 5, schoolType: 'GYMNASIUM' }));
     expect(await screen.findByRole('status')).toHaveTextContent('student-4');
     expect(screen.queryByRole('textbox', { name: 'Имя ученика' })).not.toBeInTheDocument();
   });

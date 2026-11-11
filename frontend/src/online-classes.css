@@ -1968,12 +1968,6 @@
   height: max(620px, calc(100dvh - 180px));
   min-height: 0;
 }
-@media (min-width: 901px) {
-  .online-class-room__stage--notebook > .online-class-room__videos-drawer.is-open {
-    position: relative;
-    flex: 0 0 clamp(160px, 23vw, 250px);
-  }
-}
 @media (max-width: 700px) {
   .online-class-room__notebook { padding: 6px 6px calc(85px + env(safe-area-inset-bottom)); }
   .online-class-room__notebook .notebook-camera { padding: 10px; }
@@ -2024,6 +2018,23 @@
 }
 .student-workspaces[hidden], .student-workspace[hidden],
 .student-workspace__board[hidden], .student-workspace__camera-board[hidden] { display: none; }
+.student-workspace .online-class-room__student-tile-header { flex-wrap: wrap; }
+.student-workspace .online-class-room__student-tile-header strong { min-width: 0; }
+.student-workspace .online-class-room__student-tile-header button { flex-shrink: 0; }
+.student-workspace .online-class-room__student-tile-header .student-workspace__follow {
+  min-height: 28px;
+  white-space: nowrap;
+}
+.student-workspace .online-class-room__student-tile-header .student-workspace__follow[aria-pressed='true'] {
+  border-color: #2563a9;
+  background: #e7f1ff;
+  color: #174d8a;
+}
+.online-class-room--original-v3 .student-workspace .online-class-room__student-tile-header .student-workspace__follow[aria-pressed='true'] {
+  border-color: var(--v3-orange, #ff812f);
+  background: var(--v3-selected, #553824);
+  color: var(--v3-orange, #ff812f);
+}
 .student-workspace__kind {
   flex-shrink: 0;
   margin-left: auto;
@@ -2047,12 +2058,6 @@
 .student-workspaces--overview .whiteboard__topline-pages,
 .student-workspaces--overview .whiteboard__zoom,
 .student-workspaces--overview .whiteboard__notice { display: none !important; }
-@media (min-width: 901px) {
-  .online-class-room__stage--student-workspaces > .online-class-room__videos-drawer.is-open {
-    position: relative;
-    flex: 0 0 clamp(160px, 23vw, 250px);
-  }
-}
 @media (max-width: 600px) {
   .student-workspaces { padding: 4px 4px calc(72px + env(safe-area-inset-bottom)); }
   .student-workspaces--overview { gap: 4px; }

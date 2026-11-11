@@ -60,6 +60,23 @@ class ManualLessonPersistenceIntegrationTest {
 
     private AuthenticatedUser caller(User user) { return new AuthenticatedUser(user.getId(), null, user.getRole()); }
 
+    @Test
+    void savedScheduleIsTeacherScopedExcludesDeletedLessonsAndNeverContactsGoogle() {
+        var own = teacher();
+        var other = teacher();
+        var start = Instant.parse("2026-11-10T14:00:00Z");
+        var request = new CreateLessonRequest("Saved schedule", start, start.plusSeconds(3600), null, null);
+        var kept = service.create(caller(own), request);
+        var deleted = service.create(caller(own), request);
+        var foreign = service.create(caller(other), request);
+        service.delete(caller(own), deleted.eventId());
+        org.mockito.Mockito.clearInvocations(oauth);
+        when(oauth.accessTokenForTeacher(own.getId())).thenThrow(new IllegalStateException("Google unavailable"));
+        assertThat(calendar.listSavedGroupLessons(caller(own))).extracting(GroupLessonResponse::eventId)
+                .containsExactly(kept.eventId()).doesNotContain(deleted.eventId(), foreign.eventId());
+        org.mockito.Mockito.verifyNoInteractions(oauth);
+    }
+
     private CreateLessonSeriesRequest series(String title) {
         return new CreateLessonSeriesRequest(title, LocalDate.of(2026, 11, 5), 45,
                 CreateLessonSeriesRequest.Period.TWO_WEEKS, Set.of(4), null, null);

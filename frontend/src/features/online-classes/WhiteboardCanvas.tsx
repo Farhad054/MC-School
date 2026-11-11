@@ -1,4 +1,6 @@
 import Konva from 'konva';
+import { drawInteractive, type InteractiveSpec } from './interactiveTemplates';
+import { InteractiveTemplate } from './InteractiveTemplate';
 import {
   forwardRef,
   useCallback,
@@ -8,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import { Arrow, Circle, Ellipse, Image as KonvaImage, Layer, Line, Rect, Shape as KonvaShape, Stage, Text } from 'react-konva';
 import {
@@ -36,6 +39,8 @@ import { normalizedTextSize, shapeTextSizePx, textStyleFor } from './textStyles'
 import { TabletBoardNavigation } from './tabletBoardNavigation';
 import type { DocumentGesture } from './documentGesture';
 import { canvasBackingRatio } from './canvasBacking';
+import { wheelDeltaPixels, wheelZoomScale } from './wheelGesture';
+import { useDocumentCanvasViewport } from './useDocumentCanvasViewport';
 import type { DocumentRenderer } from '../notebook-camera/cameraModules';
 import {
   createNotebookProjection,
@@ -69,6 +74,8 @@ const SAMPLE_INTERVAL_MS = 16;
 /** Hit tolerance for the eraser and selection, in normalized units. */
 const HIT_TOLERANCE = 0.015;
 
+const sameView = (a: PageView, b: PageView) => a.zoom === b.zoom && a.panX === b.panX && a.panY === b.panY;
+
 export interface WhiteboardCanvasHandle {
   /** PNG of the board as currently drawn, or null before it has a size. */
   toDataURL: (mimeType?: 'image/png' | 'image/jpeg') => string | null;
@@ -76,6 +83,8 @@ export interface WhiteboardCanvasHandle {
   getSize: () => { width: number; height: number };
   /** Parent owns a multi-touch document gesture, including contacts on other pages. */
   setDocumentNavigation?: (active: boolean) => void;
+  /** Zoom from the page's surrounding margin using the same local RAF queue. */
+  zoomAt?: (scale: number, clientPoint: Point) => void;
 }
 
 export interface RemoteLaser {
@@ -86,6 +95,7 @@ export interface RemoteLaser {
 
 interface Props {
   shapes: RenderableShape[];
+  onInteractiveCommit?: (operationId:string,spec:InteractiveSpec,revision:string)=>Promise<string|undefined>;
   tool: Tool;
   color: string;
   strokeWidth: number;
@@ -93,6 +103,10 @@ interface Props {
   textFontSize?: number;
   textBold?: boolean;
   sourceAspect: number | null;
+  /** Report the actual drawing viewport, including a notebook's projected aspect. */
+  onViewportChange?: (viewport: { width: number; height: number }, aspect: number | null) => void;
+  /** Independent local/remote views reuse the canvas without sharing resize offsets. */
+  viewScope?: string;
   readOnly?: boolean;
   eraserMode?: EraserMode;
   inputMode?: InputMode;
@@ -104,6 +118,8 @@ interface Props {
   onDocumentGesture?: (gesture: DocumentGesture) => void;
   /** Native iPad Pencil may have no Pointer Events for the document parent. */
   onDocumentPenContact?: (active: boolean) => void;
+  /** Lesson boards opt in; worksheets keep their ordinary wheel scrolling. */
+  wheelAction?: 'pan' | 'zoom';
   /** Student under follow mode: the canvas may not be moved by the viewer. */
   navigationLocked?: boolean;
   /** Rendered page content (PDF page) under the marks. */
@@ -143,6 +159,7 @@ interface Props {
 export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(function WhiteboardCanvas(
   {
     shapes,
+    onInteractiveCommit,
     tool,
     color,
     strokeWidth,
@@ -150,6 +167,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     textFontSize = 24,
     textBold = false,
     sourceAspect,
+    onViewportChange,
+    viewScope = 'local',
     readOnly = false,
     eraserMode = 'partial',
     inputMode = 'finger',
@@ -158,6 +177,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     onScrollGesture,
     onDocumentGesture,
     onDocumentPenContact,
+    wheelAction = 'pan',
     navigationLocked = false,
     background = null,
     notebookView = null,
@@ -182,12 +202,67 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   const tabletNavigation = useMemo(() => new TabletBoardNavigation(), []);
   const onViewChangeRef = useRef(onViewChange);
   onViewChangeRef.current = onViewChange;
+  // Wheel input can arrive several times before React commits its first view.
+  // Accumulate against the latest requested transform and publish once per frame.
+  const wheelView = useRef(view);
+  const controlledView = useRef(view);
+  const pendingWheelView = useRef<PageView | null>(null);
+  const publishedWheelViews = useRef<PageView[]>([]);
+  const wheelFrame = useRef<number | null>(null);
+  if (!sameView(controlledView.current, view)) {
+    controlledView.current = view;
+    const acknowledged = publishedWheelViews.current.findIndex(previous => sameView(previous, view));
+    if (acknowledged >= 0) {
+      publishedWheelViews.current.splice(0, acknowledged + 1);
+      if (!pendingWheelView.current && !publishedWheelViews.current.length) wheelView.current = view;
+    } else {
+      // Toolbar/follow updates supersede local wheel input.
+      wheelView.current = view;
+      pendingWheelView.current = null;
+      publishedWheelViews.current = [];
+    }
+  }
+  useLayoutEffect(() => {
+    if (wheelFrame.current !== null) window.cancelAnimationFrame(wheelFrame.current);
+    wheelFrame.current = null;
+    pendingWheelView.current = null;
+    publishedWheelViews.current = [];
+    wheelView.current = controlledView.current = view;
+    return () => {
+      if (wheelFrame.current !== null) window.cancelAnimationFrame(wheelFrame.current);
+      wheelFrame.current = null;
+      pendingWheelView.current = null;
+    };
+  }, [pageKey, viewScope, navigationLocked, active]);
+  const cancelWheelView = () => {
+    if (wheelFrame.current !== null) window.cancelAnimationFrame(wheelFrame.current);
+    wheelFrame.current = null;
+    pendingWheelView.current = null;
+    publishedWheelViews.current = [];
+    wheelView.current = controlledView.current;
+  };
+  const queueWheelView = (next: PageView) => {
+    if (sameView(wheelView.current, next)) return;
+    wheelView.current = next;
+    pendingWheelView.current = next;
+    if (wheelFrame.current !== null) return;
+    wheelFrame.current = window.requestAnimationFrame(() => {
+      wheelFrame.current = null;
+      const pending = pendingWheelView.current;
+      pendingWheelView.current = null;
+      if (!pending) return;
+      publishedWheelViews.current = [...publishedWheelViews.current.slice(-7), pending];
+      onViewChangeRef.current?.(pending);
+    });
+  };
   const onScrollGestureRef = useRef(onScrollGesture);
   onScrollGestureRef.current = onScrollGesture;
   const onDocumentGestureRef = useRef(onDocumentGesture);
   onDocumentGestureRef.current = onDocumentGesture;
   const activeRef = useRef(active);
   activeRef.current = active;
+  const wheelActionRef = useRef(wheelAction);
+  wheelActionRef.current = wheelAction;
   const documentPenCallback = useRef(onDocumentPenContact);
   documentPenCallback.current = onDocumentPenContact;
   const nativePenContact = useRef(false);
@@ -205,10 +280,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     [notebookView?.renderer, notebookView?.rawWidth, notebookView?.rawHeight, projectionKey]);
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
-  // A document pinch changes the surrounding DOM sheet size on every frame.
-  // Keep Konva's backing canvases at a stable logical resolution while the
-  // browser scales their common composited stage (PDF + ink) on the GPU.
-  // Resizing Konva itself on every move clears its backing buffers and flashes.
+  // Preserve the vector scene's coordinates during a document pinch. The
+  // visible raster window below redraws this geometry at the current scale;
+  // stretching a fixed backing canvas with CSS would blur the ink at 500%.
   const documentCanvas = Boolean(onDocumentGesture) && !projection;
   const fixedDocumentViewport = useRef<{ width: number; height: number } | null>(null);
   if (!documentCanvas) {
@@ -222,16 +296,21 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   }
   const sceneViewport = projection?.rawSize ?? (documentCanvas ? fixedDocumentViewport.current ?? viewport : viewport);
   const sceneAspect = projection ? notebookView!.rawWidth / notebookView!.rawHeight : sourceAspect;
-  const documentStageStyle = documentCanvas && sceneViewport.width > 0 && sceneViewport.height > 0
-    ? { transformOrigin: 'top left', transform: `scale(${viewport.width / sceneViewport.width}, ${viewport.height / sceneViewport.height})` }
-    : undefined;
+  const viewportCallback = useRef(onViewportChange);
+  viewportCallback.current = onViewportChange;
+  useLayoutEffect(() => {
+    if (viewport.width > 0 && viewport.height > 0) {
+      viewportCallback.current?.(viewport, projection?.aspect ?? sourceAspect);
+    }
+  }, [viewport.width, viewport.height, projection?.aspect, sourceAspect]);
   const notebookPresentation = useMemo(() => notebookStagePresentation(projection, viewport, view, sceneAspect ?? 1),
     [projection, sceneAspect, viewport.width, viewport.height, view.zoom, view.panX, view.panY]);
-  const boundLayerBacking = (size: { width: number; height: number }, onlyReduce = false) => {
+  const boundLayerBacking = (size: { width: number; height: number }, onlyReduce = false, density = window.devicePixelRatio) => {
     // Set lower ratios before React resizes the stage, so zooming the document
     // never temporarily allocates a full-resolution, multi-megapixel layer.
-    const ratio = projectionRef.current ? 1 : canvasBackingRatio(size.width, size.height, window.devicePixelRatio,
+    const ratio = projectionRef.current ? 1 : canvasBackingRatio(size.width, size.height, density,
       Boolean(onDocumentGestureRef.current && !activeRef.current));
+    let resized = false;
     for (const layer of stageRef.current?.getLayers() ?? []) {
       let changed = false;
       for (const [canvas, requested] of [[layer.getCanvas(), ratio], [layer.getHitCanvas?.(), Math.min(1, ratio)]] as const) {
@@ -242,9 +321,27 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       }
       // Updating a backing ratio clears it even when no Konva props changed
       // (e.g. a retained page re-enters the viewport). Repaint its existing ink.
-      if (changed) layer.batchDraw?.();
+      if (changed) { resized = true; layer.batchDraw?.(); }
     }
+    return resized;
   };
+  const documentWindow = useDocumentCanvasViewport(containerRef, documentCanvas, viewport, active,
+    next => {
+      const stage = stageRef.current;
+      // Konva sets width and height separately. Bound the intermediate size
+      // as well when rotating between a wide and a tall viewport.
+      const envelope = { width: Math.max(stage?.width?.() ?? 0, next.width),
+        height: Math.max(stage?.height?.() ?? 0, next.height) };
+      if (boundLayerBacking(envelope, true, next.pixelRatio)) stage?.draw();
+    });
+  const stageViewport = documentCanvas ? documentWindow ?? { width: 1, height: 1 } : sceneViewport;
+  const documentScaleX = documentCanvas && sceneViewport.width > 0 ? viewport.width / sceneViewport.width : 1;
+  const documentScaleY = documentCanvas && sceneViewport.height > 0 ? viewport.height / sceneViewport.height : 1;
+  const documentStageStyle: CSSProperties | undefined = documentCanvas ? {
+    position: 'absolute', left: documentWindow?.x ?? 0, top: documentWindow?.y ?? 0,
+    width: stageViewport.width, height: stageViewport.height,
+    visibility: documentWindow?.visible ? 'visible' : 'hidden', pointerEvents: 'none',
+  } : undefined;
   const projectedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const projectorRef = useRef<{ renderer: DocumentRenderer; renderFrame: () => void } | null>(null);
   const projectionPainted = useRef(false);
@@ -280,9 +377,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
         return projectionPainted.current ? projectedCanvasRef.current?.toDataURL(mimeType, 0.9) ?? null : null;
       }
       const size = live.current.viewport;
-      return stageRef.current?.toDataURL({ pixelRatio: canvasBackingRatio(size.width, size.height, 1), mimeType, quality: 0.9 }) ?? null;
+      return stageRef.current?.toDataURL({
+        // Konva exports directly from the complete vector scene, including
+        // marks outside the small live raster. Undo only the window's origin.
+        ...(documentCanvas ? { x: -(documentWindow?.x ?? 0), y: -(documentWindow?.y ?? 0), width: size.width, height: size.height } : {}),
+        pixelRatio: canvasBackingRatio(size.width, size.height, 1), mimeType, quality: 0.9,
+      }) ?? null;
     },
     getSize: () => live.current.viewport,
+    zoomAt: (scale, clientPoint) => zoomAtClient(scale, clientPoint),
     setDocumentNavigation: active => {
       if (externalNavigation.current === active) return;
       // This flag must change before cancelling the draft: the parent calls us
@@ -306,8 +409,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   }, [active, backgroundLive, background, Boolean(projection)]);
 
   useLayoutEffect(() => {
-    boundLayerBacking(sceneViewport);
-  }, [sceneViewport.width, sceneViewport.height, Boolean(projection), active, Boolean(onDocumentGesture)]);
+    boundLayerBacking(stageViewport, false, documentCanvas ? documentWindow?.pixelRatio ?? 1 : window.devicePixelRatio);
+    // Canvas resize/ratio changes clear its pixels. Repaint in the same layout
+    // phase so a pinch or page activation cannot expose an empty frame.
+    if (documentCanvas) stageRef.current?.draw();
+  }, [stageViewport.width, stageViewport.height, Boolean(projection), active, documentCanvas,
+    documentWindow?.x, documentWindow?.y, documentWindow?.pixelRatio, documentScaleX, documentScaleY]);
 
   // Keep the existing raster projection ONLY for snapshots/exports. The live
   // board displays its ordinary layers directly via notebookPresentation;
@@ -389,6 +496,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
   // answers column. Annotations remain normalized; only pixel pan is rescaled
   // so no old zoom offset pushes the displayed page outside the new viewport.
   const previousViewport = useRef<{ width: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    previousViewport.current = null;
+  }, [viewScope]);
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
@@ -404,10 +514,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
         }
       }
       previousViewport.current = next;
-      // Use the stable sheet size when pinching. Changing a Konva canvas pixel
-      // ratio during a gesture clears its pixels before Konva can repaint.
-      boundLayerBacking(projectionRef.current?.rawSize ?? (onDocumentGestureRef.current
-        ? fixedDocumentViewport.current ?? next : next), true);
+      // Document windows prepare their bounded backing before changing the
+      // window size. Their full logical sheet must never become a raster.
+      if (!onDocumentGestureRef.current || projectionRef.current) {
+        boundLayerBacking(projectionRef.current?.rawSize ?? next, true);
+      }
       setViewport(current =>
         current.width === next.width && current.height === next.height ? current : next,
       );
@@ -638,6 +749,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     for (const intent of intents) {
       switch (intent.type) {
         case 'stroke-start':
+          // Both Pointer Events and native Pencil input enter here. Keep the
+          // transform fixed once ink begins, even if wheel input preceded it
+          // in the same animation frame.
+          cancelWheelView();
           if (!live.current.readOnly || live.current.tool === 'laser') startStroke(intent.point, intent.pointerKind === 'pen' ? intent.pressure : undefined);
           break;
         case 'stroke-move':
@@ -782,7 +897,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       onEnd(point, meta, cancelled) {
         if (meta.device === 'mouse') return;
         if (externalNavigation.current && meta.device === 'finger') return;
-        if (!cancelled && controller.isDrawing) {
+        // Recovery supplies the last delivered sample, not a new lift position.
+        // The sheet may have moved or resized since that client coordinate.
+        if (!cancelled && !meta.recovered && controller.isDrawing) {
           moveStroke(local(point.clientX, point.clientY), point.pressure, true);
         }
         applyInkIntentsRef.current(controller.up(meta.inputId, cancelled));
@@ -829,21 +946,32 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     };
   }, [controller, tabletNavigation, textEdit]);
 
+  const zoomAtClient = (scale: number, clientPoint: Point) => {
+    if (!activeRef.current || lockedRef.current || controller.isDrawing || !Number.isFinite(scale) || scale <= 0) return;
+    if (onDocumentGestureRef.current) {
+      onDocumentGestureRef.current({ scale, anchor: clientPoint, pan: { x: 0, y: 0 } });
+    } else if (onViewChangeRef.current) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      const local = { x: clientPoint.x - (rect?.left ?? 0), y: clientPoint.y - (rect?.top ?? 0) };
+      queueWheelView(zoomAbout(wheelView.current, wheelView.current.zoom * scale, local, live.current.viewport));
+    }
+  };
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    if (navigationLocked || controller.isDrawing) { if (onScrollGesture || onDocumentGesture) event.stopPropagation(); return; }
-    const local = localPoint(event);
-    // Ctrl/⌘ + wheel (and trackpad pinch, which arrives the same way) zooms;
-    // a plain wheel scrolls the zoomed page.
-    if (event.ctrlKey || event.metaKey) {
+    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (!active || navigationLocked || controller.isDrawing) { if (onScrollGesture || onDocumentGesture) event.stopPropagation(); return; }
+    // Ordinary trackpad movement scrolls. Zoom requires an explicit modifier
+    // or a consumer that separately opts into wheel zoom.
+    if (event.ctrlKey || event.metaKey || (wheelAction === 'zoom' && event.deltaY !== 0)) {
       event.stopPropagation();
-      if (onDocumentGestureRef.current) {
-        onDocumentGestureRef.current({ scale: Math.exp(-event.deltaY * 0.01), anchor: { x: event.clientX, y: event.clientY }, pan: { x: 0, y: 0 } });
-      } else onViewChange?.(zoomAbout(view, view.zoom * Math.exp(-event.deltaY * 0.01), local, viewport));
+      zoomAtClient(wheelZoomScale(event, live.current.viewport.height), { x: event.clientX, y: event.clientY });
     } else if (onScrollGesture) {
       event.stopPropagation();
-      onScrollGesture(event.deltaX, event.deltaY);
-    } else if (view.zoom > 1) {
-      onViewChange?.(panBy(view, -event.deltaX, -event.deltaY, viewport));
+      const delta = wheelDeltaPixels(event, live.current.viewport.height);
+      onScrollGesture(delta.x, delta.y);
+    } else if (wheelView.current.zoom > 1 && onViewChangeRef.current) {
+      event.stopPropagation();
+      const delta = wheelDeltaPixels(event, live.current.viewport.height);
+      queueWheelView(panBy(wheelView.current, -delta.x, -delta.y, live.current.viewport));
     }
   };
   useEffect(() => {
@@ -852,7 +980,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     // React's wheel listener is passive in browsers. Prevent native scrolling
     // separately, so one wheel event cannot move the document twice.
     const preventNativeWheel = (event: WheelEvent) => {
-      if (onScrollGestureRef.current || ((event.ctrlKey || event.metaKey) && (onViewChangeRef.current || onDocumentGestureRef.current))) event.preventDefault();
+      if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (onScrollGestureRef.current || ((event.ctrlKey || event.metaKey || (wheelActionRef.current === 'zoom' && event.deltaY !== 0)) && (onViewChangeRef.current || onDocumentGestureRef.current))
+          || (wheelView.current.zoom > 1 && onViewChangeRef.current)) event.preventDefault();
     };
     surface.addEventListener('wheel', preventNativeWheel, { passive: false });
     return () => surface.removeEventListener('wheel', preventNativeWheel);
@@ -916,6 +1046,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     const opacity = (shape.kind === 'highlighter' ? 0.35 : 1) * (dim ? 0.7 : 1);
 
     switch (shape.kind) {
+      case 'interactive': {
+        if(!shape.interactive)return null;
+        const origin=toPixels({x:shape.x??0,y:shape.y??0},sceneViewport,sceneAspect),box=letterbox(sceneViewport,sceneAspect);
+        return <KonvaShape key={key} sceneFunc={context=>drawInteractive(context._context,shape.interactive!,origin.x,origin.y,(shape.w??0)*box.width,(shape.h??0)*box.height)}/>;
+      }
       case 'pen': {
         const outline = penOutline(shape, sceneViewport, sceneAspect);
         return <KonvaShape key={key} fill={stroke} opacity={opacity}
@@ -1054,19 +1189,19 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
         spaceHeld.current = false;
       }}
       onContextMenu={(event) => event.preventDefault()}
-      style={{ touchAction: 'none', overflow: projection ? 'hidden' : undefined }}
+      style={{ touchAction: 'none', overflow: projection || documentCanvas ? 'hidden' : undefined }}
     >
       {/* Export-only canvas: never cover the ordinary live ink layers. */}
       {projection && <canvas ref={projectedCanvasRef} aria-hidden="true" data-notebook-projection=""
         hidden style={{ display: 'none' }} />}
       <Stage
         ref={stageRef}
-        width={sceneViewport.width}
-        height={sceneViewport.height}
-        x={projection ? 0 : view.panX}
-        y={projection ? 0 : view.panY}
-        scaleX={projection ? 1 : view.zoom}
-        scaleY={projection ? 1 : view.zoom}
+        width={stageViewport.width}
+        height={stageViewport.height}
+        x={projection ? 0 : view.panX * documentScaleX - (documentWindow?.x ?? 0)}
+        y={projection ? 0 : view.panY * documentScaleY - (documentWindow?.y ?? 0)}
+        scaleX={projection ? 1 : view.zoom * documentScaleX}
+        scaleY={projection ? 1 : view.zoom * documentScaleY}
         style={projection ? notebookPresentation ?? { position: 'absolute', visibility: 'hidden', pointerEvents: 'none' } : documentStageStyle}
         listening={false}
       >
@@ -1124,6 +1259,21 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
           })}
         </Layer>
       </Stage>
+      {!projection && onInteractiveCommit && shapes.filter(entry=>entry.shape.kind==='interactive' && entry.shape.interactive).map(entry=>{
+        const shape=entry.shape,origin=toPixels({x:shape.x??0,y:shape.y??0},sceneViewport,sceneAspect);
+        const width=(shape.w??0)*backgroundBox.width,height=(shape.h??0)*backgroundBox.height;
+        const fit=Math.min(width/500,height/440);
+        const x=(origin.x+(width-500*fit)/2)*view.zoom*documentScaleX+view.panX*documentScaleX;
+        const y=(origin.y+(height-440*fit)/2)*view.zoom*documentScaleY+view.panY*documentScaleY;
+        return <div key={entry.operationId} className="interactive-board-inline" data-tablet-no-ink=""
+          style={{left:x,top:y,transform:`scale(${fit*view.zoom*documentScaleX},${fit*view.zoom*documentScaleY})`}}
+          onPointerDown={event=>event.stopPropagation()} onPointerMove={event=>event.stopPropagation()}
+          onPointerUp={event=>event.stopPropagation()} onPointerCancel={event=>event.stopPropagation()}
+          onKeyDown={event=>event.stopPropagation()} onKeyUp={event=>event.stopPropagation()}>
+          <InteractiveTemplate spec={shape.interactive!} revision={entry.interactionRevision??entry.operationId} disabled={effectiveReadOnly}
+            onCommit={(spec,revision)=>onInteractiveCommit(entry.operationId,spec,revision)}/>
+        </div>;
+      })}
 
       {projectionError && <div className="whiteboard__ink-save-alert" role="alert" data-tablet-no-ink=""
         onPointerDown={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}>

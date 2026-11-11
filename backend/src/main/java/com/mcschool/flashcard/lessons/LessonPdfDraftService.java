@@ -10,6 +10,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.text.Normalizer;
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -78,12 +79,12 @@ public class LessonPdfDraftService {
         String plan = limited(input.get("lessonPlan"), "", 10_000);
         String difficulties = limited(input.get("difficulties"), "", 5_000);
         List<Task> tasks = parseTasks(input.get("tasks"));
-        BufferedImage officialLogo = extractOfficialLogo(guideService.pdfForStaff(teacher).bytes());
-
-        byte[] workbook = render(title, calendarTitle, tasks, officialLogo, false, plan);
-        byte[] answers = render(title, calendarTitle, tasks, officialLogo, true, plan);
-        int workbookPages = verifyPdf(workbook, officialLogo, "Arbeitsblatt");
-        int answersPages = verifyPdf(answers, officialLogo, "Loesungen");
+        // Temporarily produce logo-free worksheets; preserve orange text branding.
+        // No Brand Guide PDF load/extraction on the hot generation path.
+        byte[] workbook = render(title, calendarTitle, tasks, null, false, plan);
+        byte[] answers = render(title, calendarTitle, tasks, null, true, plan);
+        int workbookPages = verifyPdf(workbook, null, "Arbeitsblatt");
+        int answersPages = verifyPdf(answers, null, "Loesungen");
         if (workbook.length > MAX_PDF || answers.length > MAX_PDF)
             throw new IllegalArgumentException("Generated PDF exceeds 15 MB");
 
@@ -97,7 +98,7 @@ public class LessonPdfDraftService {
                   workbook_pdf, answers_pdf, lesson_plan, difficulties, task_count, status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)
                 """, draftId, teacher.id(), eventId, workbookName, answersName,
-                workbook, answers, plan, difficulties, tasks.size(), Instant.now());
+                workbook, answers, plan, difficulties, tasks.size(), Timestamp.from(Instant.now()));
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("draftId", draftId.toString());
         result.put("status", "DRAFT");
@@ -109,7 +110,7 @@ public class LessonPdfDraftService {
         result.put("answersPages", answersPages);
         result.put("taskCount", tasks.size());
         result.put("homeworkCount", 0);
-        result.put("brandGuideLogo", "extracted from current official Brand Guide PDF");
+        result.put("brandGuideLogo", "disabled temporarily by school administrator");
         result.put("qaPassed", true);
         result.put("next", "Download both PDF previews, then request explicit user approval before publishing.");
         return result;
@@ -144,7 +145,7 @@ public class LessonPdfDraftService {
                    workbook_pdf, answers_pdf, lesson_plan, difficulties, task_count, status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)
                 """, id, teacher.id(), eventId, workbookName, answerName,
-                workbook, answers, planText, difficultiesText, taskCount, Instant.now());
+                workbook, answers, planText, difficultiesText, taskCount, Timestamp.from(Instant.now()));
 
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("draftId", id.toString());
@@ -158,7 +159,7 @@ public class LessonPdfDraftService {
         result.put("taskCount", taskCount);
         result.put("homeworkCount", 0);
         result.put("qaPassed", true);
-        result.put("brandGuideLogo", "extracted from current Mindcrafti Brand Guide");
+        result.put("brandGuideLogo", "disabled temporarily by school administrator");
         result.put("next", "Download and review both PDFs; explicit publish_lesson_draft approval required");
         return result;
     }
@@ -176,6 +177,12 @@ public class LessonPdfDraftService {
         result.put("taskCount", draft.taskCount());
         result.put("homeworkCount", 0);
         result.put("qaPassed", true);
+        if(draft.plan()!=null && draft.plan().startsWith(McpHomeworkDraftValidator.MARKER)) {
+            String[] dayMarker=draft.plan().split(":",3);
+            result.put("homeworkOnly",true);
+            result.put("homeworkDay",Integer.parseInt(dayMarker[1]));
+            result.put("assignmentStatus","UNASSIGNED_DRAFT");
+        }
         return result;
     }
 
@@ -193,6 +200,47 @@ public class LessonPdfDraftService {
                 "sizeBytes", pdf.length, "base64", Base64.getEncoder().encodeToString(pdf));
     }
 
+    public record PreviewFile(String eventId,String filename,byte[] bytes) {}
+
+    /**
+     * Mark a complete, QA-verified workbook draft as one unassigned homework day.
+     * Never attach it to lesson slots: homework assignment is a separate, explicit action.
+     */
+    @Transactional
+    public void markHomeworkDraft(AuthenticatedUser teacher, UUID draftId,
+                                  String eventId, int day, String seriesKey) {
+        Draft draft=requireDraft(teacher,draftId,true);
+        if(!eventId.equals(draft.eventId()) || !"DRAFT".equals(draft.status()))
+            throw new IllegalArgumentException("Homework draft must be unpublished and belong to the exact source lesson");
+        String marker=McpHomeworkDraftValidator.seriesMarker(seriesKey,day);
+        if(draft.plan()!=null && draft.plan().startsWith(McpHomeworkDraftValidator.MARKER))
+            throw new IllegalArgumentException("Homework draft was already assigned to a day");
+        int changed=jdbc.update("UPDATE lesson_pdf_drafts SET lesson_plan=? WHERE id=? AND teacher_id=? AND status='DRAFT'",
+                marker,draftId,teacher.id());
+        if(changed!=1)throw new IllegalStateException("Could not mark the approved homework preview");
+    }
+
+    @Transactional(readOnly=true)
+    public PreviewFile homeworkPreviewFile(AuthenticatedUser teacher,UUID draftId,
+                                            String eventId,int day,String seriesKey) {
+        Draft draft=requireDraft(teacher,draftId,false);
+        String expected=McpHomeworkDraftValidator.seriesMarker(seriesKey,day);
+        if(!eventId.equals(draft.eventId()) || !"DRAFT".equals(draft.status()) ||
+                !expected.equals(draft.plan()))
+            throw new IllegalArgumentException("Homework PDF is not an approved day from this exact series and owned lesson");
+        if(draft.workbook()==null || draft.workbook().length==0)
+            throw new IllegalArgumentException("Homework PDF is unavailable");
+        return new PreviewFile(draft.eventId(),draft.workbookName(),draft.workbook());
+    }
+
+    @Transactional(readOnly=true)
+    public PreviewFile previewFile(AuthenticatedUser teacher,UUID draftId,String kind) {
+        Draft draft=requireDraft(teacher,draftId,false);
+        if(!"workbook".equals(kind)&&!"answers".equals(kind))throw new IllegalArgumentException("kind must be workbook or answers");
+        return "workbook".equals(kind)?new PreviewFile(draft.eventId(),draft.workbookName(),draft.workbook())
+                :new PreviewFile(draft.eventId(),draft.answersName(),draft.answers());
+    }
+
     /**
      * Explicit publication only. A row lock prevents duplicate concurrent publications;
      * workbook + answers and draft status are committed together.
@@ -202,29 +250,47 @@ public class LessonPdfDraftService {
             throws Exception {
         if (!confirm) throw new IllegalArgumentException("Publication requires confirm=true after the user reviewed both PDFs");
         Draft draft = requireDraft(teacher, draftId, true);
-        if ("PUBLISHED".equals(draft.status()))
-            return Map.of("draftId", draftId.toString(), "status", "PUBLISHED", "alreadyPublished", true);
+        if ("PUBLISHED".equals(draft.status())) return publicationResult(teacher, draft, true);
         if (!"DRAFT".equals(draft.status())) throw new IllegalStateException("Draft is not publishable");
+        if(draft.plan()!=null && draft.plan().startsWith(McpHomeworkDraftValidator.MARKER))
+            throw new IllegalArgumentException("Homework drafts cannot be published as lesson workbooks; use the explicit seven-day homework assignment tool");
 
         // The two PDFs were generated and verified on create; recheck integrity before uploading.
-        BufferedImage logo = extractOfficialLogo(guideService.pdfForStaff(teacher).bytes());
-        verifyPdf(draft.workbook(), logo, "Arbeitsblatt");
-        verifyPdf(draft.answers(), logo, "Loesungen");
-        LessonPreparationResponse workbook = preparationService.uploadWorkbook(
-                teacher, draft.eventId(), draft.workbookName(), draft.workbook());
-        LessonPreparationResponse answers = preparationService.uploadAnswers(
-                teacher, draft.eventId(), draft.answersName(), draft.answers());
-        if (!workbook.hasWorkbook() || !answers.hasWorkbook() || !answers.hasAnswers())
-            throw new IllegalStateException("Lesson upload readback did not confirm both PDFs");
+        // Published files were already checked on draft creation. Revalidate
+        // pages and text without forcing a logo into older or newer drafts.
+        verifyPdf(draft.workbook(), null, "Arbeitsblatt");
+        verifyPdf(draft.answers(), null, "Loesungen");
+        preparationService.prepareMaterials(teacher, draft.eventId(), null,
+                draft.workbookName(), draft.workbook(), draft.answersName(), draft.answers());
         jdbc.update("UPDATE lesson_pdf_drafts SET status = 'PUBLISHED', published_at = ? WHERE id = ?",
-                Instant.now(), draftId);
-        return Map.of("draftId", draftId.toString(), "status", "PUBLISHED",
-                "eventId", draft.eventId(), "workbookFilename", draft.workbookName(),
-                "answersFilename", draft.answersName(), "homeworkCount", 0,
-                "hasWorkbook", answers.hasWorkbook(), "hasAnswers", answers.hasAnswers());
+                Timestamp.from(Instant.now()), draftId);
+        return publicationResult(teacher, draft, false);
+    }
+
+    private Map<String,Object> publicationResult(AuthenticatedUser teacher, Draft draft, boolean alreadyPublished) {
+        LessonPreparationResponse saved = preparationService.read(teacher, draft.eventId());
+        if (!draft.eventId().equals(saved.eventId()) || !saved.hasWorkbook() || !saved.hasAnswers()
+                || !draft.workbookName().equals(saved.workbookFilename()) || !draft.answersName().equals(saved.answersFilename())
+                || saved.workbookSizeBytes() != draft.workbook().length || saved.answersSizeBytes() != draft.answers().length)
+            throw new IllegalStateException("Lesson readback did not confirm the exact approved PDF slots, filenames and sizes");
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("draftId", draft.id().toString());
+        result.put("status", "PUBLISHED");
+        result.put("eventId", saved.eventId());
+        result.put("workbookFilename", saved.workbookFilename());
+        result.put("answersFilename", saved.answersFilename());
+        result.put("hasWorkbook", saved.hasWorkbook());
+        result.put("hasAnswers", saved.hasAnswers());
+        result.put("alreadyPublished", alreadyPublished);
+        result.put("published", true);
+        result.put("homeworkCount", 0);
+        return result;
     }
 
     private Draft requireDraft(AuthenticatedUser teacher, UUID id, boolean lock) {
+        if (teacher == null || teacher.role() != com.mcschool.flashcard.users.Role.TEACHER)
+            throw new IllegalArgumentException("A scoped teacher identity is required");
         String suffix = lock ? " FOR UPDATE" : "";
         List<Draft> results = jdbc.query("""
                 SELECT id, teacher_id, event_id, workbook_filename, answers_filename,
@@ -322,18 +388,23 @@ public class LessonPdfDraftService {
             PDFTextStripper stripper = new PDFTextStripper();
             for (int i=0; i<count; i++) {
                 PDPage page = pdf.getPage(i);
-                if (page.getResources() == null) throw new IllegalArgumentException("PDF page lacks official logo");
-                boolean hasOfficialImage = false;
-                for (COSName name : page.getResources().getXObjectNames()) {
-                    PDXObject x = page.getResources().getXObject(name);
-                    if (x instanceof PDImageXObject image &&
-                            image.getWidth() == artwork.getWidth() &&
-                            image.getHeight() == artwork.getHeight()) {
-                        hasOfficialImage = true;
+                // Existing logo-bearing PDFs remain readable, but new PDFs do not
+                // require an embedded logo. Preserve all text/page integrity QA.
+                if (artwork != null) {
+                    if (page.getResources() == null)
+                        throw new IllegalArgumentException("PDF page lacks artwork resources");
+                    boolean hasOfficialImage = false;
+                    for (COSName name : page.getResources().getXObjectNames()) {
+                        PDXObject x = page.getResources().getXObject(name);
+                        if (x instanceof PDImageXObject image &&
+                                image.getWidth() == artwork.getWidth() &&
+                                image.getHeight() == artwork.getHeight()) {
+                            hasOfficialImage = true;
+                        }
                     }
+                    if (!hasOfficialImage)
+                        throw new IllegalArgumentException("Required PDF artwork is missing on page " + (i+1));
                 }
-                if (!hasOfficialImage)
-                    throw new IllegalArgumentException("Missing official Mindcrafti logo on page " + (i+1));
                 stripper.setStartPage(i+1);
                 stripper.setEndPage(i+1);
                 String text = stripper.getText(pdf);
@@ -376,10 +447,12 @@ public class LessonPdfDraftService {
             stream.moveTo(LEFT,PAGE.getHeight()-71f);
             stream.lineTo(RIGHT,PAGE.getHeight()-71f);
             stream.stroke();
-            PDImageXObject image=LosslessFactory.createFromImage(doc,logo);
-            float width=50f, height=width*logo.getHeight()/logo.getWidth();
-            if(height>54f){height=54f;width=height*logo.getWidth()/logo.getHeight();}
-            stream.drawImage(image,RIGHT-width,PAGE.getHeight()-57f-height,width,height);
+            if (logo != null) {
+                PDImageXObject image=LosslessFactory.createFromImage(doc,logo);
+                float width=50f, height=width*logo.getHeight()/logo.getWidth();
+                if(height>54f){height=54f;width=height*logo.getWidth()/logo.getHeight();}
+                stream.drawImage(image,RIGHT-width,PAGE.getHeight()-57f-height,width,height);
+            }
             stream.setNonStrokingColor(GRAY);
             text(LEFT,31,"Mindcrafti School  |  "+pageNumber,REGULAR,8f);
         }

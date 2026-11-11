@@ -207,6 +207,30 @@ public class LiveKitMediaProvider implements LiveClassMediaProvider {
         }
     }
 
+    @Override
+    public List<LiveClassMediaProvider.MediaParticipant> listParticipantMedia(String roomName) {
+        try {
+            Response<List<LivekitModels.ParticipantInfo>> response =
+                    roomServiceClient.listParticipants(roomName).execute();
+            if (response.isSuccessful() && response.body() != null) {
+                return response.body().stream().map(participant -> {
+                    var microphone = participant.getTracksList().stream()
+                            .filter(track -> track.getType() == LivekitModels.TrackType.AUDIO
+                                    && track.getSource() == LivekitModels.TrackSource.MICROPHONE)
+                            .findFirst();
+                    return new LiveClassMediaProvider.MediaParticipant(
+                        participant.getIdentity(), microphone.isPresent(),
+                        microphone.map(LivekitModels.TrackInfo::getMuted).orElse(false)
+                    );
+                }).toList();
+            }
+            if (response.code() == 404 && isMissingRoom(response.errorBody())) return List.of();
+            throw new MediaProviderException("LiveKit media diagnostic failed with HTTP " + response.code());
+        } catch (java.io.IOException e) {
+            throw new MediaProviderException("LiveKit media diagnostic failed", e);
+        }
+    }
+
     private static boolean isMissingRoom(okhttp3.ResponseBody body) {
         if (body == null) return false;
         try (body) {
@@ -224,6 +248,26 @@ public class LiveKitMediaProvider implements LiveClassMediaProvider {
     public void sendControlPacket(String roomName, String topic, byte[] payload) {
         execute(roomServiceClient.sendData(roomName, payload, LivekitModels.DataPacket.Kind.RELIABLE,
                 List.of(), List.of(), topic));
+    }
+
+    @Override
+    public void updateRoomAudioFocus(String roomName, String focusJson) {
+        List<LivekitModels.Room> rooms = execute(roomServiceClient.listRooms(List.of(roomName)));
+        if (rooms == null || rooms.isEmpty()) throw new MediaProviderException("LiveKit room is unavailable");
+        try {
+            var mapper = new tools.jackson.databind.ObjectMapper();
+            String previous = rooms.get(0).getMetadata();
+            var metadata = previous.isBlank() ? mapper.createObjectNode() : mapper.readTree(previous);
+            if (!(metadata instanceof tools.jackson.databind.node.ObjectNode object)) {
+                throw new MediaProviderException("LiveKit room metadata is incompatible");
+            }
+            object.set("mcAudioFocus", mapper.readTree(focusJson));
+            execute(roomServiceClient.updateRoomMetadata(roomName, mapper.writeValueAsString(object)));
+        } catch (MediaProviderException error) {
+            throw error;
+        } catch (RuntimeException error) {
+            throw new MediaProviderException("Could not update room audio focus");
+        }
     }
 
     /**

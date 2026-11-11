@@ -14,12 +14,16 @@ export const ANNOTATION_TOPIC = 'mc.class.annotation.v1';
 export const CONTROL_TOPIC = 'mc.class.control.v1';
 /** Teacher's shared-board view (page, zoom, pan) for "follow the teacher". */
 export const VIEW_TOPIC = 'mc.class.view.v1';
+/** A pupil's visible document area, sent privately to their teacher. */
+export const STUDENT_VIEW_TOPIC = 'mc.class.student-view.v1';
 /** In-progress strokes, shown to others while the pen is still down. */
 export const STROKE_TOPIC = 'mc.class.stroke.v1';
 /** Private notebook previews stay separate from the same pupil's paper board. */
 export const NOTEBOOK_STROKE_TOPIC = 'mc.class.notebook-stroke.v1';
 /** New workbook pages are available to the class. */
 export const DOCUMENT_TOPIC = 'mc.class.document.v1';
+/** A durable page was opened; peers re-read their authorized page metadata. */
+export const BOARD_PAGES_TOPIC = 'mc.class.pages.v1';
 
 /** Hard cap per packet; annotation batches are chunked below this. */
 export const MAX_PACKET_BYTES = 8192;
@@ -38,6 +42,13 @@ interface BaseEvent {
 export interface DocumentEvent extends BaseEvent {
   type: 'document';
   version: number;
+}
+
+/** A private refresh hint, never an instruction to navigate or trust a count. */
+export interface BoardPagesEvent extends BaseEvent {
+  type: 'pages';
+  targetType: 'WHITEBOARD' | 'NOTEBOOK_CAMERA';
+  targetId: string;
 }
 
 export interface HandEvent extends BaseEvent {
@@ -84,8 +95,31 @@ export interface ViewEvent extends BaseEvent {
   panY: number;
   /** Whether students are currently locked to this view. */
   follow: boolean;
+  /** Personal-page presence, so closing/hiding it immediately invalidates a review target. */
+  active?: boolean;
   /** Optional whole-document zoom/anchor; absent for legacy paged navigation. */
   documentView?: DocumentViewport;
+}
+
+/** The visible rectangle in coordinates of `page`, including space around it. */
+export interface StudentViewSnapshot {
+  page: number;
+  pageCount: number;
+  layout: 'paged' | 'continuous';
+  viewport: { width: number; height: number };
+  region: { x: number; y: number; width: number; height: number };
+  /** Continuous page gap divided by the selected page's rendered width. */
+  pageGap?: number;
+}
+
+/** Independent of "follow the teacher": receiving it never controls a pupil. */
+export interface StudentViewEvent extends BaseEvent, StudentViewSnapshot {
+  type: 'student-view';
+  boardId: string;
+  targetType: 'WHITEBOARD' | 'NOTEBOOK_CAMERA';
+  /** Changes when the source board remounts; revisions are local to a session. */
+  sessionId: string;
+  revision: number;
 }
 
 /**
@@ -152,12 +186,14 @@ export interface ControlEvent {
 }
 
 export type ClassEvent =
+  | BoardPagesEvent
   | DocumentEvent
   | HandEvent
   | ReactionEvent
   | ChatEvent
   | PointerEvent_
   | ViewEvent
+  | StudentViewEvent
   | AnnotationEvent
   | StrokeEvent;
 
@@ -168,6 +204,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function isDocumentViewport(value: unknown): value is DocumentViewport {
   return isRecord(value) && !Array.isArray(value)
     && isFiniteIn(value.zoom, 1, 5) && isFiniteIn(value.x, -10, 10) && isFiniteIn(value.y, -10, 10);
+}
+
+export function isStudentViewSnapshot(value: unknown): value is StudentViewSnapshot {
+  if (!isRecord(value) || Array.isArray(value)
+      || !isInt(value.page, 0, 9999) || !isInt(value.pageCount, 1, 10_000)
+      || (value.page as number) >= (value.pageCount as number)
+      || (value.layout !== 'paged' && value.layout !== 'continuous')
+      || !isRecord(value.viewport) || Array.isArray(value.viewport)
+      || !isRecord(value.region) || Array.isArray(value.region)) return false;
+  return isFiniteIn(value.viewport.width, 1, 32768)
+    && isFiniteIn(value.viewport.height, 1, 32768)
+    && isFiniteIn(value.region.x, -100, 100)
+    && isFiniteIn(value.region.y, -100, 100)
+    // Local zoom is capped at 5×, so valid regions stay at least 0.2 pages
+    // wide/high. Leave ample margin without accepting a pathological crop
+    // that would allocate an enormous continuous document on the teacher.
+    && isFiniteIn(value.region.width, 0.05, 100)
+    && isFiniteIn(value.region.height, 0.05, 100)
+    && (value.pageGap === undefined || isFiniteIn(value.pageGap, 0, 10));
 }
 
 function hasBase(value: Record<string, unknown>, classId: string): boolean {
@@ -197,6 +252,16 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
   if (!isRecord(parsed) || !hasBase(parsed, classId)) return null;
 
   switch (parsed.type) {
+    case 'pages': {
+      const targetId = parsed.targetId;
+      const owner = typeof targetId === 'string' && targetId.startsWith('personal-workbook-')
+        ? targetId.slice('personal-workbook-'.length)
+        : typeof targetId === 'string' && targetId.startsWith('personal-') ? targetId.slice('personal-'.length) : '';
+      return (parsed.targetType === 'WHITEBOARD' || parsed.targetType === 'NOTEBOOK_CAMERA')
+        && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(owner)
+        && isFiniteIn(parsed.at, 0, Number.MAX_SAFE_INTEGER)
+        ? (parsed as unknown as BoardPagesEvent) : null;
+    }
     case 'document':
       return isInt(parsed.version, 1, Number.MAX_SAFE_INTEGER) ? (parsed as unknown as DocumentEvent) : null;
     case 'hand':
@@ -232,8 +297,18 @@ export function parseClassEvent(raw: Uint8Array, classId: string): ClassEvent | 
         isFiniteIn(parsed.panX, -5, 0) &&
         isFiniteIn(parsed.panY, -5, 0) &&
         typeof parsed.follow === 'boolean' &&
+        (parsed.active === undefined || typeof parsed.active === 'boolean') &&
         (parsed.documentView === undefined || isDocumentViewport(parsed.documentView))
         ? (parsed as unknown as ViewEvent)
+        : null;
+    case 'student-view':
+      return typeof parsed.boardId === 'string' && /^personal-.{1,128}$/.test(parsed.boardId)
+        && (parsed.targetType === 'WHITEBOARD' || parsed.targetType === 'NOTEBOOK_CAMERA')
+        && typeof parsed.sessionId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(parsed.sessionId)
+        && isInt(parsed.revision, 0, Number.MAX_SAFE_INTEGER)
+        && isFiniteIn(parsed.at, 0, Number.MAX_SAFE_INTEGER)
+        && isStudentViewSnapshot(parsed)
+        ? (parsed as unknown as StudentViewEvent)
         : null;
     case 'annotation':
       return typeof parsed.documentId === 'string' &&
@@ -325,6 +400,10 @@ export function documentEvent(classId: string, version: number): DocumentEvent {
   return { v: 1, type: 'document', classId, id: newId(), at: Date.now(), version };
 }
 
+export function boardPagesEvent(classId: string, targetType: BoardPagesEvent['targetType'], targetId: string): BoardPagesEvent {
+  return { v: 1, type: 'pages', classId, id: newId(), at: Date.now(), targetType, targetId };
+}
+
 export function handEvent(classId: string, raised: boolean): HandEvent {
   return { v: 1, type: 'hand', classId, id: newId(), at: Date.now(), raised };
 }
@@ -342,6 +421,13 @@ export function viewEvent(
   view: Omit<ViewEvent, 'v' | 'type' | 'classId' | 'id' | 'at'>,
 ): ViewEvent {
   return { v: 1, type: 'view', classId, id: newId(), at: Date.now(), ...view };
+}
+
+export function studentViewEvent(
+  classId: string,
+  view: Omit<StudentViewEvent, 'v' | 'type' | 'classId' | 'id' | 'at'>,
+): StudentViewEvent {
+  return { v: 1, type: 'student-view', classId, id: newId(), at: Date.now(), ...view };
 }
 
 export function annotationEvent(

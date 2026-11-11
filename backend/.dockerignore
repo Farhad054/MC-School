@@ -5,3 +5,6 @@ target/
 HELP.md
 .env
 .env.local
+**/node_modules/
+**/__pycache__/
+src/main/resources/owner-workbook-generator/out/

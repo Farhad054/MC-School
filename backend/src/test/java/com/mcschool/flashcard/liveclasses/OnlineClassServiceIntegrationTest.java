@@ -6,16 +6,23 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 
 import com.mcschool.flashcard.AbstractIntegrationTest;
 import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
 import com.mcschool.flashcard.lessons.GoogleCalendarLessonService;
+import com.mcschool.flashcard.lessons.LessonPreparationRepository;
 import com.mcschool.flashcard.lessons.dto.GroupLessonResponse;
 import com.mcschool.flashcard.liveclasses.dto.OnlineClassConnectionResponse;
 import com.mcschool.flashcard.liveclasses.dto.OnlineClassResponse;
+import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentRequest;
+import com.mcschool.flashcard.liveclasses.dto.TranscriptSegmentResponse;
 import com.mcschool.flashcard.liveclasses.provider.LiveClassMediaProvider;
+import com.mcschool.flashcard.liveclasses.provider.ClassTranscriptionProvider;
 import com.mcschool.flashcard.liveclasses.provider.MediaProviderException;
 import com.mcschool.flashcard.liveclasses.provider.ParticipantConnection;
 import com.mcschool.flashcard.users.User;
@@ -71,6 +78,9 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     private OnlineClassService service;
 
     @Autowired
+    private OnlineClassAudioFocusService audioFocus;
+
+    @Autowired
     private OnlineClassRepository classRepository;
 
     @Autowired
@@ -79,11 +89,23 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private OnlineClassTranscriptService transcriptService;
+
+    @Autowired
+    private OnlineClassTranscriptSegmentRepository segmentRepository;
+
+    @Autowired
+    private LessonPreparationRepository preparations;
+
     @MockitoBean
     private GoogleCalendarLessonService lessonService;
 
     @MockitoBean
     private LiveClassMediaProvider mediaProvider;
+
+    @MockitoBean
+    private ClassTranscriptionProvider transcriptionProvider;
 
     private User teacher;
     private User otherTeacher;
@@ -104,6 +126,14 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
 
         when(lessonService.listGroupLessons(any())).thenReturn(List.of(lesson()));
         when(mediaProvider.isConfigured()).thenReturn(true);
+        // Existing admission tests model a teacher who has already entered.
+        // Empty-room and token-only cases override this provider snapshot.
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(
+                ParticipantIdentity.of(teacher.getId(), "teacher-tab")));
+        when(transcriptionProvider.isConfigured()).thenReturn(true);
+        when(transcriptionProvider.isTranscriptionRunning(anyString(), anyString())).thenReturn(true);
+        when(transcriptionProvider.startTranscription(anyString(), anyString(), any(), any()))
+                .thenReturn("dispatch-1");
         when(mediaProvider.createConnection(anyString(), anyString(), anyString(), any(), any()))
                 .thenAnswer(invocation -> new ParticipantConnection(
                         "wss://test.invalid",
@@ -122,6 +152,20 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     private OnlineClass materialize() {
         OnlineClassResponse response = service.materializeFromCalendar(teacherPrincipal, "event-1");
         return classRepository.findById(response.id()).orElseThrow();
+    }
+
+    @Test
+    void teacherCanFocusAssignedWorkBeforeThePupilJoinsWithoutGrantingAdmission() {
+        var room = materialize();
+        room.start(NOW);
+        classRepository.saveAndFlush(room);
+        assertThat(participantRepository.findByOnlineClassIdAndUserId(room.getId(), student.getId())).isEmpty();
+        assertThat(audioFocus.update(teacherPrincipal, room.getId(),
+                new OnlineClassAudioFocusService.Request(student.getId(), false)).studentId()).isEqualTo(student.getId());
+        assertThat(participantRepository.findByOnlineClassIdAndUserId(room.getId(), student.getId())).isEmpty();
+        assertThatThrownBy(() -> audioFocus.update(teacherPrincipal, room.getId(),
+                new OnlineClassAudioFocusService.Request(otherTeacher.getId(), false)))
+                .isInstanceOf(ResourceNotFoundException.class);
     }
 
     // --- Materialization -----------------------------------------------------
@@ -165,6 +209,43 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     // --- Lifecycle -----------------------------------------------------------
+
+    @Test
+    void openingTheLobbyAndStartingBeforeMediaConnectionNeverDispatchesTranscription() {
+        OnlineClass onlineClass = materialize();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+
+        OnlineClassResponse lobby = service.openLobby(teacherPrincipal, onlineClass.getId());
+        assertThat(lobby.status()).isEqualTo(OnlineClassStatus.LOBBY_OPEN);
+        assertThat(lobby.transcriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+
+        OnlineClassResponse started = service.start(teacherPrincipal, onlineClass.getId());
+        assertThat(started.status()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(started.mediaState()).isEqualTo("IDLE");
+        assertThat(started.transcriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+        assertThat(classRepository.findById(onlineClass.getId()).orElseThrow()
+                .getTranscriptionDispatchId()).isNull();
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any(), any());
+        verify(mediaProvider, never()).ensureRoom(anyString());
+    }
+
+    @Test
+    void issuingAHostConnectionTokenDoesNotDispatchTranscription() {
+        OnlineClass onlineClass = materialize();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        service.start(teacherPrincipal, onlineClass.getId());
+
+        OnlineClassConnectionResponse issued = service.connect(
+                teacherPrincipal, onlineClass.getId(), "unconnected-tab");
+
+        assertThat(issued.token()).isEqualTo("issued-token");
+        assertThat(participantRepository.findByOnlineClassIdAndUserId(
+                onlineClass.getId(), teacher.getId()).orElseThrow().isConnected()).isTrue();
+        assertThat(classRepository.findById(onlineClass.getId()).orElseThrow()
+                .getTranscriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any(), any());
+        verify(mediaProvider, never()).ensureRoom(anyString());
+    }
 
     @Test
     void lifecycleIsIdempotentAndCreatesTheHostParticipant() {
@@ -218,8 +299,8 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     @Test
     void aProviderOutageDuringStartIsReportedNotThrownRaw() {
         OnlineClass onlineClass = materialize();
-        org.mockito.Mockito.doThrow(new com.mcschool.flashcard.liveclasses.provider.MediaProviderException("down"))
-                .when(mediaProvider).ensureRoom(anyString());
+        when(mediaProvider.listParticipantIdentities(anyString()))
+                .thenThrow(new MediaProviderException("down"));
 
         assertThatThrownBy(() -> service.start(teacherPrincipal, onlineClass.getId()))
                 .isInstanceOf(ConflictException.class);
@@ -245,6 +326,86 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     // --- Connection ----------------------------------------------------------
+
+    @Test
+    void anAdmittedStudentWaitsForTheTeacherInsteadOfWakingAnEmptyRoom() {
+        OnlineClass room = materialize();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        service.start(teacherPrincipal, room.getId());
+        room = classRepository.findById(room.getId()).orElseThrow();
+        room.setWaitingRoomEnabled(false);
+        classRepository.saveAndFlush(room);
+        UUID classId = room.getId();
+
+        assertThatThrownBy(() -> service.connect(studentPrincipal, classId, "student-first"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("Waiting for the teacher to enter");
+
+        assertThat(service.get(studentPrincipal, classId).status()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(service.get(studentPrincipal, classId).mediaState()).isEqualTo("IDLE");
+        verify(mediaProvider, never()).createConnection(anyString(), anyString(), anyString(), any(), any());
+        verify(mediaProvider, never()).ensureRoom(anyString());
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void anAgentAloneDoesNotCountAsTheTeacherForStudentEntry() {
+        OnlineClass room = materialize();
+        service.start(teacherPrincipal, room.getId());
+        room = classRepository.findById(room.getId()).orElseThrow();
+        room.setWaitingRoomEnabled(false);
+        classRepository.saveAndFlush(room);
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of("agent-transcriber-job"));
+        UUID classId = room.getId();
+
+        assertThatThrownBy(() -> service.connect(studentPrincipal, classId, "student-first"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("Waiting for the teacher to enter");
+
+        verify(mediaProvider, never()).createConnection(anyString(), anyString(), anyString(), any(), any());
+        assertThat(classRepository.findById(classId).orElseThrow().getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+    }
+
+    @Test
+    void aTeacherTokenCanWakeANativeClosedRoomAndClearItsStaleDispatch() {
+        OnlineClass room = activeTranscriptionRoom();
+        transcriptService.ingest(room.getId(), new TranscriptSegmentRequest("saved-before-native-close",
+                ParticipantIdentity.of(student.getId(), "student-tab"), "Student", "de", 0, 500,
+                "Existing lesson text", 0.9));
+        Instant originalStart = room.getActualStartAt();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+
+        OnlineClassConnectionResponse issued = service.connect(teacherPrincipal, room.getId(), "rejoined-host");
+
+        assertThat(issued.token()).isEqualTo("issued-token");
+        OnlineClass reloaded = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(reloaded.getActualStartAt()).isEqualTo(originalStart);
+        assertThat(reloaded.getActualEndAt()).isNull();
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+        assertThat(reloaded.getTranscriptionDispatchId()).isNull();
+        assertThat(segmentRepository.findAllByOnlineClassIdOrderByStartMsAscIdAsc(room.getId()))
+                .extracting(OnlineClassTranscriptSegment::getText).containsExactly("Existing lesson text");
+        verify(transcriptionProvider).stopTranscription(room.getRoomName(), "dispatch-1");
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any(), any());
+        verify(mediaProvider, never()).ensureRoom(anyString());
+    }
+
+    @Test
+    void teacherReentryDuringAgentOnlyGraceKeepsTheExistingDispatch() {
+        OnlineClass room = activeTranscriptionRoom();
+        observeEmptySince(room.getId(), NOW.minusSeconds(20));
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of("agent-transcriber-job"));
+
+        assertThat(service.connect(teacherPrincipal, room.getId(), "new-host-tab").token()).isNotBlank();
+
+        OnlineClass reloaded = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-1");
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
+        assertThat(classRepository.count()).isEqualTo(1);
+        verify(transcriptionProvider, never()).stopTranscription(anyString(), anyString());
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any(), any());
+    }
 
     @Test
     void studentGetsATokenOnceAdmittedToALiveClass() {
@@ -343,18 +504,19 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void aStudentCannotMintATokenForAHistoricalLesson() {
+    void aStudentCannotMintATokenForAHistoricalLessonWithoutItsTeacher() {
         OnlineClass longOver = classRepository.save(OnlineClass.forStudent(teacher, "event-old",
                 "binding-1", "Maths", NOW.minus(1, ChronoUnit.DAYS), NOW.minus(23, ChronoUnit.HOURS), student));
         longOver.setWaitingRoomEnabled(false);
         longOver.start(NOW.minus(1, ChronoUnit.DAYS));
         classRepository.save(longOver);
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.connect(studentPrincipal, longOver.getId(), "tab-1"))
                 .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("not open for joining");
+                .hasMessageContaining("Waiting for the teacher");
         assertThat(service.get(studentPrincipal, longOver.getId()).joinWindowOpen()).isFalse();
-        assertThat(service.listUpcoming(studentPrincipal)).isEmpty();
+        assertThat(service.listUpcoming(studentPrincipal)).noneMatch(OnlineClassResponse::joinWindowOpen);
     }
 
     @Test
@@ -392,6 +554,30 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void changingTheCalendarDateDoesNotReplaceAnExistingLessonOrItsTranscript() {
+        OnlineClass original = activeTranscriptionRoom();
+        transcriptService.ingest(original.getId(), new TranscriptSegmentRequest("before-date-correction",
+                ParticipantIdentity.of(teacher.getId(), "teacher-tab"), "Teacher", "de", 0, 500,
+                "Keep this saved text", 0.9));
+        when(lessonService.listGroupLessons(any())).thenReturn(List.of(new GroupLessonResponse(
+                "event-1", "binding-1", null, null, student.getId(), "Student", List.of(student.getId()),
+                "Maths", LESSON_START.plus(7, ChronoUnit.DAYS), LESSON_END.plus(7, ChronoUnit.DAYS), null, null)));
+
+        OnlineClassResponse repeated = service.materializeFromCalendar(teacherPrincipal, "event-1");
+
+        assertThat(repeated.id()).isEqualTo(original.getId());
+        assertThat(service.start(teacherPrincipal, repeated.id()).actualStartAt()).isEqualTo(NOW);
+        assertThat(transcriptService.segments(teacherPrincipal, repeated.id()))
+                .extracting(TranscriptSegmentResponse::text).containsExactly("Keep this saved text");
+        assertThat(classRepository.count()).isEqualTo(1);
+        service.end(teacherPrincipal, repeated.id());
+        assertThat(service.materializeFromCalendar(teacherPrincipal, "event-1").id()).isEqualTo(original.getId());
+        assertThatThrownBy(() -> service.start(teacherPrincipal, original.getId()))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("has ended");
+        assertThat(classRepository.count()).isEqualTo(1);
+    }
+
+    @Test
     void anOngoingLessonRemainsJoinableAfterItsScheduledHourOnTheSameDay() {
         OnlineClass inGrace = classRepository.save(OnlineClass.forStudent(teacher, "event-grace",
                 "binding-grace", "Maths", NOW.minus(90, ChronoUnit.MINUTES),
@@ -416,16 +602,17 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void aLegacyOpeningExtensionCannotGrantFirstEntryOnAnotherDay() {
+    void aLegacyOpeningExtensionCannotGrantFirstEntryWithoutTheTeacher() {
         OnlineClass expired = classRepository.save(OnlineClass.forStudent(teacher, "expired-open", "expired-open", "Maths",
                 NOW.minus(1, ChronoUnit.DAYS), NOW.minus(23, ChronoUnit.HOURS), student));
         expired.start(NOW.minus(1, ChronoUnit.DAYS));
         expired.allowStudentJoiningUntil(NOW.plus(1, ChronoUnit.DAYS));
         expired.setWaitingRoomEnabled(false); classRepository.save(expired);
-        assertThat(service.listUpcoming(studentPrincipal)).isEmpty();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        assertThat(service.listUpcoming(studentPrincipal)).noneMatch(OnlineClassResponse::joinWindowOpen);
         assertThat(service.get(studentPrincipal, expired.getId()).joinWindowOpen()).isFalse();
         assertThatThrownBy(() -> service.connect(studentPrincipal, expired.getId(), "tab"))
-                .isInstanceOf(ConflictException.class).hasMessageContaining("not open for joining");
+                .isInstanceOf(ConflictException.class).hasMessageContaining("Waiting for the teacher");
     }
 
     @Test
@@ -441,6 +628,10 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
         OnlineClassResponse replacement = service.materializeFromCalendar(teacherPrincipal, "event-1");
         assertThat(replacement.id()).isNotEqualTo(original.getId());
         assertThat(replacement.studentId()).isEqualTo(next.getId());
+        assertThat(LessonEntryPolicy.lessonDate(replacement.scheduledStartAt()))
+                .isEqualTo(LessonEntryPolicy.lessonDate(LESSON_START));
+        assertThat(service.materializeFromCalendar(teacherPrincipal, "event-1").id()).isEqualTo(replacement.id());
+        assertThat(classRepository.count()).isEqualTo(2);
         assertThat(service.get(teacherPrincipal, original.getId()).status()).isEqualTo(OnlineClassStatus.ENDED);
         assertThat(service.listUpcoming(studentPrincipal)).noneMatch(OnlineClassResponse::joinWindowOpen);
         assertThatThrownBy(() -> service.connect(studentPrincipal, replacement.id(), "old-pupil"))
@@ -472,15 +663,28 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void aFutureLessonCannotBeOpenedEarlyOrRecreatedAfterEnd() {
+    void theTeacherCanEnterAFutureLessonButExplicitEndStillClosesIt() {
         when(lessonService.listGroupLessons(any())).thenReturn(List.of(new GroupLessonResponse(
                 "future-event", "future-event", null, null, student.getId(), "Student", List.of(student.getId()),
                 "Maths", NOW.plus(1, ChronoUnit.DAYS), NOW.plus(25, ChronoUnit.HOURS), null, null)));
         OnlineClassResponse original = service.materializeFromCalendar(teacherPrincipal, "future-event");
-        assertThatThrownBy(() -> service.start(teacherPrincipal, original.id())).isInstanceOf(ConflictException.class).hasMessageContaining("lesson day");
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        OnlineClassResponse started = service.start(teacherPrincipal, original.id());
+        assertThat(started.joinWindowOpen()).isTrue();
+        assertThat(started.viewerIsHost()).isTrue();
+        assertThat(started.mediaState()).isEqualTo("IDLE");
+        assertThat(service.connect(teacherPrincipal, original.id(), "prepare-tomorrow").host()).isTrue();
+        assertThat(service.get(studentPrincipal, original.id()).joinWindowOpen()).isFalse();
+        assertThatThrownBy(() -> service.connect(studentPrincipal, original.id(), "too-early-student"))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("teacher");
+        verify(mediaProvider, never()).ensureRoom(anyString());
+        verify(transcriptionProvider, never()).startTranscription(anyString(), anyString(), any(), any());
         service.end(teacherPrincipal, original.id());
         assertThat(service.materializeFromCalendar(teacherPrincipal, "future-event").id()).isEqualTo(original.id());
         assertThatThrownBy(() -> service.start(teacherPrincipal, original.id())).isInstanceOf(ConflictException.class).hasMessageContaining("has ended");
+        assertThatThrownBy(() -> service.connect(teacherPrincipal, original.id(), "after-end"))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("not open");
+        assertThat(classRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -503,6 +707,7 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
 
         // A successful, owner-only room API check is reported as a boolean.
         assertThat(service.checkMediaApi(teacherPrincipal, onlineClass.getId())).isTrue();
+        verify(mediaProvider, never()).ensureRoom(anyString());
 
         // Even a valid teacher account cannot inspect someone else's room.
         AuthenticatedUser intruder = new AuthenticatedUser(
@@ -515,8 +720,8 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     void liveKitApiFailureIsReportedAsUnavailableWithoutLeakingErrorToCaller() {
         OnlineClass onlineClass = materialize();
         service.start(teacherPrincipal, onlineClass.getId());
-        doThrow(new MediaProviderException("LiveKit request failed with HTTP 401"))
-                .when(mediaProvider).ensureRoom(onlineClass.getRoomName());
+        when(mediaProvider.listParticipantIdentities(onlineClass.getRoomName()))
+                .thenThrow(new MediaProviderException("LiveKit presence check failed with HTTP 401"));
 
         assertThat(service.checkMediaApi(teacherPrincipal, onlineClass.getId())).isFalse();
         assertThat(service.diagnoseMediaApi(teacherPrincipal, onlineClass.getId()).status())
@@ -527,8 +732,8 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     void mediaApiProbeDistinguishesServerOutageFromCredentialRejection() {
         OnlineClass onlineClass = materialize();
         service.start(teacherPrincipal, onlineClass.getId());
-        doThrow(new MediaProviderException("LiveKit request failed"))
-                .when(mediaProvider).ensureRoom(onlineClass.getRoomName());
+        when(mediaProvider.listParticipantIdentities(onlineClass.getRoomName()))
+                .thenThrow(new MediaProviderException("LiveKit presence check failed"));
 
         var diagnosis = service.diagnoseMediaApi(teacherPrincipal, onlineClass.getId());
         assertThat(diagnosis.reachable()).isFalse();
@@ -597,15 +802,13 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void priorAuthorizedEntryMayReconnectAfterMidnightButAdmissionAloneMayNot() {
+    void admittedStudentsCanEnterAndReconnectAfterMidnightWhileTheirTeacherIsPresent() {
         Instant yesterday = NOW.minus(1, ChronoUnit.DAYS);
         OnlineClass room = classRepository.save(OnlineClass.forStudent(teacher, "overnight", "overnight", "Maths", yesterday, yesterday.plusSeconds(3600), student));
         room.start(yesterday); classRepository.save(room);
         OnlineClassParticipant participant = OnlineClassParticipant.student(room, student);
         participant.admit(); participantRepository.save(participant);
-        assertThatThrownBy(() -> service.connect(studentPrincipal, room.getId(), "first"))
-                .isInstanceOf(ConflictException.class).hasMessageContaining("not open for joining");
-        participant.markJoined(yesterday); participantRepository.save(participant);
+        assertThat(service.connect(studentPrincipal, room.getId(), "first").token()).isNotBlank();
         assertThat(service.get(studentPrincipal, room.getId()).entryState()).isEqualTo("RECONNECT");
         assertThat(service.listUpcoming(studentPrincipal)).extracting(OnlineClassResponse::id).contains(room.getId());
         assertThat(service.connect(studentPrincipal, room.getId(), "reconnect").token()).isNotBlank();
@@ -618,18 +821,264 @@ class OnlineClassServiceIntegrationTest extends AbstractIntegrationTest {
         OnlineClass room = materialize(); service.start(teacherPrincipal, room.getId());
         room = classRepository.findById(room.getId()).orElseThrow();
         room.observeEmpty(NOW.minusSeconds(3600)); classRepository.save(room);
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
         service.reconcileIdleSession(room.getId());
         assertThat(service.get(teacherPrincipal, room.getId()).status()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(service.get(teacherPrincipal, room.getId()).actualEndAt()).isNull();
+        assertThat(service.get(teacherPrincipal, room.getId()).mediaState()).isEqualTo("IDLE");
+        verify(mediaProvider).closeRoom(room.getRoomName());
     }
 
     @Test
-    void weekEndAutomaticallyClosesAnOpenRoomWithoutPresenceChecks() {
+    void anAgentOnlyRoomGetsSixtySecondsBeforePhysicalMediaCleanup() {
+        OnlineClass room = activeTranscriptionRoom();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of("agent-transcriber-job"));
+
+        service.reconcileIdleSession(room.getId());
+        assertThat(classRepository.findById(room.getId()).orElseThrow().getEmptySince()).isEqualTo(NOW);
+        verify(mediaProvider, never()).closeRoom(anyString());
+        verify(transcriptionProvider, never()).stopTranscription(anyString(), anyString());
+
+        observeEmptySince(room.getId(), NOW.minusSeconds(59));
+        service.reconcileIdleSession(room.getId());
+        verify(mediaProvider, never()).closeRoom(anyString());
+
+        observeEmptySince(room.getId(), NOW.minusSeconds(60));
+        service.reconcileIdleSession(room.getId());
+
+        OnlineClass reloaded = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(reloaded.getActualEndAt()).isNull();
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.INACTIVE);
+        assertThat(reloaded.getTranscriptionDispatchId()).isNull();
+        assertThat(reloaded.isMediaClosePending()).isFalse();
+        verify(transcriptionProvider).stopTranscription(room.getRoomName(), "dispatch-1");
+        verify(mediaProvider).closeRoom(room.getRoomName());
+    }
+
+    @Test
+    void aHumanReturningAtTheFinalEmptyCheckCancelsCleanup() {
+        OnlineClass room = activeTranscriptionRoom();
+        observeEmptySince(room.getId(), NOW.minusSeconds(61));
+        when(mediaProvider.listParticipantIdentities(room.getRoomName())).thenReturn(
+                List.of("agent-transcriber-job"),
+                List.of("agent-transcriber-job", ParticipantIdentity.of(teacher.getId(), "returned")));
+
+        service.reconcileIdleSession(room.getId());
+
+        OnlineClass reloaded = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(reloaded.getEmptySince()).isNull();
+        assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-1");
+        assertThat(service.get(teacherPrincipal, room.getId()).mediaState()).isEqualTo("ACTIVE");
+        verify(transcriptionProvider, never()).stopTranscription(anyString(), anyString());
+        verify(mediaProvider, never()).closeRoom(anyString());
+    }
+
+    @Test
+    void aStudentStillInTheRoomPreventsEmptyRoomCleanup() {
+        OnlineClass room = activeTranscriptionRoom();
+        observeEmptySince(room.getId(), NOW.minusSeconds(61));
+        when(mediaProvider.listParticipantIdentities(room.getRoomName())).thenReturn(List.of(
+                "agent-transcriber-job", ParticipantIdentity.of(student.getId(), "still-learning")));
+
+        service.reconcileIdleSession(room.getId());
+
+        assertThat(classRepository.findById(room.getId()).orElseThrow().getEmptySince()).isNull();
+        verify(transcriptionProvider, never()).stopTranscription(anyString(), anyString());
+        verify(mediaProvider, never()).closeRoom(anyString());
+    }
+
+    @Test
+    void physicalIdleCleanupAndTeacherReentryPreserveTheSameLessonAndTranscript() {
+        OnlineClass room = activeTranscriptionRoom();
+        transcriptService.ingest(room.getId(), new TranscriptSegmentRequest("before-idle",
+                ParticipantIdentity.of(student.getId(), "student-tab"), "Student", "de", 0, 500,
+                "Before idle", 0.9));
+        observeEmptySince(room.getId(), NOW.minusSeconds(61));
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        service.reconcileIdleSession(room.getId());
+
+        assertThat(service.get(teacherPrincipal, room.getId()).mediaState()).isEqualTo("IDLE");
+        assertThat(service.connect(teacherPrincipal, room.getId(), "rejoined-host").token()).isNotBlank();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(
+                ParticipantIdentity.of(teacher.getId(), "rejoined-host")));
+        when(transcriptionProvider.startTranscription(anyString(), anyString(), any(), any()))
+                .thenReturn("dispatch-after-idle");
+        transcriptService.start(teacherPrincipal, room.getId(), List.of("de"));
+        transcriptService.ingest(room.getId(), new TranscriptSegmentRequest("after-idle",
+                ParticipantIdentity.of(student.getId(), "new-student-tab"), "Student", "de", 3000, 3500,
+                "After reentry", 0.9));
+
+        OnlineClass reloaded = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(reloaded.getActualStartAt()).isEqualTo(NOW);
+        assertThat(reloaded.getActualEndAt()).isNull();
+        assertThat(reloaded.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(reloaded.getEventId()).isEqualTo("event-1");
+        assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-after-idle");
+        assertThat(classRepository.count()).isEqualTo(1);
+        assertThat(transcriptService.segments(teacherPrincipal, room.getId()))
+                .extracting(TranscriptSegmentResponse::text).containsExactly("Before idle", "After reentry");
+        verify(transcriptionProvider).startTranscription(org.mockito.ArgumentMatchers.eq(room.getRoomName()),
+                org.mockito.ArgumentMatchers.eq(room.getId().toString()), any(),
+                org.mockito.ArgumentMatchers.eq(NOW));
+    }
+
+    @Test
+    void failedIdleRoomTeardownIsRetriedWithoutEndingTheLesson() {
+        OnlineClass room = activeTranscriptionRoom();
+        observeEmptySince(room.getId(), NOW.minusSeconds(61));
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        doThrow(new MediaProviderException("unavailable")).when(mediaProvider).closeRoom(anyString());
+
+        service.reconcileIdleSession(room.getId());
+
+        OnlineClass failed = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(failed.isMediaClosePending()).isTrue();
+        assertThat(failed.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(failed.getActualEndAt()).isNull();
+        org.mockito.Mockito.doNothing().when(mediaProvider).closeRoom(anyString());
+        service.reconcileIdleSession(room.getId());
+
+        assertThat(classRepository.findById(room.getId()).orElseThrow().isMediaClosePending()).isFalse();
+        assertThat(classRepository.findById(room.getId()).orElseThrow().getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        verify(mediaProvider, times(2)).closeRoom(room.getRoomName());
+        verify(transcriptionProvider, times(1)).stopTranscription(room.getRoomName(), "dispatch-1");
+    }
+
+    @Test
+    void aHumanReturnCancelsAnIdleTeardownRetry() {
+        OnlineClass room = activeTranscriptionRoom();
+        observeEmptySince(room.getId(), NOW.minusSeconds(61));
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        doThrow(new MediaProviderException("unavailable")).when(mediaProvider).closeRoom(anyString());
+        service.reconcileIdleSession(room.getId());
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(
+                ParticipantIdentity.of(teacher.getId(), "returned")));
+
+        service.reconcileIdleSession(room.getId());
+
+        OnlineClass reloaded = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(reloaded.isMediaClosePending()).isFalse();
+        assertThat(reloaded.getEmptySince()).isNull();
+        assertThat(reloaded.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        verify(mediaProvider, times(1)).closeRoom(room.getRoomName());
+    }
+
+    @Test
+    void aPresenceOutageCannotAuthorizeIdleTeardown() {
+        OnlineClass room = activeTranscriptionRoom();
+        observeEmptySince(room.getId(), NOW.minusSeconds(61));
+        when(mediaProvider.listParticipantIdentities(anyString()))
+                .thenThrow(new MediaProviderException("presence unavailable"));
+
+        service.reconcileIdleSession(room.getId());
+
+        OnlineClass reloaded = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(reloaded.getTranscriptionDispatchId()).isEqualTo("dispatch-1");
+        assertThat(reloaded.getTranscriptionState()).isEqualTo(ClassFeatureState.ACTIVE);
+        assertThat(reloaded.getStatus()).isEqualTo(OnlineClassStatus.LIVE);
+        verify(transcriptionProvider, never()).stopTranscription(anyString(), anyString());
+        verify(mediaProvider, never()).closeRoom(anyString());
+    }
+
+    private OnlineClass activeTranscriptionRoom() {
+        OnlineClass room = materialize();
+        service.start(teacherPrincipal, room.getId());
+        room = classRepository.findById(room.getId()).orElseThrow();
+        room.setTranscriptionState(ClassFeatureState.ACTIVE);
+        room.setTranscriptionDispatchId("dispatch-1");
+        room.observeOccupied();
+        return classRepository.saveAndFlush(room);
+    }
+
+    private void observeEmptySince(UUID classId, Instant since) {
+        OnlineClass room = classRepository.findById(classId).orElseThrow();
+        room.observeOccupied();
+        room.observeEmpty(since);
+        classRepository.saveAndFlush(room);
+    }
+
+    @Test
+    void passingTheWeekBoundaryDoesNotEndAnOccupiedLesson() {
         Instant old = NOW.minus(8, ChronoUnit.DAYS);
         OnlineClass room = classRepository.save(OnlineClass.forStudent(teacher, "weekly-old",
                 "weekly-old", "Maths", old, old.plus(1, ChronoUnit.HOURS), student));
         room.start(old); classRepository.save(room);
         service.reconcileIdleSession(room.getId());
+        OnlineClassResponse hostView = service.get(teacherPrincipal, room.getId());
+        assertThat(hostView.status()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(hostView.joinWindowOpen()).isTrue();
+        assertThat(hostView.actualEndAt()).isNull();
+        assertThat(service.get(studentPrincipal, room.getId()).joinWindowOpen()).isTrue();
+        assertThat(service.get(studentPrincipal, room.getId()).teacherPresent()).isTrue();
+        verify(mediaProvider, never()).closeRoom(anyString());
+    }
+
+    @Test
+    void teacherCanFirstOpenAnOldLessonWithoutAStoredHostParticipant() {
+        Instant old = NOW.minus(15, ChronoUnit.DAYS);
+        OnlineClass room = classRepository.save(OnlineClass.forStudent(teacher, "old-unopened",
+                "old-unopened", "Maths", old, old.plusSeconds(3600), student));
+        assertThat(participantRepository.findByOnlineClassIdAndUserId(room.getId(), teacher.getId())).isEmpty();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+
+        assertThat(service.checkMediaApi(teacherPrincipal, room.getId())).isTrue();
+        OnlineClassResponse lobby = service.openLobby(teacherPrincipal, room.getId());
+        assertThat(lobby.viewerIsHost()).isTrue();
+        assertThat(lobby.joinWindowOpen()).isTrue();
+        assertThat(service.start(teacherPrincipal, room.getId()).id()).isEqualTo(room.getId());
+        assertThat(service.connect(teacherPrincipal, room.getId(), "first-entry-weeks-later").token()).isNotBlank();
+        verify(mediaProvider, never()).ensureRoom(anyString());
+        AuthenticatedUser outsider = new AuthenticatedUser(otherTeacher.getId(), otherTeacher.getEmail(), otherTeacher.getRole());
+        assertThatThrownBy(() -> service.start(outsider, room.getId())).isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void leavingAndResumingAnOldLessonAppendsToItsExistingArchiveUntilExplicitEnd() {
+        Instant old = NOW.minus(15, ChronoUnit.DAYS);
+        OnlineClass room = classRepository.save(OnlineClass.forStudent(teacher, "old-resume",
+                "old-resume", "Maths", old, old.plusSeconds(3600), student));
+        room.start(old);
+        room.setTranscriptionState(ClassFeatureState.ACTIVE);
+        room.setTranscriptionDispatchId("dispatch-before-leave");
+        classRepository.saveAndFlush(room);
+        participantRepository.save(OnlineClassParticipant.host(room, teacher));
+        service.connect(teacherPrincipal, room.getId(), "before-drop");
+        transcriptService.ingest(room.getId(), new TranscriptSegmentRequest("saved-before-leave",
+                ParticipantIdentity.of(teacher.getId(), "before-drop"), "Teacher", "de", 0, 500,
+                "Saved before leaving", 0.9));
+        service.leave(teacherPrincipal, room.getId());
+        observeEmptySince(room.getId(), NOW.minusSeconds(61));
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of());
+        service.reconcileIdleSession(room.getId());
+        assertThat(service.get(teacherPrincipal, room.getId()).status()).isEqualTo(OnlineClassStatus.LIVE);
+        assertThat(service.get(teacherPrincipal, room.getId()).mediaState()).isEqualTo("IDLE");
+
+        service.start(teacherPrincipal, room.getId());
+        assertThat(service.connect(teacherPrincipal, room.getId(), "after-drop").token()).isNotBlank();
+        when(mediaProvider.listParticipantIdentities(anyString())).thenReturn(List.of(
+                ParticipantIdentity.of(teacher.getId(), "after-drop")));
+        transcriptService.start(teacherPrincipal, room.getId(), List.of("de"));
+        transcriptService.ingest(room.getId(), new TranscriptSegmentRequest("saved-after-return",
+                ParticipantIdentity.of(teacher.getId(), "after-drop"), "Teacher", "de", 2000, 2500,
+                "Added after returning", 0.9));
+
+        OnlineClass saved = classRepository.findById(room.getId()).orElseThrow();
+        assertThat(saved.getActualStartAt()).isEqualTo(old);
+        assertThat(saved.getActualEndAt()).isNull();
+        assertThat(classRepository.count()).isEqualTo(1);
+        assertThat(transcriptService.segments(teacherPrincipal, room.getId()))
+                .extracting(TranscriptSegmentResponse::text)
+                .containsExactly("Saved before leaving", "Added after returning");
+        assertThat(preparations.findByTeacherIdAndEventId(teacher.getId(), "old-resume").orElseThrow()
+                .getTranscriptTextForDisplay()).contains("Saved before leaving", "Added after returning");
+        verify(transcriptionProvider).startTranscription(org.mockito.ArgumentMatchers.eq(room.getRoomName()),
+                org.mockito.ArgumentMatchers.eq(room.getId().toString()), any(), org.mockito.ArgumentMatchers.eq(old));
+        service.end(teacherPrincipal, room.getId());
         assertThat(service.get(teacherPrincipal, room.getId()).status()).isEqualTo(OnlineClassStatus.ENDED);
+        assertThatThrownBy(() -> service.connect(teacherPrincipal, room.getId(), "closed"))
+                .isInstanceOf(ConflictException.class).hasMessageContaining("not open");
+        assertThat(segmentRepository.count()).isEqualTo(2);
     }
 
     @Test

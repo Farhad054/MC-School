@@ -4,8 +4,10 @@ import com.mcschool.flashcard.liveclasses.OnlineClassProperties;
 import com.mcschool.flashcard.liveclasses.provider.ClassTranscriptionProvider;
 import com.mcschool.flashcard.liveclasses.provider.MediaProviderException;
 import io.livekit.server.AgentDispatchServiceClient;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
 import livekit.LivekitAgentDispatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,12 +33,16 @@ public class LiveKitAgentTranscriptionProvider implements ClassTranscriptionProv
     private final AgentDispatchServiceClient dispatchClient;
 
     public LiveKitAgentTranscriptionProvider(OnlineClassProperties properties, String agentName) {
+        this(properties, agentName, AgentDispatchServiceClient.createClient(
+                LiveKitMediaProvider.toHttpUrl(properties.livekitUrl()),
+                properties.livekitApiKey(), properties.livekitApiSecret()));
+    }
+
+    LiveKitAgentTranscriptionProvider(OnlineClassProperties properties, String agentName,
+            AgentDispatchServiceClient dispatchClient) {
         this.properties = properties;
         this.agentName = agentName;
-        this.dispatchClient = AgentDispatchServiceClient.createClient(
-                LiveKitMediaProvider.toHttpUrl(properties.livekitUrl()),
-                properties.livekitApiKey(),
-                properties.livekitApiSecret());
+        this.dispatchClient = dispatchClient;
     }
 
     @Override
@@ -46,14 +52,16 @@ public class LiveKitAgentTranscriptionProvider implements ClassTranscriptionProv
 
     @Override
     public String startTranscription(String roomName, String classId, List<String> languageHints) {
+        return startTranscription(roomName, classId, languageHints, null);
+    }
+
+    @Override
+    public String startTranscription(String roomName, String classId, List<String> languageHints,
+            Instant lessonStartedAt) {
         // The agent needs the class id to address its ingestion calls, and the
         // language hints to configure the STT session. Metadata is the only
         // channel for that at dispatch time.
-        String metadata = "{\"classId\":\"" + classId + "\",\"languages\":["
-                + languageHints.stream()
-                        .map(hint -> "\"" + hint.replaceAll("[^A-Za-z-]", "") + "\"")
-                        .collect(Collectors.joining(","))
-                + "]}";
+        String metadata = metadataJson(classId, languageHints, lessonStartedAt);
 
         LivekitAgentDispatch.AgentDispatch dispatch =
                 execute(dispatchClient.createDispatch(roomName, agentName, metadata, null, null));
@@ -64,13 +72,57 @@ public class LiveKitAgentTranscriptionProvider implements ClassTranscriptionProv
         return dispatch.getId();
     }
 
+    static String metadataJson(String classId, List<String> languageHints, Instant lessonStartedAt) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("classId", classId);
+        metadata.put("languages", languageHints == null ? List.of() : languageHints);
+        if (lessonStartedAt != null) metadata.put("lessonStartedAtMs", lessonStartedAt.toEpochMilli());
+        return new tools.jackson.databind.ObjectMapper().writeValueAsString(metadata);
+    }
+
+    @Override
+    public boolean isTranscriptionRunning(String roomName, String dispatchId) {
+        if (dispatchId == null || dispatchId.isBlank()) return false;
+        try {
+            Response<List<LivekitAgentDispatch.AgentDispatch>> response =
+                    dispatchClient.listDispatch(roomName).execute();
+            if (response.isSuccessful() && response.body() != null) {
+                return response.body().stream().anyMatch(dispatch -> dispatchId.equals(dispatch.getId()));
+            }
+            if (response.code() == 404 && isMissingDispatch(response.errorBody())) return false;
+            if (response.errorBody() != null) response.errorBody().close();
+            throw new MediaProviderException("LiveKit agent dispatch check failed with HTTP " + response.code());
+        } catch (java.io.IOException e) {
+            throw new MediaProviderException("LiveKit agent dispatch check failed", e);
+        }
+    }
+
     @Override
     public void stopTranscription(String roomName, String sessionId) {
         try {
-            execute(dispatchClient.deleteDispatch(roomName, sessionId));
-        } catch (MediaProviderException e) {
-            // Already gone, or the room ended first: not an error.
-            log.debug("Transcription dispatch was already stopped");
+            Response<LivekitAgentDispatch.AgentDispatch> response =
+                    dispatchClient.deleteDispatch(roomName, sessionId).execute();
+            if (response.isSuccessful()) return;
+            if (response.code() == 404 && isMissingDispatch(response.errorBody())) {
+                log.debug("Transcription dispatch was already stopped");
+                return;
+            }
+            if (response.errorBody() != null) response.errorBody().close();
+            throw new MediaProviderException("LiveKit agent dispatch failed with HTTP " + response.code());
+        } catch (java.io.IOException e) {
+            throw new MediaProviderException("LiveKit agent dispatch failed", e);
+        }
+    }
+
+    private static boolean isMissingDispatch(okhttp3.ResponseBody body) {
+        if (body == null) return false;
+        try (body) {
+            byte[] bytes = body.byteStream().readNBytes(4097);
+            if (bytes.length > 4096) return false;
+            tools.jackson.databind.JsonNode error = new tools.jackson.databind.ObjectMapper().readTree(bytes);
+            return error != null && "not_found".equals(error.path("code").asText());
+        } catch (java.io.IOException | RuntimeException ignored) {
+            return false;
         }
     }
 

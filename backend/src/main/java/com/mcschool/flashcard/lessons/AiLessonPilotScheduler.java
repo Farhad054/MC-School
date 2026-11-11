@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +21,9 @@ import org.springframework.stereotype.Component;
 public class AiLessonPilotScheduler {
 
     private static final ZoneId SCHOOL_ZONE = ZoneId.of("Europe/Berlin");
+
+    @Value("${app.ai-lesson-pilot.scheduler-enabled:false}")
+    private boolean schedulerEnabled;
 
     private final UserRepository userRepository;
     private final GoogleCalendarLessonService lessonService;
@@ -45,6 +49,7 @@ public class AiLessonPilotScheduler {
 
     @Scheduled(cron = "0 * * * * *", zone = "Europe/Berlin")
     public void prepareNickLessons() {
+        if (!schedulerEnabled) return;
         if (!aiService.isConfigured()) return;
 
         User teacher = userRepository.findById(AiLessonPilotService.PILOT_TEACHER_ID)
