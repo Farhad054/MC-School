@@ -384,3 +384,18 @@ body { font-family: Inter, Arial, 'Liberation Sans', sans-serif; -webkit-print-c
 .sheet:not(.plain) .diagram-block--graph .diagram-caption {
   margin-top: .5mm;
 }
+
+/* Mindcrafti borderless diagrams: all SVG figures and plots */
+.sheet:not(.plain) .diagram-block {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+.sheet:not(.plain) .diagram-block .diagram-eyebrow {
+  margin-bottom: 1mm;
+}
+.sheet:not(.plain) .diagram-block .diagram-caption {
+  margin-top: 1mm;
+}
