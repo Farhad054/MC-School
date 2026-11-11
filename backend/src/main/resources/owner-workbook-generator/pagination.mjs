@@ -83,19 +83,56 @@ export function preflightPages(pages, teacher=false) {
   }
 }
 
+// A plot or solid drawing introduces the immediately following task.
+// Treat that visual + task (including a two-column exercise grid) as one unit:
+// never leave the drawing alone at the bottom of an A4 page.
+const visualTypes = new Set(['graph','coordinateGrid','geometry','visualTask','strips']);
+function hasExercise(block,depth=0) {
+  if(!block || depth>12)return false;
+  if(block.type==='exercise' || block.type==='taskCard')return true;
+  const children = (block.type==='split' ? [...(block.left||[]),...(block.right||[])] : block.children)||[];
+  return children.some(child=>hasExercise(child,depth+1));
+}
+function pageUnits(blocks) {
+  const units=[];
+  for(let i=0;i<blocks.length;i++){
+    const visual=blocks[i], next=blocks[i+1], after=blocks[i+2];
+    if(visualTypes.has(visual?.type) && hasExercise(next)){
+      units.push([visual,next]);
+      i++;
+    }else if(visualTypes.has(visual?.type) &&
+      ['text','explanation','richText'].includes(next?.type) &&
+      blockHeightMm(next)<=16 && hasExercise(after)){
+      units.push([visual,next,after]);
+      i+=2;
+    }else{
+      units.push([visual]);
+    }
+  }
+  return units;
+}
+
 export function autoPaginatePages(pages,teacher=false) {
-  // Keeps approx. 35 mm headroom against heading wraps, fonts and page chrome.
+  // Usually leave headroom for fonts and page headings. A visual and its first
+  // task may use more of the real A4 area; measured PDF QA remains authoritative.
   const target=teacher ? 167 : 158;
+  const maximum=teacher ? 208 : 194;
   const output=[];
   for(const [index,p] of pages.entries()) {
     if(!p || !Array.isArray(p.blocks))throw new TypeError('Page '+(index+1)+' must contain blocks[]');
     if(!p.blocks.length){output.push(p);continue;}
     let group=[];
     const flush=()=>{if(group.length){output.push({...p,blocks:group});group=[];}};
-    for(const b of p.blocks) {
-      const proposed=[...group,b];
-      if(group.length && contentHeightMm(proposed,teacher)>target)flush();
-      group.push(b);
+    for(const unit of pageUnits(p.blocks)) {
+      const anchored=unit.length>1 && visualTypes.has(unit[0].type);
+      if(anchored && contentHeightMm(unit,teacher)>maximum)
+        throw new Error('Page '+(index+1)+': diagram and its next task exceed one A4 page. Use a shorter task or a smaller graph.');
+      const proposed=[...group,...unit];
+      // A short task directly underneath a visual is more important than the
+      // conservative 158 mm soft limit, but must still fit the A4 hard limit.
+      const limit=anchored ? maximum : target;
+      if(group.length && contentHeightMm(proposed,teacher)>limit)flush();
+      group.push(...unit);
     }
     flush();
   }
@@ -117,18 +154,22 @@ export function repackOverflowPages(pages,report,teacher=false) {
   let changed=false;
   for(const [index,p] of pages.entries()) {
     const blocks=p.blocks||[];
-    if(blocks.length<2 || (!structural && !suspects.has(index))) {
+    const units=pageUnits(blocks);
+    // Measured reflow is only allowed between visual-task units, never between
+    // a graph and its immediately following exercise.
+    if(units.length<2 || (!structural && !suspects.has(index))) {
       output.push(p); continue;
     }
     const total=contentHeightMm(blocks,teacher);
-    let accum=0, cut=1;
-    for(let i=0;i<blocks.length-1;i++) {
-      accum+=blockHeightMm(blocks[i],teacher)+(i ? 3.6 : 0);
+    let accum=0,cut=1;
+    for(let i=0;i<units.length-1;i++) {
+      accum+=contentHeightMm(units[i],teacher)+(i ? 3.6 : 0);
       if(accum<=total/2)cut=i+1;
       else break;
     }
-    cut=Math.max(1,Math.min(blocks.length-1,cut));
-    output.push({...p,blocks:blocks.slice(0,cut)}, {...p,blocks:blocks.slice(cut)});
+    cut=Math.max(1,Math.min(units.length-1,cut));
+    const left=units.slice(0,cut).flat(),right=units.slice(cut).flat();
+    output.push({...p,blocks:left}, {...p,blocks:right});
     changed=true;
   }
   return {pages:output,changed};
