@@ -99,3 +99,14 @@ docker build -t mcschool-backend ./backend && docker build -t mcschool-frontend 
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
   image --severity HIGH,CRITICAL --ignore-unfixed mcschool-frontend
 ```
+
+### Update 2026-11-11: brute-force throttling on public endpoints — FIXED
+Login, account activation and the public trial-invitation links had no request
+limit, so a password or an invitation token could be guessed at network speed.
+`PublicRateLimitFilter` now limits `POST /auth/login|activate` to 10 requests per
+5 minutes per client, `/public/trial-invitations/*` to 30 per minute and the
+public lead forms to 30 per minute (HTTP 429 + `Retry-After`). The client key is
+the right-most `X-Forwarded-For` entry (set by the platform proxy), else the socket
+peer. State is in memory per instance; set `app.rate-limit.enabled=false` to turn it off.
+**Still open:** per-account lockout, subscriptions/billing, and a review of how
+transcripts and pupil notebooks are retained and deleted.
