@@ -62,6 +62,12 @@ export function viewOf(pages: BoardPages, index = pages.current): PageView {
 }
 
 export function withView(pages: BoardPages, view: PageView, index = pages.current): BoardPages {
+  // Return the same object for an unchanged view. Callers feed this into React
+  // state and effects keyed on `pages`; a fresh object every time re-ran them
+  // endlessly ("Maximum update depth exceeded") whenever the canvas re-reported
+  // an identical zoom/pan.
+  const existing = pages.views[index];
+  if (existing && existing.zoom === view.zoom && existing.panX === view.panX && existing.panY === view.panY) return pages;
   return { ...pages, views: { ...pages.views, [index]: view } };
 }
 
