@@ -128,3 +128,17 @@ transcripts and pupil notebooks are retained and deleted.
   `main` because it only recognised a field named `accessService`. Fixed the
   heuristic and listed five hand-reviewed delegating methods explicitly.
 
+### Update 2026-11-11 (3): proxy address, guest data, token and CSP review
+- **Client address behind nginx:** the rate limiter keys on the right-most
+  `X-Forwarded-For` entry. nginx used to append its own peer address, which on Railway is
+  the edge, so every user would have shared one bucket. `nginx.conf.template` now passes the
+  edge's header through unchanged (falling back to the socket peer only with no edge).
+- **Trial guest names:** anonymised to "Trial guest" after 30 days
+  (`app.trial-guests.retention-days`, `TrialGuestAnonymizer`).
+- **Access token in `localStorage`:** reviewed, kept for now. The CSP (`script-src 'self'`, no
+  inline script) is the main defence against the XSS that would steal it. Moving to httpOnly
+  cookies needs CSRF/CORS work and is planned with the product work, see
+  `docs/product/subscriptions-and-accounts-plan.md`.
+- **CSP:** reviewed, already strict (`default-src 'self'`, `script-src 'self'`, framing denied,
+  HSTS, Permissions-Policy). Style `'unsafe-inline'` remains because React sets inline styles.
+
