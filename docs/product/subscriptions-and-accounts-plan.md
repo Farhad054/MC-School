@@ -2,6 +2,22 @@
 
 Status: proposal, nothing built. Written 2026-11-11 after a code review.
 
+## Decision (2026-11-12): two phases
+**Phase 1, now: finish the product and run it for our own school's teachers and students.**
+Selling to other schools is a possible later step, so phase 2 below is deliberately not built yet.
+What phase 1 needs:
+- Test the Apple Pencil fix and the teacher connector with real users.
+- Pupil data erase and export endpoints (`deleteStudent` only archives today), parental consent
+  and a short privacy policy, because children's notebooks and lesson transcripts are sensitive
+  even for a single school.
+- Backups, uptime monitoring and error alerts so a lesson never fails silently.
+- Finish the board polish.
+- Rule for new code: do not spread the "there is only one school" assumption. The ADMIN role
+  currently sees everything; new features should check ownership through the existing access
+  services instead of relying on that, so phase 2 stays cheap.
+
+**Phase 2, later, only if we sell it:** everything below (tenants, billing, limits, DPAs).
+
 ## Where the code is today
 - **One school.** `Role` is ADMIN / TEACHER / STUDENT / PARENT. The ADMIN is the school
   owner and sees every teacher; there is no organization (tenant) concept, and no table
