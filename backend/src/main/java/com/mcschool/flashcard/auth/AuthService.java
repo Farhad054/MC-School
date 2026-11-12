@@ -13,10 +13,12 @@ import com.mcschool.flashcard.users.UserResponse;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AuthService {
@@ -24,6 +26,8 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final LoginAttemptGuard loginAttempts = new LoginAttemptGuard();
+    private volatile String decoyPasswordHash;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                        JwtService jwtService) {
@@ -35,15 +39,29 @@ public class AuthService {
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         String identifier = request.email().trim();
+        if (loginAttempts.locked(identifier)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Too many failed sign-in attempts. Try again in a few minutes.");
+        }
         User user = userRepository.findByEmail(identifier.toLowerCase(Locale.ROOT))
                 .or(() -> userRepository.findByUsernameIgnoreCase(identifier))
-                .orElseThrow(AuthService::invalidCredentials);
-        if (user.isArchived()
-                || user.getPasswordHash() == null
-                || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+                .orElse(null);
+        // Always spend one hash comparison so response time does not reveal
+        // whether the login exists.
+        String hash = user == null || user.getPasswordHash() == null ? decoyHash() : user.getPasswordHash();
+        boolean passwordOk = passwordEncoder.matches(request.password(), hash);
+        if (user == null || user.isArchived() || user.getPasswordHash() == null || !passwordOk) {
+            loginAttempts.failed(identifier);
             throw invalidCredentials();
         }
+        loginAttempts.succeeded(identifier);
         return issueToken(user);
+    }
+
+    private String decoyHash() {
+        String hash = decoyPasswordHash;
+        if (hash == null) decoyPasswordHash = hash = passwordEncoder.encode("decoy-" + UUID.randomUUID());
+        return hash;
     }
 
     /**

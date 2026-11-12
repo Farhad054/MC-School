@@ -110,3 +110,21 @@ the right-most `X-Forwarded-For` entry (set by the platform proxy), else the soc
 peer. State is in memory per instance; set `app.rate-limit.enabled=false` to turn it off.
 **Still open:** per-account lockout, subscriptions/billing, and a review of how
 transcripts and pupil notebooks are retained and deleted.
+
+### Update 2026-11-11 (2): account lockout, timing, passwords, dependencies
+- **Per-account lockout:** 8 wrong passwords for one login within 15 minutes lock that
+  login for the rest of the window (HTTP 429), even for the right password; a
+  successful sign-in resets the count. This complements the per-IP throttle by
+  stopping a distributed guess aimed at one account (`LoginAttemptGuard`).
+- **Login timing:** an unknown login now costs one password hash like a known one,
+  so response time no longer reveals which logins exist.
+- **Password length:** "change password" required 6 characters while activation
+  required 8; both now require 8.
+- **Frontend dependencies:** `npm audit fix` applied (non-breaking). Remaining:
+  `react-router` (moderate, SSR-hydration only; the app is a client-side SPA) and
+  dev-only test tooling (vitest/tinypool/esbuild/glob). Fixing them needs
+  `npm audit fix --force` (major upgrades), so they are deferred.
+- **Authorization guard test:** `LiveClassAuthorizationArchitectureTest` was red on
+  `main` because it only recognised a field named `accessService`. Fixed the
+  heuristic and listed five hand-reviewed delegating methods explicitly.
+

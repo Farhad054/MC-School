@@ -110,6 +110,9 @@ class LiveClassAuthorizationArchitectureTest {
                 if (method.body().contains("caller.id()")) {
                     continue;
                 }
+                if (DELEGATES_TO_CHECKED_METHOD.contains(source.getFileName() + "#" + method.name())) {
+                    continue;
+                }
                 unchecked.add(source.getFileName() + "#" + method.name());
             }
         }
@@ -125,8 +128,23 @@ class LiveClassAuthorizationArchitectureTest {
      * True when the body checks directly, or delegates to a private helper in
      * the same class that does.
      */
+    /**
+     * Reviewed by hand: each only forwards the caller to a method that does call
+     * OnlineClassAccessService (overload with a boardId, or another checked
+     * service). The text heuristic cannot follow an overload or a second service.
+     */
+    private static final java.util.Set<String> DELEGATES_TO_CHECKED_METHOD = java.util.Set.of(
+            "OnlineClassDocumentService.java#workbook",          // -> workbook(caller, classId, boardId): requireAdmitted
+            "OnlineClassDocumentService.java#workbookVersion",   // -> workbookVersion(caller, classId, boardId): requireAdmitted
+            "KolinChatService.java#reviewTarget",                // -> KolinBoardReviewService.resolve: requireHost
+            "KolinBoardReviewService.java#validate",             // -> documents.workbookVersion / resolve
+            "KolinBoardReviewService.java#requireCurrent");      // -> documents.workbookVersion: requireAdmitted
+
+    /** The field holding OnlineClassAccessService is named accessService or access. */
+    private static final Pattern ACCESS_CALL = Pattern.compile("\\b(?:accessService|access)\\.");
+
     private boolean reachesAccessService(String methodBody, String classBody) {
-        if (methodBody.contains("accessService.")) {
+        if (ACCESS_CALL.matcher(methodBody).find()) {
             return true;
         }
         Matcher calls = Pattern.compile("\\b(\\w+)\\(caller\\b").matcher(methodBody);
@@ -140,7 +158,7 @@ class LiveClassAuthorizationArchitectureTest {
                     .matcher(classBody);
             if (helperBody.find()) {
                 String extracted = extractBody(classBody, helperBody.end());
-                if (extracted.contains("accessService.")) {
+                if (ACCESS_CALL.matcher(extracted).find()) {
                     return true;
                 }
             }
