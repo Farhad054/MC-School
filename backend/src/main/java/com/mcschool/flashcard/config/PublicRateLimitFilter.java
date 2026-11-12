@@ -11,6 +11,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -42,6 +43,7 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
     private final Clock clock;
     private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
 
+    @Autowired
     public PublicRateLimitFilter(@Value("${app.rate-limit.enabled:true}") boolean enabled) {
         this(enabled, Clock.systemUTC());
     }

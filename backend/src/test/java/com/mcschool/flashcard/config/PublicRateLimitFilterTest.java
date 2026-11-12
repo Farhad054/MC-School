@@ -60,6 +60,18 @@ class PublicRateLimitFilterTest {
         for (int i = 0; i < 50; i++) assertEquals(200, call(filter, "POST", "/api/v1/auth/login", "9.9.9.9"));
     }
 
+    /** Regression: with two constructors Spring must still be able to build the bean (it broke context startup in CI). */
+    @Test
+    void springCanInstantiateTheFilterAsABean() {
+        try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource(
+                    "t", java.util.Map.of("app.rate-limit.enabled", "true")));
+            context.register(org.springframework.context.support.PropertySourcesPlaceholderConfigurer.class, PublicRateLimitFilter.class);
+            context.refresh();
+            assertEquals(1, context.getBeansOfType(PublicRateLimitFilter.class).size());
+        }
+    }
+
     private static final class MutableClock extends Clock {
         Instant now = Instant.parse("2026-11-11T10:00:00Z");
         @Override public java.time.ZoneId getZone() { return ZoneOffset.UTC; }
