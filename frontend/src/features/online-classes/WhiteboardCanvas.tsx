@@ -70,6 +70,8 @@ export type EraserMode = 'partial' | 'stroke';
 
 /** Freehand input fires far faster than the wire needs; sampling caps it. */
 const SAMPLE_INTERVAL_MS = 16;
+/** Per-stroke point cap (server payload limit). Longer contacts roll over into a new stroke. */
+const MAX_STROKE_POINTS = 480;
 
 /** Hit tolerance for the eraser and selection, in normalized units. */
 const HIT_TOLERANCE = 0.015;
@@ -675,8 +677,23 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
       return;
     }
 
-    const current = draftRef.current;
+    let current = draftRef.current;
     if (!current) return;
+    if (current.points && current.points.length >= MAX_STROKE_POINTS) {
+      // The server caps one stroke's payload. Instead of freezing the line's end
+      // (the old behaviour overwrote the last point forever), save this stroke and
+      // continue the same contact as a new one from its last point and pressure.
+      const finished = current;
+      const finishedId = inkStrokeIdRef.current ?? undefined;
+      onDraftChange?.(finished, finishedId, true);
+      commitInk(finished, finishedId);
+      const lastPoint = finished.points![finished.points!.length - 1];
+      const lastPressure = finished.pressures?.[finished.pressures.length - 1];
+      inkStrokeIdRef.current = crypto.randomUUID();
+      const { pressures: _carried, ...withoutPressures } = finished;
+      current = { ...withoutPressures, points: [lastPoint],
+        ...(lastPressure !== undefined ? { pressures: [lastPressure] } : {}) };
+    }
     if (current.points) {
       const end = current.points[current.points.length - 1];
       if (end && Math.hypot(point.x - end[0], point.y - end[1]) < 0.0001) return;
@@ -685,12 +702,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, Props>(functi
     if (current.points) {
       // Bounded append-only ink prevents a single very long contact from
       // exceeding the server's 16 KB payload cap. No pen-up resampling.
-      const atLimit = current.points.length >= 480;
-      const points = atLimit
-        ? [...current.points.slice(0, -1), [point.x, point.y] as [number, number]]
-        : [...current.points, [point.x, point.y] as [number, number]];
+      const points = [...current.points, [point.x, point.y] as [number, number]];
       const pressures = current.pressures
-        ? (atLimit ? current.pressures.slice(0, -1) : current.pressures).concat(
+        ? current.pressures.concat(
           pressure !== undefined && Number.isFinite(pressure)
             ? Math.round(Math.max(0, Math.min(1, pressure)) * 100) / 100
             : current.pressures[current.pressures.length - 1],

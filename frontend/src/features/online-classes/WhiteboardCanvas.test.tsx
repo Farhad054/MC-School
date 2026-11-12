@@ -870,3 +870,29 @@ describe('WhiteboardCanvas continuous scrolling', () => {
     expect(onViewChange.mock.calls.at(-1)?.[0].zoom).toBe(2);
   });
 });
+
+describe('WhiteboardCanvas long strokes', () => {
+  it('rolls a contact past the point cap into a continuous second stroke instead of freezing the line end', () => {
+    let clock = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (clock += 20));
+    const onCommit = vi.fn();
+    const { container } = render(<WhiteboardCanvas {...props} onCommit={onCommit} />);
+    const surface = container.querySelector('.whiteboard__surface') as HTMLElement;
+    surface.setPointerCapture = vi.fn();
+    const at = (type: string, x: number) => fireEvent(surface, new TestPointerEvent(type,
+      { pointerId: 3, pointerType: 'mouse', clientX: x, clientY: 100, bubbles: true, buttons: 1, pressure: .5 }));
+    at('pointerdown', 0);
+    for (let x = 1; x <= 1400; x++) at('pointermove', x);
+    at('pointerup', 1400);
+    const strokes = onCommit.mock.calls.map(([shape]) => shape.points as [number, number][]);
+    expect(strokes.length).toBeGreaterThanOrEqual(2);
+    expect(strokes[0].length).toBe(480);
+    // The second stroke starts exactly where the first ended, so no gap appears...
+    expect(strokes[1][0]).toEqual(strokes[0][479]);
+    // ...and the line keeps following the pen to its real end rather than stopping at the cap.
+    const last = strokes[strokes.length - 1];
+    expect(last[last.length - 1][0]).toBeGreaterThan(strokes[0][479][0]);
+    // Each saved stroke gets its own operation id so undo/retry stay idempotent.
+    expect(new Set(onCommit.mock.calls.map(([, id]) => id)).size).toBe(onCommit.mock.calls.length);
+  });
+});
