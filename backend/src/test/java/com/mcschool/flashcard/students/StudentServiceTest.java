@@ -13,7 +13,6 @@ import com.mcschool.flashcard.auth.AuthenticatedUser;
 import com.mcschool.flashcard.cards.Card;
 import com.mcschool.flashcard.cards.CardRepository;
 import com.mcschool.flashcard.cards.CardStatus;
-import com.mcschool.flashcard.common.ConflictException;
 import com.mcschool.flashcard.common.ResourceNotFoundException;
 import com.mcschool.flashcard.homeworks.Homework;
 import com.mcschool.flashcard.notifications.NotificationService;
@@ -49,42 +48,40 @@ class StudentServiceTest {
             new AuthenticatedUser(teacherEntity.getId(), teacherEntity.getEmail(), Role.TEACHER);
 
     @Test
-    void createStudentInvitesStudentOwnedByTheCallingTeacher() {
-        when(userRepository.existsByEmail("student@test.local")).thenReturn(false);
+    void createStudentCreatesAnActiveManagedStudentOwnedByTheCallingTeacher() {
         when(userRepository.findById(teacher.id())).thenReturn(Optional.of(teacherEntity));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         StudentInvitationResponse response = studentService.createStudent(teacher,
-                new CreateStudentRequest("Student One", "  Student@Test.local "));
+                new CreateStudentRequest("Student One", null));
 
         assertThat(response.student().role()).isEqualTo(Role.STUDENT);
-        assertThat(response.student().status()).isEqualTo(UserStatus.INVITED);
-        assertThat(response.student().email()).isEqualTo("student@test.local");
-        assertThat(response.invitationToken()).isNotBlank();
-        assertThat(response.invitationExpiresAt()).isAfter(Instant.now());
-        verify(notificationService).sendInvitation(any(User.class), any(String.class));
-    }
-
-    @Test
-    void createStudentRejectsDuplicateEmail() {
-        // A live (non-archived) account already owns this email. Only an
-        // archived student of the same teacher may be restored; anything else
-        // is a conflict.
-        User existing = User.invitedStudent("Existing Student", "student@test.local", teacherEntity,
-                "existing-token", Instant.now().plusSeconds(3600));
-        when(userRepository.findById(teacher.id())).thenReturn(Optional.of(teacherEntity));
-        when(userRepository.findByEmail("student@test.local")).thenReturn(Optional.of(existing));
-
-        assertThatThrownBy(() -> studentService.createStudent(teacher,
-                new CreateStudentRequest("Student One", "student@test.local")))
-                .isInstanceOf(ConflictException.class);
-
-        verify(userRepository, never()).save(any());
+        // Teacher-managed students need no email, invitation or activation step.
+        assertThat(response.student().status()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(response.student().email()).isNull();
+        assertThat(response.student().username()).isNotBlank();
+        assertThat(response.invitationToken()).isNull();
+        assertThat(response.invitationExpiresAt()).isNull();
         verify(notificationService, never()).sendInvitation(any(), any());
     }
 
     @Test
-    void listStudentsQueriesOnlyTheCallingTeachersStudents() {
+    void createStudentIgnoresAnySuppliedEmailAndNeverInvitesOrChecksForDuplicates() {
+        // Managed students log in with a school username, so a supplied email is
+        // not stored and cannot collide with another account.
+        when(userRepository.findById(teacher.id())).thenReturn(Optional.of(teacherEntity));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StudentInvitationResponse response = studentService.createStudent(teacher,
+                new CreateStudentRequest("Student One", "student@test.local"));
+
+        assertThat(response.student().email()).isNull();
+        verify(userRepository, never()).findByEmail(any());
+        verify(notificationService, never()).sendInvitation(any(), any());
+    }
+
+    @Test
+    void listStudentsQueriesOnlyTheCallingTeachersStudentsAndActivatesLegacyInvitedOnes() {
         User student = User.invitedStudent("Student One", "student@test.local", teacherEntity,
                 "token2", Instant.now().plusSeconds(3600));
         when(userRepository.findAllByTeacherIdAndRoleAndArchivedFalseOrderByFullNameAsc(
@@ -95,7 +92,9 @@ class StudentServiceTest {
 
         assertThat(students).hasSize(1);
         assertThat(students.get(0).email()).isEqualTo("student@test.local");
-        assertThat(students.get(0).invitationToken()).isEqualTo("token2");
+        // Old pending invitations are converted to managed students on read.
+        assertThat(students.get(0).status()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(students.get(0).invitationToken()).isNull();
         verify(userRepository).findAllByTeacherIdAndRoleAndArchivedFalseOrderByFullNameAsc(
                 teacher.id(), Role.STUDENT);
     }
