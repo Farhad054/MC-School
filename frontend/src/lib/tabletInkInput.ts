@@ -312,7 +312,15 @@ export function attachTabletInkInput(
       }
       // The stylus takes precedence over a finger gesture/palm contact.
       if (device === 'pen' && active?.meta.device === 'finger') {
-        finish(active.last, 'touch', active.meta.inputId, true);
+        finish(active.last, active.meta.source, active.meta.inputId, true);
+      }
+      // One Pencil can never make two contacts. A fresh pen touchstart while a
+      // pen stroke is still "active" therefore proves its release was lost (iPadOS
+      // can keep a ghost contact in event.touches after the Pencil sleeps or
+      // reconnects). Without this the stale stroke made start() ignore every new
+      // Pencil touch until the Pencil was re-paired.
+      if (device === 'pen' && active?.meta.device === 'pen') {
+        finish(active.last, active.meta.source, active.meta.inputId, false, true);
       }
       if (!active) {
         start(touchPoint(touch, event.timeStamp), {

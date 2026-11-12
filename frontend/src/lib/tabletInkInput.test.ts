@@ -170,6 +170,22 @@ describe('native touch recovery after a lost release', () => {
     );
   });
 
+  it('accepts a new Pencil touch even when iPadOS keeps the lost contact in the touch list', () => {
+    const input = attach('ios-touch');
+    const ghost = contact(input.sheet, { identifier: 7 });
+    touch(input.sheet, 'touchstart');
+    touch(input.sheet, 'touchmove', { clientX: 30 });
+    // No touchend for id 7, and the ghost is still reported as present.
+    const fresh = contact(input.sheet, { identifier: 8, clientX: 100 });
+    touch(input.sheet, 'touchstart', { identifier: 8, clientX: 100 }, [ghost, fresh]);
+    expect(input.onEnd).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ clientX: 30 }),
+      { source: 'touch', device: 'pen', inputId: 7, recovered: true }, false,
+    );
+    expect(input.onStart).toHaveBeenCalledTimes(2);
+    expect(input.onStart.mock.calls[1][1]).toEqual({ source: 'touch', device: 'pen', inputId: 8 });
+  });
+
   it('treats a fresh activation of the same identifier as a separate stroke', () => {
     const input = attach('ios-touch');
     touch(input.sheet, 'touchstart');

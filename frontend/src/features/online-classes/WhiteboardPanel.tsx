@@ -627,6 +627,7 @@ export function WhiteboardPanel({
       setDocumentView(previous => previous.zoom === value.zoom && Math.abs(previous.x - value.x) < .0001 && Math.abs(previous.y - value.y) < .0001 ? previous : value);
     }
   };
+  const pageViewKey = (({ zoom, panX, panY }) => `${zoom}|${panX}|${panY}`)(viewOf(pages));
   // Publish the owner's actual clear viewport, including continuous scrolling.
   // Measuring in document coordinates avoids both browser pixel density and
   // the teacher tile's dimensions changing the stored ink or visible crop.
@@ -655,7 +656,9 @@ export function WhiteboardPanel({
       ...(gap === undefined ? {} : { pageGap: gap }),
     };
     setPupilSnapshot(previous => JSON.stringify(previous) === JSON.stringify(snapshot) ? previous : snapshot);
-  }, [isHost, personal, ownerId, actorId, active, targetType, camera, pages, continuous, documentZoom,
+    // Keyed on the page's primitives, not the `pages` object: its identity is not
+    // stable across renders and used to re-fire this effect without end.
+  }, [isHost, personal, ownerId, actorId, active, targetType, camera, pages.current, pages.count, pageViewKey, continuous, documentZoom,
     documentView, canvasGeometry, pageAspects, sourceAspect, pageWidth, pageHeight, pageGap, getBoardSize]);
 
   const displayedPageView = (index: number) => {

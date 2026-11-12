@@ -1414,9 +1414,32 @@ public class MindcraftiMcpController {
         return lesson.startsAt().atZone(WORKBOOK_ZONE).toLocalDate();
     }
 
+    /**
+     * Per-student fields that move on their own while ChatGPT is still writing
+     * lessonJson or the job waits in the queue (a pupil answers a card, hands in
+     * homework, the 20-day window rolls past midnight). They stay in the context
+     * the model reads, but must not be part of the freshness token: otherwise
+     * a teacher's generation is rejected as "stale" for no editorial reason. The
+     * token still covers the lesson, plan, prompts, Brand Guide and pupil profile.
+     */
+    private static final java.util.Set<String> VOLATILE_STUDENT_EVIDENCE = java.util.Set.of(
+            "activityTotals", "savedSkills", "documentedCardErrors", "assignedHomeworkCount",
+            "submittedHomeworkCount", "recentHomeworkStatus", "submittedPdfHomeworkToInspect");
+
     private String workbookContextToken(Map<String,Object> context) {
         Map<String,Object> evidence = new LinkedHashMap<>(context);
         evidence.remove("contextToken");
+        if (evidence.get("students") instanceof List<?> students) {
+            List<Object> stable = new ArrayList<>();
+            for (Object student : students) {
+                if (student instanceof Map<?,?> map) {
+                    Map<Object,Object> copy = new LinkedHashMap<>(map);
+                    copy.keySet().removeIf(key -> VOLATILE_STUDENT_EVIDENCE.contains(String.valueOf(key)));
+                    stable.add(copy);
+                } else stable.add(student);
+            }
+            evidence.put("students", stable);
+        }
         try {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(objectMapper.writeValueAsBytes(canonicalWorkbookContext(evidence))));

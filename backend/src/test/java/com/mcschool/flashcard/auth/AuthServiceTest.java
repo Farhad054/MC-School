@@ -120,4 +120,45 @@ class AuthServiceTest {
                 .isInstanceOf(InvalidInvitationException.class)
                 .hasMessageContaining("expired");
     }
+
+    @Test
+    void accountIsLockedAfterRepeatedWrongPasswordsEvenForTheRightPassword() {
+        User admin = User.bootstrapAdmin("Admin", "admin@test.local", passwordEncoder.encode("Secret123!"));
+        when(userRepository.findByEmail("admin@test.local")).thenReturn(Optional.of(admin));
+        for (int i = 0; i < LoginAttemptGuard.MAX_FAILURES; i++) {
+            assertThatThrownBy(() -> authService.login(new LoginRequest("admin@test.local", "wrong")))
+                    .isInstanceOf(BadCredentialsException.class);
+        }
+        assertThatThrownBy(() -> authService.login(new LoginRequest("Admin@Test.local", "Secret123!")))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("429");
+    }
+
+    @Test
+    void successfulLoginResetsTheFailureCount() {
+        User admin = User.bootstrapAdmin("Admin", "admin@test.local", passwordEncoder.encode("Secret123!"));
+        when(userRepository.findByEmail("admin@test.local")).thenReturn(Optional.of(admin));
+        for (int round = 0; round < 3; round++) {
+            for (int i = 0; i < LoginAttemptGuard.MAX_FAILURES - 1; i++) {
+                assertThatThrownBy(() -> authService.login(new LoginRequest("admin@test.local", "wrong")))
+                        .isInstanceOf(BadCredentialsException.class);
+            }
+            assertThat(authService.login(new LoginRequest("admin@test.local", "Secret123!")).accessToken()).isNotBlank();
+        }
+    }
+
+    @Test
+    void lockoutExpiresAfterTheWindow() {
+        var now = new java.util.concurrent.atomic.AtomicLong(1_000_000L);
+        var clock = new java.time.Clock() {
+            public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            public java.time.Clock withZone(java.time.ZoneId z) { return this; }
+            public Instant instant() { return Instant.ofEpochMilli(now.get()); }
+        };
+        var guard = new LoginAttemptGuard(clock);
+        for (int i = 0; i < LoginAttemptGuard.MAX_FAILURES; i++) guard.failed("A");
+        assertThat(guard.locked(" a ")).isTrue();
+        now.addAndGet(LoginAttemptGuard.WINDOW.toMillis() + 1);
+        assertThat(guard.locked("a")).isFalse();
+    }
 }

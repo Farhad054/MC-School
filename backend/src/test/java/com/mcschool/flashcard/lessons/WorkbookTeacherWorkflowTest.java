@@ -181,6 +181,18 @@ class WorkbookTeacherWorkflowTest {
     }
 
     @Test
+    void pupilActivityWhileChatGptWritesDoesNotMakeTheContextStale() throws Exception {
+        String token=contextToken();
+        // The pupil answers cards and hands in homework while the lesson JSON is being written.
+        when(analytics.studentActivity(any(),anyBoolean(),any(),any(),any())).thenReturn(
+                Map.of("totals",Map.of("cardsReviewed",42),"errors",List.of(Map.of("question","3+4","studentFirstAnswer","8"))));
+        when(homework.findStudentHomeworks(any(),anyBoolean(),any(),any(),any())).thenReturn(Map.of("homeworkCount",3,"submittedCount",2));
+        assertThat(contextToken()).isEqualTo(token);
+        assertThat(call(a,"generate_lesson_workbook_draft",Map.of("eventId","lesson-a","idempotencyKey","live-activity",
+                "lessonJson",preparedJson(),"contextToken",token))).doesNotContainKey("error");
+    }
+
+    @Test
     void teacherCompatibilityAliasesRequireFreshContextAndIdempotencyAndReuseDraft() throws Exception {
         for(String tool:List.of("generate_workbook","create_lesson_draft")) {
             assertThat(call(a,tool,Map.of("eventId","lesson-a","lessonJson",preparedJson()))).containsKey("error");

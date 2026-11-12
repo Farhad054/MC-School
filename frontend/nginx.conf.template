@@ -13,6 +13,17 @@
 # Don't advertise the nginx version (information disclosure).
 server_tokens off;
 
+# Client address for the backend's rate limiter. The platform edge (Railway)
+# already appends the real client to X-Forwarded-For; appending nginx's own
+# $remote_addr as well (the default $proxy_add_x_forwarded_for) would make the
+# RIGHT-most entry the edge itself, so every user would share one limiter bucket.
+# Pass the edge's header through untouched, and fall back to the socket peer only
+# when no edge is in front of nginx (local/direct deployment).
+map $http_x_forwarded_for $mcs_forwarded_for {
+    default $http_x_forwarded_for;
+    ""      $remote_addr;
+}
+
 server {
     listen 80;
     server_name _;
@@ -89,7 +100,7 @@ server {
         proxy_ssl_server_name on;
         proxy_set_header Host ${API_PROXY_HOST};
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $mcs_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 270s;
         proxy_send_timeout 120s;
@@ -101,7 +112,7 @@ server {
         proxy_ssl_server_name on;
         proxy_set_header Host ${API_PROXY_HOST};
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $mcs_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 120s;
         proxy_send_timeout 120s;

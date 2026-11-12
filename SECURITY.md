@@ -99,3 +99,46 @@ docker build -t mcschool-backend ./backend && docker build -t mcschool-frontend 
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
   image --severity HIGH,CRITICAL --ignore-unfixed mcschool-frontend
 ```
+
+### Update 2026-11-11: brute-force throttling on public endpoints — FIXED
+Login, account activation and the public trial-invitation links had no request
+limit, so a password or an invitation token could be guessed at network speed.
+`PublicRateLimitFilter` now limits `POST /auth/login|activate` to 10 requests per
+5 minutes per client, `/public/trial-invitations/*` to 30 per minute and the
+public lead forms to 30 per minute (HTTP 429 + `Retry-After`). The client key is
+the right-most `X-Forwarded-For` entry (set by the platform proxy), else the socket
+peer. State is in memory per instance; set `app.rate-limit.enabled=false` to turn it off.
+**Still open:** per-account lockout, subscriptions/billing, and a review of how
+transcripts and pupil notebooks are retained and deleted.
+
+### Update 2026-11-11 (2): account lockout, timing, passwords, dependencies
+- **Per-account lockout:** 8 wrong passwords for one login within 15 minutes lock that
+  login for the rest of the window (HTTP 429), even for the right password; a
+  successful sign-in resets the count. This complements the per-IP throttle by
+  stopping a distributed guess aimed at one account (`LoginAttemptGuard`).
+- **Login timing:** an unknown login now costs one password hash like a known one,
+  so response time no longer reveals which logins exist.
+- **Password length:** "change password" required 6 characters while activation
+  required 8; both now require 8.
+- **Frontend dependencies:** `npm audit fix` applied (non-breaking). Remaining:
+  `react-router` (moderate, SSR-hydration only; the app is a client-side SPA) and
+  dev-only test tooling (vitest/tinypool/esbuild/glob). Fixing them needs
+  `npm audit fix --force` (major upgrades), so they are deferred.
+- **Authorization guard test:** `LiveClassAuthorizationArchitectureTest` was red on
+  `main` because it only recognised a field named `accessService`. Fixed the
+  heuristic and listed five hand-reviewed delegating methods explicitly.
+
+### Update 2026-11-11 (3): proxy address, guest data, token and CSP review
+- **Client address behind nginx:** the rate limiter keys on the right-most
+  `X-Forwarded-For` entry. nginx used to append its own peer address, which on Railway is
+  the edge, so every user would have shared one bucket. `nginx.conf.template` now passes the
+  edge's header through unchanged (falling back to the socket peer only with no edge).
+- **Trial guest names:** anonymised to "Trial guest" after 30 days
+  (`app.trial-guests.retention-days`, `TrialGuestAnonymizer`).
+- **Access token in `localStorage`:** reviewed, kept for now. The CSP (`script-src 'self'`, no
+  inline script) is the main defence against the XSS that would steal it. Moving to httpOnly
+  cookies needs CSRF/CORS work and is planned with the product work, see
+  `docs/product/subscriptions-and-accounts-plan.md`.
+- **CSP:** reviewed, already strict (`default-src 'self'`, `script-src 'self'`, framing denied,
+  HSTS, Permissions-Policy). Style `'unsafe-inline'` remains because React sets inline styles.
+
